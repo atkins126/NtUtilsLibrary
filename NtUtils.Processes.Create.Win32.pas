@@ -106,7 +106,10 @@ begin
     Inc(Count);
 
   if Count = 0 then
+  begin
+    Result.Status := STATUS_SUCCESS;
     Exit;
+  end;
 
   // Determine the required size
   Result.Location := 'InitializeProcThreadAttributeList';
@@ -149,7 +152,7 @@ begin
   end;
 
   // Mitigation policies
-  if (Attributes.Mitigations <> 0) or (Attributes.Mitigations <> 0) then
+  if (Attributes.Mitigations <> 0) or (Attributes.Mitigations2 <> 0) then
   begin
     // The size might be 32, 64, or 128 bits
     if Attributes.Mitigations2 = 0 then
