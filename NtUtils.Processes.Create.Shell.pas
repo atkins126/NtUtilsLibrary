@@ -12,12 +12,13 @@ function ShlxExecute(const Options: TCreateProcessOptions;
 implementation
 
 uses
-  Winapi.Shell, Winapi.WinUser, NtUtils.Objects;
+  Winapi.Shell, Winapi.WinUser, NtUtils.Objects, DelphiUtils.AutoObject;
 
 function ShlxExecute(const Options: TCreateProcessOptions;
   out Info: TProcessInfo): TNtxStatus;
 var
   ExecInfo: TShellExecuteInfoW;
+  RunAsInvoker: IAutoReleasable;
 begin
   ExecInfo := Default(TShellExecuteInfoW);
 
@@ -30,17 +31,24 @@ begin
   ExecInfo.Directory := PWideChar(Options.CurrentDirectory);
 
   // Always set window mode to something
-  if Options.Flags and PROCESS_OPTIONS_USE_WINDOW_MODE <> 0 then
+  if Options.Flags and PROCESS_OPTION_USE_WINDOW_MODE <> 0 then
     ExecInfo.nShow := Integer(Options.WindowMode)
   else
     ExecInfo.nShow := Integer(SW_SHOW_DEFAULT);
 
   // SEE_MASK_NO_CONSOLE is opposite to CREATE_NEW_CONSOLE
-  if Options.Flags and PROCESS_OPTIONS_NEW_CONSOLE = 0 then
+  if Options.Flags and PROCESS_OPTION_NEW_CONSOLE = 0 then
     ExecInfo.fMask := ExecInfo.fMask or SEE_MASK_NO_CONSOLE;
 
+  // Request elevation
   if Options.Flags and PROCESS_OPTION_REQUIRE_ELEVATION <> 0 then
     ExecInfo.Verb := 'runas';
+
+  // Allow running as invoker
+  Result := RtlxApplyCompatLayer(Options, RunAsInvoker);
+
+  if not Result.IsSuccess then
+    Exit;
 
   Result.Location := 'ShellExecuteExW';
   Result.Win32Result := ShellExecuteExW(ExecInfo);

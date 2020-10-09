@@ -3,39 +3,76 @@ unit NtUtils.Com.Dispatch;
 interface
 
 uses
-  NtUtils, Winapi.ActiveX;
+  Winapi.ObjBase, NtUtils;
 
-// TODO: Move definitions from built-in Winapi.ActiveX to headers
-// TODO: TNtxStatus misinterprets some HRESULTs
-
-// Convert Delphi types to variant arguments
-function VarArgFromWord(const Value: Word): TVariantArg;
-function VarArgFromCardinal(const Value: Cardinal): TVariantArg;
+// Variant creation helpers
+function VarFromWord(const Value: Word): TVarData;
+function VarFromCardinal(const Value: Cardinal): TVarData;
+function VarFromIntegerRef(const [ref] Value: Integer): TVarData;
+function VarFromWideString(const [ref] Value: WideString): TVarData;
+function VarFromIDispatch(const Value: IDispatch): TVarData;
 
 // Bind to a COM object using a name
 function DispxBindToObject(const ObjectName: String; out Dispatch: IDispatch):
   TNtxStatus;
 
-// Set a property on an object pointed by IDispatch
-function DispxPropertySet(Dispatch: IDispatch; const Name: String;
-  const Value: TVariantArg): TNtxStatus;
+// Retrieve a property on an object referenced by IDispatch
+function DispxPropertyGet(const Dispatch: IDispatch; const Name: String;
+  out Value: TVarData): TNtxStatus;
+
+// Assign a property on an object pointed by IDispatch
+function DispxPropertySet(const Dispatch: IDispatch; const Name: String;
+  const Value: TVarData): TNtxStatus;
+
+// Call a method on an object pointer by IDispatch
+function DispxMethodCall(const Dispatch: IDispatch; const Name: String;
+  const Parameters: TArray<TVarData> = nil; VarResult: PVarData = nil):
+  TNtxStatus;
+
+// Initialize COM for the process
+function ComxInitialize(out RequiresUndo: Boolean;
+  PreferredMode: Cardinal = COINIT_MULTITHREADED): TNtxStatus;
 
 implementation
 
-{ Variant argument preparation }
+uses
+  Winapi.ObjIdl, Winapi.WinError, DelphiUtils.Arrays;
 
-function VarArgFromWord(const Value: Word): TVariantArg;
+{ Variant helpers }
+
+function VarFromWord(const Value: Word): TVarData;
 begin
-  FillChar(Result, SizeOf(Result), 0);
-  Result.vt := VT_UI2;
-  Result.uiVal := Value;
+  VariantInit(Result);
+  Result.VType := varWord;
+  Result.VWord := Value;
 end;
 
-function VarArgFromCardinal(const Value: Cardinal): TVariantArg;
+function VarFromCardinal(const Value: Cardinal): TVarData;
 begin
-  FillChar(Result, SizeOf(Result), 0);
-  Result.vt := VT_UI4;
-  Result.ulVal := Value;
+  VariantInit(Result);
+  Result.VType := varUInt32;
+  Result.VUInt32 := Value;
+end;
+
+function VarFromIntegerRef(const [ref] Value: Integer): TVarData;
+begin
+  VariantInit(Result);
+  Result.VType := varInteger or varByRef;
+  Result.VPointer := @Value;
+end;
+
+function VarFromWideString(const [ref] Value: WideString): TVarData;
+begin
+  VariantInit(Result);
+  Result.VType := varOleStr;
+  Result.VOleStr := PWideChar(Value);
+end;
+
+function VarFromIDispatch(const Value: IDispatch): TVarData;
+begin
+  VariantInit(Result);
+  Result.VType := varDispatch;
+  Result.VDispatch := Pointer(Value);
 end;
 
 { Binding helpers }
@@ -45,7 +82,7 @@ function DispxBindToObject(const ObjectName: String; out Dispatch: IDispatch):
 var
   BindCtx: IBindCtx;
   Moniker: IMoniker;
-  chEaten: Integer;
+  chEaten: Cardinal;
 begin
   Result.Location := 'CreateBindCtx';
   Result.HResult := CreateBindCtx(0, BindCtx);
@@ -66,19 +103,69 @@ end;
 
 { IDispatch invocation helpers }
 
-function DispxPropertySet(Dispatch: IDispatch; const Name: String;
-  const Value: TVariantArg): TNtxStatus;
+function DispxGetNameId(const Dispatch: IDispatch; const Name: String;
+  out DispId: TDispID): TNtxStatus;
 var
   WideName: WideString;
-  DispID, Action: TDispID;
-  DispParams: TDispParams;
-  ExceptInfo: TExcepInfo;
 begin
   WideName := Name;
 
-  // Determine the DispID of the property
   Result.Location := 'IDispatch.GetIDsOfNames("' + Name + '")';
   Result.HResult := Dispatch.GetIDsOfNames(GUID_NULL, @WideName, 1, 0, @DispID);
+end;
+
+function DispxInvoke(const Dispatch: IDispatch; const DispId: TDispID;
+  const Flags: Word; var Params: TDispParams; VarResult: Pointer): TNtxStatus;
+var
+  ExceptInfo: TExcepInfo;
+  ArgErr: Cardinal;
+  Code: HRESULT;
+begin
+  Code := Dispatch.Invoke(DispID, GUID_NULL, 0, Flags, Params, VarResult,
+    @ExceptInfo, @ArgErr);
+
+  if Code = DISP_E_EXCEPTION then
+  begin
+    // Prefere more specific error codes
+    Result.Location := ExceptInfo.bstrSource;
+    Result.HResult := ExceptInfo.scode;
+  end
+  else
+  begin
+    Result.Location := 'IDispatch.Invoke';
+    Result.HResult := Code;
+  end;
+end;
+
+function DispxPropertyGet(const Dispatch: IDispatch; const Name: String;
+  out Value: TVarData): TNtxStatus;
+var
+  DispID: TDispID;
+  Params: TDispParams;
+begin
+  // Determine the DispID of the property
+  Result := DispxGetNameId(Dispatch, Name, DispID);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Prepare the parameters
+  FillChar(Params, SizeOf(Params), 0);
+
+  VariantInit(Value);
+
+  Result := DispxInvoke(Dispatch, DispID, DISPATCH_METHOD or
+    DISPATCH_PROPERTYGET, Params, @Value);
+end;
+
+function DispxPropertySet(const Dispatch: IDispatch; const Name: String;
+  const Value: TVarData): TNtxStatus;
+var
+  DispID, Action: TDispID;
+  Params: TDispParams;
+begin
+  // Determine the DispID of the property
+  Result := DispxGetNameId(Dispatch, Name, DispID);
 
   if not Result.IsSuccess then
     Exit;
@@ -86,17 +173,53 @@ begin
   Action := DISPID_PROPERTYPUT;
 
   // Prepare the parameters
-  DispParams.rgvarg := Pointer(@Value);
-  DispParams.rgdispidNamedArgs := Pointer(@Action);
-  DispParams.cArgs := 1;
-  DispParams.cNamedArgs := 1;
+  Params.rgvarg := Pointer(@Value);
+  Params.rgdispidNamedArgs := Pointer(@Action);
+  Params.cArgs := 1;
+  Params.cNamedArgs := 1;
 
-  // Invoke property assignment
-  Result.Location := 'IDispatch.Invoke';
-  Result.HResult := Dispatch.Invoke(DispID, GUID_NULL, 0,
-    DISPATCH_PROPERTYPUT, DispParams, nil, @ExceptInfo, nil)
+  Result := DispxInvoke(Dispatch, DispID, DISPATCH_PROPERTYPUT, Params, nil);
+end;
 
-  // TODO: Handle DISP_E_EXCEPTION
+function DispxMethodCall(const Dispatch: IDispatch; const Name: String;
+  const Parameters: TArray<TVarData>; VarResult: PVarData): TNtxStatus;
+var
+  DispID: TDispID;
+  Params: TDispParams;
+begin
+  // Determine the DispID of the property
+  Result := DispxGetNameId(Dispatch, Name, DispID);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // IDispatch expects method parameters to go from right to left
+  Params.cArgs := Length(Parameters);
+  Params.rgvarg := Pointer(TArray.Reverse<TVarData>(Parameters));
+  Params.cNamedArgs := 0;
+  Params.rgdispidNamedArgs := nil;
+
+  if Assigned(VarResult) then
+    VariantInit(VarResult^);
+
+  Result := DispxInvoke(Dispatch, DispID, DISPATCH_METHOD, Params, VarResult);
+end;
+
+function ComxInitialize(out RequiresUndo: Boolean;
+  PreferredMode: Cardinal): TNtxStatus;
+begin
+  Result.Location := 'CoInitializeEx';
+  Result.HResult := CoInitializeEx(nil, PreferredMode);
+
+  if Result.IsSuccess then
+    RequiresUndo := True
+  else if Result.HResult = RPC_E_CHANGED_MODE then
+  begin
+    // Most of the action with COM will still work, so we return a success;
+    // Although, we need to notify the caller to skip uninitialization.
+    RequiresUndo := False;
+    Result.HResult := S_FALSE;
+  end;
 end;
 
 end.
