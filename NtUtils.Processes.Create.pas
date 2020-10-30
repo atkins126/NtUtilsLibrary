@@ -71,13 +71,14 @@ type
 
 constructor TEnvironmentAutoReverter.Capture(Environment: IEnvironment);
 begin
+  inherited Create;
   BackupEnvironment := Environment;
-  inherited;
 end;
 
 destructor TEnvironmentAutoReverter.Destroy;
 begin
-  RtlxSetCurrentEnvironment(BackupEnvironment);
+  if FAutoRelease then
+    RtlxSetCurrentEnvironment(BackupEnvironment);
   inherited;
 end;
 

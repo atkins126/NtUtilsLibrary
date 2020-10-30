@@ -81,7 +81,10 @@ type
     class function IndexOf<T>(const Entries: TArray<T>; Condition:
       TCondition<T>): Integer; static;
 
-    // Fast search for an element in a sorted array
+    // Fast search for an element in a sorted array.
+    //  - A non-negative result indicates an index.
+    //  - A negative result indicates a location where to insert the new
+    //    element by calling System.Insert(Value, Entries, -(Result + 1));
     class function BinarySearch<T>(const Entries: TArray<T>; BinarySearcher:
       TBinaryCondition<T>): Integer; static;
 
@@ -123,6 +126,10 @@ type
     class function ConvertFirstOrDefault<T1, T2>(const Entries: TArray<T1>;
       Converter: TConvertRoutine<T1, T2>; const Default: T2): T2;
       static;
+
+    // Expand each element into an array and then concatenate them
+    class function Flatten<T1, T2>(const Entries: TArray<T1>;
+      Converter: TMapRoutine<T1, TArray<T2>>): TArray<T2>; static;
 
     { --------------------------- Other operations --------------------------- }
 
@@ -205,6 +212,7 @@ class function TArray.BinarySearch<T>(const Entries: TArray<T>;
   BinarySearcher: TBinaryCondition<T>): Integer;
 var
   Start, Finish, Middle: Integer;
+  AtStart, AtFinish: Integer;
 begin
   if Length(Entries) = 0 then
     Exit(-1);
@@ -228,13 +236,30 @@ begin
       Finish := Middle;
   end;
 
-  // Start and Finish differ by one. Find which of them matches.
-  if BinarySearcher(Entries[Start]) = 0 then
-    Result := Start
-  else if BinarySearcher(Entries[Finish]) = 0 then
-    Result := Finish
-  else
-    Result := -1;
+  // Compare to the start
+  AtStart := BinarySearcher(Entries[Start]);
+
+  // Found at start
+  if AtStart = 0 then
+    Exit(Start);
+
+  // Compare to the finish
+  AtFinish := BinarySearcher(Entries[Finish]);
+
+  // Found at finish
+  if AtFinish = 0 then
+    Exit(Finish);
+
+  // Insert between start and finish
+  if (AtStart < 0) xor (AtFinish < 0) then
+    Exit(-Start - 2);
+
+  // Insert after finish
+  if AtFinish < 0 then
+    Exit(-Finish - 2);
+
+  // Insert before start
+  Exit(-1);
 end;
 
 class function TArray.BuildTree<T>(const Entries: TArray<T>;
@@ -443,6 +468,32 @@ begin
       Exit(Entries[i]);
 
   Result := Default;
+end;
+
+class function TArray.Flatten<T1, T2>(const Entries: TArray<T1>;
+  Converter: TMapRoutine<T1, TArray<T2>>): TArray<T2>;
+var
+  Expanded: TArray<TArray<T2>>;
+  i, j, Count: Integer;
+begin
+  // Convert each element into an array
+  Expanded := TArray.Map<T1, TArray<T2>>(Entries, Converter);
+
+  // Count total elements
+  Count := 0;
+  for i := 0 to High(Expanded) do
+    Inc(Count, Length(Expanded[i]));
+
+  SetLength(Result, Count);
+
+  // Flatten them into one array
+  Count := 0;
+  for i := 0 to High(Expanded) do
+    for j := 0 to High(Expanded[i]) do
+    begin
+      Result[Count] := Expanded[i, j];
+      Inc(Count);
+    end;
 end;
 
 class procedure TArray.ForAll<T>(var Entries: TArray<T>;

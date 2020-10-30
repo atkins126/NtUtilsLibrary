@@ -77,7 +77,7 @@ function NtxSetFile(hFile: THandle; InfoClass: TFileInformationClass;
   Buffer: Pointer; BufferSize: Cardinal): TNtxStatus;
 
 type
-  NtxFile = class
+  NtxFile = class abstract
     // Query fixed-size information
     class function Query<T>(hFile: THandle;
       InfoClass: TFileInformationClass; out Buffer: T): TNtxStatus; static;
@@ -90,13 +90,15 @@ type
 // Query name of a file
 function NtxQueryNameFile(hFile: THandle; out Name: String): TNtxStatus;
 
+{ Enumeration }
+
 // Enumerate file streams
 function NtxEnumerateStreamsFile(hFile: THandle; out Streams:
-  TArray<TFileStreamInfo>) : TNtxStatus;
+  TArray<TFileStreamInfo>): TNtxStatus;
 
 // Enumerate hardlinks pointing to the file
 function NtxEnumerateHardLinksFile(hFile: THandle; out Links:
-  TArray<TFileHardlinkLinkInfo>) : TNtxStatus;
+  TArray<TFileHardlinkLinkInfo>): TNtxStatus;
 
 // Get full name of a hardlink target
 function NtxExpandHardlinkTarget(hOriginalFile: THandle;
@@ -363,8 +365,10 @@ begin
       SizeOf(WideChar));
 end;
 
+{ Enumeration }
+
 function NtxEnumerateStreamsFile(hFile: THandle; out Streams:
-  TArray<TFileStreamInfo>) : TNtxStatus;
+  TArray<TFileStreamInfo>): TNtxStatus;
 var
   xMemory: IMemory;
   pStream: PFileStreamInformation;
@@ -399,7 +403,7 @@ begin
 end;
 
 function NtxEnumerateHardLinksFile(hFile: THandle; out Links:
-  TArray<TFileHardlinkLinkInfo>) : TNtxStatus;
+  TArray<TFileHardlinkLinkInfo>): TNtxStatus;
 var
   xMemory: IMemory<PFileLinksInformation>;
   pLink: PFileLinkEntryInformation;

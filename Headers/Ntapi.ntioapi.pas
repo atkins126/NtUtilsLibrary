@@ -12,6 +12,8 @@ const
   // ntifs.4531
   FILE_ANY_ACCESS = $0000;
   FILE_SPECIAL_ACCESS = FILE_ANY_ACCESS;
+  FILE_READ_ACCESS    = $0001;
+  FILE_WRITE_ACCESS   = $0002;
 
   // WinNt.13044
   FILE_READ_DATA = $0001;            // file & pipe
@@ -80,6 +82,10 @@ const
   FILE_NO_COMPRESSION = $00008000;
   FILE_OPEN_REQUIRING_OPLOCK = $00010000;
   FILE_DISALLOW_EXCLUSIVE = $00020000;
+  FILE_RESERVE_OPFILTER = $00100000;
+  FILE_OPEN_REPARSE_POINT = $00200000;
+  FILE_OPEN_NO_RECALL = $00400000;
+  FILE_OPEN_FOR_FREE_SPACE_QUERY = $00800000;
   FILE_SESSION_AWARE = $00040000; // Win 8+
 
   // ntifs.6649
@@ -302,13 +308,13 @@ type
 
   // Files
 
-  // wdm.6668
+  // wdm.6668 (q - query; s - set; d - directory)
   [NamingStyle(nsCamelCase, 'File'), Range(1)]
   TFileInformationClass = (
     FileReserved = 0,
-    FileDirectoryInformation = 1,     //
-    FileFullDirectoryInformation = 2, //
-    FileBothDirectoryInformation = 3, //
+    FileDirectoryInformation = 1,     // d: TFileDirectoryInformation
+    FileFullDirectoryInformation = 2, // d: TFileFullDirInformation
+    FileBothDirectoryInformation = 3, // d:
     FileBasicInformation = 4,         // q, s: TFileBasicInformation
     FileStandardInformation = 5,      // q: TFileStandardInformation[Ex]
     FileInternalInformation = 6,      // q: UInt64 (IndexNumber)
@@ -317,7 +323,7 @@ type
     FileNameInformation = 9,          // q: TFileNameInformation
     FileRenameInformation = 10,       // s: TFileRenameInformation
     FileLinkInformation = 11,         // s: TFileLinkInformation
-    FileNamesInformation = 12,        // q: TFileNamesInformation
+    FileNamesInformation = 12,        // q, d: TFileNamesInformation
     FileDispositionInformation = 13,  // s: Boolean (DeleteFile)
     FilePositionInformation = 14,     // q, s: UInt64 (CurrentByteOffset)
     FileFullEaInformation = 15,       // q: TFileFullEaInformation
@@ -334,16 +340,16 @@ type
     FileMailslotQueryInformation = 26,// q: TFileMailsoltQueryInformation
     FileMailslotSetInformation = 27,  // s: TULargeInteger (ReadTimeout)
     FileCompressionInformation = 28,  // q: TFileCompressionInformation
-    FileObjectIdInformation = 29,     // q, s: TFileObjectIdInformation
+    FileObjectIdInformation = 29,     // q, s, d: TFileObjectIdInformation
     FileCompletionInformation = 30,   // s: TFileCompletionInformation
     FileMoveClusterInformation = 31,  // s:
     FileQuotaInformation = 32,        // q, s:
-    FileReparsePointInformation = 33, // q: TFileReparsePointInformation
+    FileReparsePointInformation = 33, // q, d: TFileReparsePointInformation
     FileNetworkOpenInformation = 34,  // q: TFileNetworkOpenInformation
     FileAttributeTagInformation = 35, // q: TFileAttributeTagInformation
     FileTrackingInformation = 36,     // s:
-    FileIdBothDirectoryInformation = 37, // q:
-    FileIdFullDirectoryInformation = 38, // q:
+    FileIdBothDirectoryInformation = 37, // q, d:
+    FileIdFullDirectoryInformation = 38, // q, d:
     FileValidDataLengthInformation = 39, // s: UInt64 (ValidDataLength)
     FileShortNameInformation = 40,       // s: TFileNameInformation
     FileIoCompletionNotificationInformation = 41, // q, s: Cardinal
@@ -407,12 +413,42 @@ type
   [FlagName(FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS, 'Recall On Data Access')]
   TFileAttributes = type Cardinal;
 
-  // wdm.6774, info class 4
-  TFileBasicInformation = record
+  TFileTimes = record
     CreationTime: TLargeInteger;
     LastAccessTime: TLargeInteger;
     LastWriteTime: TLargeInteger;
     ChangeTime: TLargeInteger;
+  end;
+
+  // ntifs.6319, info class 1, use with NtQueryDirectoryFile
+  TFileDirectoryInformation = record
+    NextEntryOffset: Cardinal;
+    FileIndex: Cardinal;
+    [Aggregate] Times: TFileTimes;
+    [Bytes] EndOfFile: UInt64;
+    [Bytes] AllocationSize: UInt64;
+    FileAttributes: TFileAttributes;
+    [Counter(ctBytes)] FileNameLength: Cardinal;
+    FileName: TAnysizeArray<WideChar>;
+  end;
+  PFileDirectoryInformation = ^TFileDirectoryInformation;
+
+  // ntifs.6333, info class 2, use with NtQueryDirectoryFile
+  TFileFullDirInformation = record
+    NextEntryOffset: Cardinal;
+    FileIndex: Cardinal;
+    [Aggregate] Times: TFileTimes;
+    [Bytes] EndOfFile: UInt64;
+    [Bytes] AllocationSize: UInt64;
+    FileAttributes: TFileAttributes;
+    [Counter(ctBytes)] FileNameLength: Cardinal;
+    EaSize: Cardinal;
+    FileName: TAnysizeArray<WideChar>;
+  end;
+
+  // wdm.6774, info class 4
+  TFileBasicInformation = record
+    [Aggregate] Times: TFileTimes;
     FileAttributes: TFileAttributes;
   end;
   PFileBasicInformation = ^TFileBasicInformation;
@@ -614,10 +650,7 @@ type
 
   // wdm.6814, info class 34
   TFileNetworkOpenInformation = record
-    CreationTime: TLargeInteger;
-    LastAccessTime: TLargeInteger;
-    LastWriteTime: TLargeInteger;
-    ChangeTime: TLargeInteger;
+    [Aggregate] Times: TFileTimes;
     [Bytes] AllocationSize: UInt64;
     [Bytes] EndOfFile: UInt64;
     FileAttributes: TFileAttributes;
@@ -825,6 +858,15 @@ type
     FILE_DEVICE_UCMUCSI = $0000005d
   );
   {$SCOPEDENUMS OFF}
+
+  // ntifs.4596
+  [NamingStyle(nsSnakeCase, 'METHOD')]
+  TIoControlMethod = (
+    METHOD_BUFFERED = 0,
+    METHOD_IN_DIRECT = 1,
+    METHOD_OUT_DIRECT = 2,
+    METHOD_NEITHER = 3
+  );
 
   [FlagName(FILE_REMOVABLE_MEDIA, 'Removable Media')]
   [FlagName(FILE_READ_ONLY_DEVICE, 'Read-only Device')]
@@ -1086,7 +1128,7 @@ function NtCancelSynchronousIoFile(FileHandle: THandle; IoRequestToCancel:
 function NtDeviceIoControlFile(FileHandle: THandle; Event: THandle; ApcRoutine:
   TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock: TIoStatusBlock;
   IoControlCode: Cardinal; InputBuffer: Pointer; InputBufferLength: Cardinal;
-  OutputBuffer: Cardinal; OutputBufferLength: Cardinal): NTSTATUS; stdcall;
+  OutputBuffer: Pointer; OutputBufferLength: Cardinal): NTSTATUS; stdcall;
   external ntdll;
 
 // ntifs.7111
@@ -1152,6 +1194,17 @@ function NtNotifyChangeDirectoryFileEx(FileHandle: THandle; Event: THandle;
   WatchTree: Boolean; DirectoryNotifyInformationClass:
   TDirectoryNotifyInformationClass): NTSTATUS; stdcall; external ntdll;
 
+// ntifs.4578
+function CTL_CODE(DeviceType: TDeciveType; Func: Cardinal; Method:
+  TIoControlMethod; Access: Cardinal): Cardinal;
+
 implementation
+
+function CTL_CODE(DeviceType: TDeciveType; Func: Cardinal; Method:
+  TIoControlMethod; Access: Cardinal): Cardinal;
+begin
+  Result := (Cardinal(DeviceType) shl 16) or (Access shl 14) or (Func shl 2) or
+    Cardinal(Method);
+end;
 
 end.
