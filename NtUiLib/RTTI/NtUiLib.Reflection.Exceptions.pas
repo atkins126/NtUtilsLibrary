@@ -1,4 +1,4 @@
-unit NtUiLib.Exceptions.Report;
+unit NtUiLib.Reflection.Exceptions;
 
 interface
 
@@ -11,8 +11,8 @@ function NtxVerboseStatusMessage(const Status: TNtxStatus): String;
 implementation
 
 uses
-  Ntapi.ntstatus, Ntapi.ntseapi, System.TypInfo, DelphiUiLib.Strings,
-  NtUiLib.AccessMasks, NtUiLib.Exceptions.Messages, System.Rtti,
+  Ntapi.ntstatus, Ntapi.ntseapi, System.TypInfo, DelphiUiLib.Reflection.Strings,
+  NtUiLib.Reflection.AccessMasks, NtUiLib.Errors, System.Rtti,
   DelphiApi.Reflection;
 
 function ProvidesPrivilege(const LastCall: TLastCallInfo): Boolean;
@@ -67,10 +67,10 @@ begin
           FormatAccess(AccessMask, AccessMaskType);
 
   // Result: <STATUS_*/ERROR_*>
-  Result := Result + #$D#$A + 'Result: ' + NtxStatusToString(Status.Status);
+  Result := Result + #$D#$A + 'Result: ' + RtlxNtStatusName(Status);
 
   // <textual description>
-  Result := Result + #$D#$A#$D#$A + NtxFormatErrorMessage(Status.Status);
+  Result := Result + #$D#$A#$D#$A + RtlxNtStatusMessage(Status);
 
   // <privilege name>
   if (Status.Status = STATUS_PRIVILEGE_NOT_HELD) and

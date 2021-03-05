@@ -16,6 +16,7 @@ type
     [Bytes] SizeOfImage: Cardinal;
     FullDllName: String;
     BaseDllName: String;
+    LoadCount: Cardinal;
     Flags: TLdrFlags;
     TimeDateStamp: Cardinal;
     ParentDllBase: Pointer;
@@ -23,6 +24,7 @@ type
     LoadTime: TLargeInteger;
     [MinOSVersion(OsWin8)] LoadReason: TLdrDllLoadReason;
     // TODO: more fields
+    function IsInRange(Address: Pointer): Boolean;
   end;
 
 { Delayed import }
@@ -52,7 +54,7 @@ function LdrxEnumerateModules: TArray<TModuleEntry>;
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntpebteb, Ntapi.ntdbg;
+  Ntapi.ntdef, Ntapi.ntpebteb, Ntapi.ntrtl;
 
 function LdrxCheckNtDelayedImport(Name: AnsiString): TNtxStatus;
 var
@@ -140,9 +142,13 @@ begin
       LoadTime := Current.LoadTime;
       ParentDllBase := Current.ParentDllBase;
       OriginalBase := Current.OriginalBase;
+      LoadCount := Current.ObsoleteLoadCount;
 
       if OsVersion >= OsWin8 then
+      begin
         LoadReason := Current.LoadReason;
+        LoadCount := Current.DdagNode.LoadCount;
+      end;
     end;
 
     // Go to the next one
@@ -151,25 +157,31 @@ begin
   end;
 end;
 
+function TModuleEntry.IsInRange(Address: Pointer): Boolean;
+begin
+  Result := (UIntPtr(DllBase) <= UIntPtr(Address)) and
+    (UIntPtr(Address) <= UIntPtr(DllBase) + SizeOfImage);
+end;
+
+{$IFDEF Debug}
 var
   OldFailureHook: TDelayedLoadHook;
 
-function NtxpDelayedLoadHook(dliNotify: dliNotification;
-  pdli: PDelayLoadInfo): Pointer; stdcall;
-var
-  Status: NTSTATUS;
+function BreakOnFailure(dliNotify: dliNotification; pdli: PDelayLoadInfo):
+  Pointer; stdcall;
 begin
-  Status := RtlxGetLastNtStatus;
-  DbgBreakOnFailure(Status);
+  if RtlGetCurrentPeb.BeingDebugged then
+    DbgBreakPoint;
 
   if Assigned(OldFailureHook) then
     OldFailureHook(dliNotify, pdli);
 
   Result := nil;
 end;
+{$ENDIF}
 
 initialization
-  OldFailureHook := SetDliFailureHook2(NtxpDelayedLoadHook);
+  {$IFDEF Debug}OldFailureHook := SetDliFailureHook2(BreakOnFailure);{$ENDIF}
 finalization
 
 end.

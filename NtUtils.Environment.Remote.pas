@@ -108,7 +108,8 @@ begin
   Environment := RtlxCaptureEnvironment(HeapBuffer);
 
   // Retrieve the environmental block
-  Result := NtxReadMemoryProcess(hProcess, pRemoteEnv, HeapBuffer, Size);
+  Result := NtxReadMemoryProcess(hProcess, pRemoteEnv, TMemory.From(HeapBuffer,
+    Size));
 end;
 
 type
@@ -219,8 +220,7 @@ begin
   Move(Environment.Data^, pEnvStart^, Environment.Size);
 
   // Write the context
-  Result := NtxAllocWriteMemoryProcess(hxProcess, LocalContext.Data,
-    LocalContext.Size, Context);
+  Result := NtxAllocWriteMemoryProcess(hxProcess, LocalContext.Region, Context);
 end;
 
 {$IFDEF Win64}
@@ -254,8 +254,8 @@ begin
   Move(Environment.Data^, pEnvStart^, Environment.Size);
 
   // Write the context
-  Result := NtxAllocWriteMemoryProcess(hxProcess, LocalContext.Data,
-    LocalContext.Size, Context, True);
+  Result := NtxAllocWriteMemoryProcess(hxProcess, LocalContext.Region, Context,
+    True);
 end;
 {$ENDIF}
 
@@ -314,8 +314,8 @@ begin
     Exit;
 
   // Sync with the thread. Prolong remote memory lifetime on timeout.
-  Result := RtlxSyncThreadProcess(hxProcess.Handle, hxThread.Handle,
-    'Remote::RtlSetCurrentEnvironment', Timeout, [Code, Context]);
+  Result := RtlxSyncThread(hxThread.Handle, 'Remote::RtlSetCurrentEnvironment',
+    Timeout, [Code, Context]);
 end;
 
 function RtlxSetDirectoryProcess(hxProcess: IHandle; Directory: String;
@@ -380,7 +380,7 @@ begin
 
   // Write it
   Result := NtxWriteMemoryProcess(hxProcess.Handle, RemoteBuffer.Data,
-    LocalBuffer.Data, BufferSize);
+    TMemory.From(LocalBuffer.Data, BufferSize));
 
   if not Result.IsSuccess then
     Exit;
@@ -393,8 +393,8 @@ begin
     Exit;
 
   // Sync with the thread. Prolong remote buffer lifetime on timeout.
-  Result := RtlxSyncThreadProcess(hxProcess.Handle, hxThread.Handle,
-    'Remote::RtlSetCurrentDirectory_U', Timeout, [RemoteBuffer]);
+  Result := RtlxSyncThread(hxThread.Handle, 'Remote::RtlSetCurrentDirectory_U',
+    Timeout, [RemoteBuffer]);
 end;
 
 

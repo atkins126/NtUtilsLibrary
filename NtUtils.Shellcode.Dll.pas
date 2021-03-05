@@ -58,8 +58,9 @@ begin
     Exit;
 
   // Write DLL path into process' memory
-  Result := NtxAllocWriteMemoryProcess(hxProcess, PWideChar(DllName),
-    (Length(DllName) + 1) * SizeOf(WideChar), RemoteBuffer, TargetIsWoW64);
+  Result := NtxAllocWriteMemoryProcess(hxProcess,
+    TMemory.From(PWideChar(DllName), (Length(DllName) + 1) * SizeOf(WideChar)),
+    RemoteBuffer, TargetIsWoW64);
 
   if not Result.IsSuccess then
     Exit;
@@ -72,8 +73,8 @@ begin
     Exit;
 
   // Sychronize with it. Prolong remote buffer lifetime on timeout.
-  Result := RtlxSyncThreadProcess(hxProcess.Handle, hxThread.Handle,
-    'Remote::LoadLibraryW', Timeout, [RemoteBuffer]);
+  Result := RtlxSyncThread(hxThread.Handle, 'Remote::LoadLibraryW', Timeout,
+    [RemoteBuffer]);
 
   if Result.Location = 'Remote::LoadLibraryW' then
   begin
@@ -298,9 +299,8 @@ begin
     Exit;
 
   // Copy the context and the code into the target
-  Result := RtlxAllocWriteDataCodeProcess(hxProcess, Context.Data,
-    Context.Size, RemoteContext, Code.Address, Code.Size, RemoteCode,
-    TargetIsWoW64);
+  Result := RtlxAllocWriteDataCodeProcess(hxProcess, Context.Region,
+    RemoteContext, Code, RemoteCode, TargetIsWoW64);
 
   if not Result.IsSuccess then
     Exit;
@@ -336,8 +336,8 @@ begin
   end;
 
   // Sync with the thread. Prolong remote memory lifetime on timeout.
-  Result := RtlxSyncThreadProcess(hxProcess.Handle, hxThread.Handle,
-    'Remote::LdrLoadDll', Timeout, [RemoteCode, RemoteContext]);
+  Result := RtlxSyncThread(hxThread.Handle, 'Remote::LdrLoadDll', Timeout,
+    [RemoteCode, RemoteContext]);
 end;
 
 end.

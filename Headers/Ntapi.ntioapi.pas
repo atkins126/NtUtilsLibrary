@@ -88,6 +88,10 @@ const
   FILE_OPEN_FOR_FREE_SPACE_QUERY = $00800000;
   FILE_SESSION_AWARE = $00040000; // Win 8+
 
+  // Special ByteOffset for read/write operations
+  FILE_USE_FILE_POINTER_POSITION = UInt64($FFFFFFFFFFFFFFFE);
+  FILE_WRITE_TO_END_OF_FILE = UInt64($FFFFFFFFFFFFFFFF);
+
   // ntifs.6649
   FILE_RENAME_REPLACE_IF_EXISTS = $00000001;                    // Win 10 RS1+
   FILE_RENAME_POSIX_SEMANTICS = $00000002;                      // Win 10 RS1+
@@ -265,6 +269,31 @@ type
   [FlagName(FILE_SHARE_DELETE, 'Share Delete')]
   TFileShareMode = type Cardinal;
 
+  [FlagName(FILE_DIRECTORY_FILE, 'Directory')]
+  [FlagName(FILE_WRITE_THROUGH, 'Write Through')]
+  [FlagName(FILE_SEQUENTIAL_ONLY, 'Sequential Only')]
+  [FlagName(FILE_NO_INTERMEDIATE_BUFFERING, 'No Intermediate Buffering')]
+  [FlagName(FILE_SYNCHRONOUS_IO_ALERT, 'Synchronous IO Alert')]
+  [FlagName(FILE_SYNCHRONOUS_IO_NONALERT, 'Synchronous IO Non-Alert')]
+  [FlagName(FILE_NON_DIRECTORY_FILE, 'Non-directory')]
+  [FlagName(FILE_CREATE_TREE_CONNECTION, 'Create Tree Connection')]
+  [FlagName(FILE_COMPLETE_IF_OPLOCKED, 'Complete if Oplocked')]
+  [FlagName(FILE_NO_EA_KNOWLEDGE, 'No EA Knowledge')]
+  [FlagName(FILE_OPEN_FOR_RECOVERY, 'Open For Recovery')]
+  [FlagName(FILE_RANDOM_ACCESS, 'Random Access')]
+  [FlagName(FILE_DELETE_ON_CLOSE, 'Delete-On-Close')]
+  [FlagName(FILE_OPEN_BY_FILE_ID, 'Open By File ID')]
+  [FlagName(FILE_OPEN_FOR_BACKUP_INTENT, 'Open For Backup')]
+  [FlagName(FILE_NO_COMPRESSION, 'No Compression')]
+  [FlagName(FILE_OPEN_REQUIRING_OPLOCK, 'Open Requiring Oplock')]
+  [FlagName(FILE_DISALLOW_EXCLUSIVE, 'Disallow Exclusive')]
+  [FlagName(FILE_RESERVE_OPFILTER, 'Reserve Opfilter')]
+  [FlagName(FILE_OPEN_REPARSE_POINT, 'Open Reparse Point')]
+  [FlagName(FILE_OPEN_NO_RECALL, 'Open No Recall')]
+  [FlagName(FILE_OPEN_FOR_FREE_SPACE_QUERY, 'Open For Free Space Query')]
+  [FlagName(FILE_SESSION_AWARE, 'Session-aware')]
+  TFileOpenOptions = type Cardinal;
+
   // wdm.6421
   [NamingStyle(nsSnakeCase, 'FILE')]
   TFileDisposition = (
@@ -286,6 +315,7 @@ type
     FILE_EXISTS = 4,
     FILE_DOES_NOT_EXIST = 5
   );
+  PFileIoStatusResult = ^TFileIoStatusResult;
 
   // wdm.6573
   TIoStatusBlock = record
@@ -296,7 +326,7 @@ type
   PIoStatusBlock = ^TIoStatusBlock;
 
   // wdm.6597
-  TIoApcRoutine = procedure (ApcContext: Pointer; const [ref] IoStatusBlock:
+  TIoApcRoutine = procedure (ApcContext: Pointer; const IoStatusBlock:
     TIoStatusBlock; Reserved: Cardinal); stdcall;
 
   // wdm.6972
@@ -327,7 +357,7 @@ type
     FileDispositionInformation = 13,  // s: Boolean (DeleteFile)
     FilePositionInformation = 14,     // q, s: UInt64 (CurrentByteOffset)
     FileFullEaInformation = 15,       // q: TFileFullEaInformation
-    FileModeInformation = 16,         // q, s: Cardinal (Mode)
+    FileModeInformation = 16,         // q, s: TFileMode
     FileAlignmentInformation = 17,    // q: Cardinal (AlignmentRequirement)
     FileAllInformation = 18,          // q: TFileAllInformation
     FileAllocationInformation = 19,   // s: UInt64 (AllocationSize)
@@ -365,26 +395,26 @@ type
     FileIsRemoteDeviceInformation = 51,  // q: Boolean (IsRemote)
     FileUnusedInformation = 52,
     FileNumaNodeInformation = 53,
-    FileStandardLinkInformation = 54,
+    FileStandardLinkInformation = 54,    // q: TFileStandardLinkInformation
     FileRemoteProtocolInformation = 55,
-    FileRenameInformationBypassAccessCheck = 56,
-    FileLinkInformationBypassAccessCheck = 57,
+    FileRenameInformationBypassAccessCheck = 56, // Kernel only
+    FileLinkInformationBypassAccessCheck = 57,   // Kernel only
     FileVolumeNameInformation = 58,
     FileIdInformation = 59,
     FileIdExtdDirectoryInformation = 60,
     FileReplaceCompletionInformation = 61,
     FileHardLinkFullIdInformation = 62,
     FileIdExtdBothDirectoryInformation = 63,
-    FileDispositionInformationEx = 64,       // s: Cardinal FILE_DISPOSITION_*
+    FileDispositionInformationEx = 64,       // s: TFileDispositionFlags, Win 10 RS1+
     FileRenameInformationEx = 65,            // s: TFileRenameInformationEx, Win 10 RS1+
-    FileRenameInformationExBypassAccessCheck = 66,
+    FileRenameInformationExBypassAccessCheck = 66, // Kernel only
     FileDesiredStorageClassInformation = 67,
     FileStatInformation = 68,
     FileMemoryPartitionInformation = 69,
     FileStatLxInformation = 70,
     FileCaseSensitiveInformation = 71,
     FileLinkInformationEx = 72,              // s: TFileLinkInformationEx, Win 10 RS1+
-    FileLinkInformationExBypassAccessCheck = 73,
+    FileLinkInformationExBypassAccessCheck = 73, // Kernel only
     FileStorageReserveIdInformation = 74,
     FileCaseSensitiveInformationForceAccessCheck = 75
   );
@@ -511,6 +541,15 @@ type
   end;
   PFileFullEaInformation = ^TFileFullEaInformation;
 
+  // ntifs.6559, info class 16
+  [FlagName(FILE_WRITE_THROUGH, 'Write Through')]
+  [FlagName(FILE_SEQUENTIAL_ONLY, 'Sequential Only')]
+  [FlagName(FILE_NO_INTERMEDIATE_BUFFERING, 'No Intermediate Buffering')]
+  [FlagName(FILE_SYNCHRONOUS_IO_ALERT, 'Synchronous IO Alert')]
+  [FlagName(FILE_SYNCHRONOUS_IO_NONALERT, 'Synchronous IO Non-Alert')]
+  [FlagName(FILE_DELETE_ON_CLOSE, 'Delete-On-Close')]
+  TFileMode = type Cardinal;
+
   // ntifs.6486, info class 18
   TFileAllInformation = record
     BasicInformation: TFileBasicInformation;
@@ -519,7 +558,7 @@ type
     [Bytes] EaSize: Cardinal;
     AccessFlags: TAccessMask;
     CurrentByteOffset: UInt64;
-    [Hex] Mode: Cardinal;
+    Mode: TFileMode;
     AlignmentRequirement: Cardinal;
     NameInformation: TFileNameInformation;
   end;
@@ -534,6 +573,12 @@ type
     StreamName: TAnysizeArray<WideChar>;
   end;
   PFileStreamInformation = ^TFileStreamInformation;
+
+  [FlagName(FILE_PIPE_BYTE_STREAM_TYPE, 'Byte Stream Type')]
+  [FlagName(FILE_PIPE_MESSAGE_TYPE, 'Message Type')]
+  [FlagName(FILE_PIPE_ACCEPT_REMOTE_CLIENTS, 'Accept Remote Clients')]
+  [FlagName(FILE_PIPE_REJECT_REMOTE_CLIENTS, 'Reject Remote Clients')]
+  TFilePipeType = type Cardinal;
 
   // ntifs.6029
   [NamingStyle(nsSnakeCase, 'FILE_PIPE', 'MODE')]
@@ -583,7 +628,7 @@ type
 
   // ntifs.6725, info class 24
   TFilePipeLocalInformation = record
-    NamedPipeType: Cardinal; // See FILE_PIPE_* constants
+    NamedPipeType: TFilePipeType;
     NamedPipeConfiguration: TFilePipeConfiguration;
     MaximumInstances: Cardinal;
     CurrentInstances: Cardinal;
@@ -698,273 +743,67 @@ type
   end;
   PFileProcessIdsUsingFileInformation = ^TFileProcessIdsUsingFileInformation;
 
+  // ntifs.6901, info class 54
+  TFileStandardLinkInformation = record
+    NumberOfAccessibleLinks: Cardinal;
+    TotalNumberOfLinks: Cardinal;
+    DeletePending: Boolean;
+    Directory: Boolean;
+  end;
+  PFileStandardLinkInformation = ^TFileStandardLinkInformation;
+
+  // ntddk.4717, info class 64
+  [MinOSVersion(OsWin10RS1)]
+  [SubEnum(FILE_DISPOSITION_DELETE, FILE_DISPOSITION_DO_NOT_DELETE, 'Do Not Delete')]
+  [SubEnum(FILE_DISPOSITION_DELETE, FILE_DISPOSITION_DELETE, 'Delete')]
+  [FlagName(FILE_DISPOSITION_POSIX_SEMANTICS, 'Posix Semantics')]
+  [FlagName(FILE_DISPOSITION_FORCE_IMAGE_SECTION_CHECK, 'Force Image Section Check')]
+  [FlagName(FILE_DISPOSITION_ON_CLOSE, 'On Close')]
+  [FlagName(FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE, 'Ignore Readonly Attribute')]
+  TFileDispositionFlags = type Cardinal;
+
+  [MinOSVersion(OsWin10RS1)]
+  [FlagName(FILE_RENAME_REPLACE_IF_EXISTS, 'Replace If Exists')]
+  [FlagName(FILE_RENAME_POSIX_SEMANTICS, 'Posix Semantics')]
+  [FlagName(FILE_RENAME_SUPPRESS_PIN_STATE_INHERITANCE, 'Suppress Pin State Inheritance')]
+  [FlagName(FILE_RENAME_SUPPRESS_STORAGE_RESERVE_INHERITANCE, 'Suppress Storage Reserve Inheritance')]
+  [FlagName(FILE_RENAME_NO_INCREASE_AVAILABLE_SPACE, 'No Increase Available Space')]
+  [FlagName(FILE_RENAME_NO_DECREASE_AVAILABLE_SPACE, 'No Decrease Available Space')]
+  [FlagName(FILE_RENAME_IGNORE_READONLY_ATTRIBUTE, 'Ignore Readonly Attribute')]
+  [FlagName(FILE_RENAME_FORCE_RESIZE_TARGET_SR, 'Force Resize Target')]
+  [FlagName(FILE_RENAME_FORCE_RESIZE_SOURCE_SR, 'Force Resize Source')]
+  TFileRenameFlags = type Cardinal;
+
   // ntifs.6672, info class 65
   [MinOSVersion(OsWin10RS1)]
   TFileRenameInformationEx = record
-    [Hex] Flags: Cardinal; // FILE_RENAME_*
+    Flags: TFileRenameFlags;
     RootDirectory: THandle;
     [Counter(ctBytes)] FileNameLength: Cardinal;
     FileName: TAnysizeArray<WideChar>;
   end;
   PFileRenameInformationEx = ^TFileRenameInformationEx;
 
+  [MinOSVersion(OsWin10RS1)]
+  [FlagName(FILE_LINK_REPLACE_IF_EXISTS, 'Replace If Exists')]
+  [FlagName(FILE_LINK_POSIX_SEMANTICS, 'FILE_LINK_POSIX_SEMANTICS')]
+  [FlagName(FILE_LINK_SUPPRESS_STORAGE_RESERVE_INHERITANCE, 'Suppress Storage Reserve Inheritance')]
+  [FlagName(FILE_LINK_NO_INCREASE_AVAILABLE_SPACE, 'No Increase Available Space')]
+  [FlagName(FILE_LINK_NO_DECREASE_AVAILABLE_SPACE, 'No Decrease Available Space')]
+  [FlagName(FILE_LINK_IGNORE_READONLY_ATTRIBUTE, 'Ignore Readonly Attribute')]
+  [FlagName(FILE_LINK_FORCE_RESIZE_TARGET_SR, 'Force Resize Target')]
+  [FlagName(FILE_LINK_FORCE_RESIZE_SOURCE_SR, 'Force Resize Source')]
+  TFileLinkFlags = type Cardinal;
+
   // ntifs.6614, info class 72
   [MinOSVersion(OsWin10RS1)]
   TFileLinkInformationEx = record
-    [Hex] Flags: Cardinal; // FILE_LINK_*
+    Flags: TFileLinkFlags;
     RootDirectory: THandle;
     [Counter(ctBytes)] FileNameLength: Cardinal;
     FileName: TAnysizeArray<WideChar>;
   end;
   PFileLinkInformationEx = ^TFileLinkInformationEx;
-
-  // File System
-
-  // wdm.6943
-  [NamingStyle(nsCamelCase, 'FileFs'), Range(1)]
-  TFsInfoClass = (
-    FileFsReserved = 0,
-    FileFsVolumeInformation = 1,        // q: TFileFsVolumeInformation
-    FileFsLabelInformation = 2,         // s: TFileFsLabelInformation
-    FileFsSizeInformation = 3,          // q: TFileFsSizeInformation
-    FileFsDeviceInformation = 4,        // q: TFileFsDeviceInformation
-    FileFsAttributeInformation = 5,     // q: TFileFsAttributeInformation
-    FileFsControlInformation = 6,       // q, s: TFileFsControlInformation
-    FileFsFullSizeInformation = 7,      // q: TFileFsFullSizeInformation
-    FileFsObjectIdInformation = 8,      // q, s: TFileFsObjectIdInformation
-    FileFsDriverPathInformation = 9,    // q: TFileFsDriverPathInformation
-    FileFsVolumeFlagsInformation = 10,  // q, s: Cardinal
-    FileFsSectorSizeInformation = 11,
-    FileFsDataCopyInformation = 12,
-    FileFsMetadataSizeInformation = 13,
-    FileFsFullSizeInformationEx = 14
-  );
-
-  // ntddk.4721, info class 1
-  TFileFsVolumeInformation = record
-    VolumeCreationTime: TLargeInteger;
-    VolumeSerialNumber: Cardinal;
-    [Counter(ctBytes)] VolumeLabelLength: Cardinal;
-    SupportsObjects: Boolean;
-    VolumeLabel: TAnysizeArray<WideChar>;
-  end;
-  PFileFsVolumeInformation = ^TFileFsVolumeInformation;
-
-  // ntddk.4716, info class 2
-  TFileFsLabelInformation = record
-    [Counter(ctBytes)] VolumeLabelLength: Cardinal;
-    VolumeLabel: TAnysizeArray<WideChar>;
-  end;
-  PFileFsLabelInformation = ^TFileFsLabelInformation;
-
-  // ntddk.4734, info class 3
-  TFileFsSizeInformation = record
-    TotalAllocationUnits: UInt64;
-    AvailableAllocationUnits: UInt64;
-    SectorsPerAllocationUnit: Cardinal;
-    [Bytes] BytesPerSector: Cardinal;
-  end;
-  PFileFsSizeInformation = ^TFileFsSizeInformation;
-
-  {$SCOPEDENUMS ON}
-  [NamingStyle(nsSnakeCase, 'FILE_DEVICE')]
-  TDeciveType = (
-    FILE_DEVICE_BEEP = $00000001,
-    FILE_DEVICE_CD_ROM = $00000002,
-    FILE_DEVICE_CD_ROM_FILE_SYSTEM = $00000003,
-    FILE_DEVICE_CONTROLLER = $00000004,
-    FILE_DEVICE_DATALINK = $00000005,
-    FILE_DEVICE_DFS = $00000006,
-    FILE_DEVICE_DISK = $00000007,
-    FILE_DEVICE_DISK_FILE_SYSTEM = $00000008,
-    FILE_DEVICE_FILE_SYSTEM = $00000009,
-    FILE_DEVICE_INPORT_PORT = $0000000a,
-    FILE_DEVICE_KEYBOARD = $0000000b,
-    FILE_DEVICE_MAILSLOT = $0000000c,
-    FILE_DEVICE_MIDI_IN = $0000000d,
-    FILE_DEVICE_MIDI_OUT = $0000000e,
-    FILE_DEVICE_MOUSE = $0000000f,
-    FILE_DEVICE_MULTI_UNC_PROVIDER = $00000010,
-    FILE_DEVICE_NAMED_PIPE = $00000011,
-    FILE_DEVICE_NETWORK = $00000012,
-    FILE_DEVICE_NETWORK_BROWSER = $00000013,
-    FILE_DEVICE_NETWORK_FILE_SYSTEM = $00000014,
-    FILE_DEVICE_NULL = $00000015,
-    FILE_DEVICE_PARALLEL_PORT = $00000016,
-    FILE_DEVICE_PHYSICAL_NETCARD = $00000017,
-    FILE_DEVICE_PRINTER = $00000018,
-    FILE_DEVICE_SCANNER = $00000019,
-    FILE_DEVICE_SERIAL_MOUSE_PORT = $0000001a,
-    FILE_DEVICE_SERIAL_PORT = $0000001b,
-    FILE_DEVICE_SCREEN = $0000001c,
-    FILE_DEVICE_SOUND = $0000001d,
-    FILE_DEVICE_STREAMS = $0000001e,
-    FILE_DEVICE_TAPE = $0000001f,
-    FILE_DEVICE_TAPE_FILE_SYSTEM = $00000020,
-    FILE_DEVICE_TRANSPORT = $00000021,
-    FILE_DEVICE_UNKNOWN = $00000022,
-    FILE_DEVICE_VIDEO = $00000023,
-    FILE_DEVICE_VIRTUAL_DISK = $00000024,
-    FILE_DEVICE_WAVE_IN = $00000025,
-    FILE_DEVICE_WAVE_OUT = $00000026,
-    FILE_DEVICE_8042_PORT = $00000027,
-    FILE_DEVICE_NETWORK_REDIRECTOR = $00000028,
-    FILE_DEVICE_BATTERY = $00000029,
-    FILE_DEVICE_BUS_EXTENDER = $0000002a,
-    FILE_DEVICE_MODEM = $0000002b,
-    FILE_DEVICE_VDM = $0000002c,
-    FILE_DEVICE_MASS_STORAGE = $0000002d,
-    FILE_DEVICE_SMB = $0000002e,
-    FILE_DEVICE_KS = $0000002f,
-    FILE_DEVICE_CHANGER = $00000030,
-    FILE_DEVICE_SMARTCARD = $00000031,
-    FILE_DEVICE_ACPI = $00000032,
-    FILE_DEVICE_DVD = $00000033,
-    FILE_DEVICE_FULLSCREEN_VIDEO = $00000034,
-    FILE_DEVICE_DFS_FILE_SYSTEM = $00000035,
-    FILE_DEVICE_DFS_VOLUME = $00000036,
-    FILE_DEVICE_SERENUM = $00000037,
-    FILE_DEVICE_TERMSRV = $00000038,
-    FILE_DEVICE_KSEC = $00000039,
-    FILE_DEVICE_FIPS = $0000003a,
-    FILE_DEVICE_INFINIBAND = $0000003b,
-    FILE_DEVICE_TYPE_60 = $0000003c,
-    FILE_DEVICE_TYPE_61 = $0000003d,
-    FILE_DEVICE_VMBUS = $0000003e,
-    FILE_DEVICE_CRYPT_PROVIDER = $0000003f,
-    FILE_DEVICE_WPD = $00000040,
-    FILE_DEVICE_BLUETOOTH = $00000041,
-    FILE_DEVICE_MT_COMPOSITE = $00000042,
-    FILE_DEVICE_MT_TRANSPORT = $00000043,
-    FILE_DEVICE_BIOMETRIC = $00000044,
-    FILE_DEVICE_PMI = $00000045,
-    FILE_DEVICE_EHSTOR = $00000046,
-    FILE_DEVICE_DEVAPI = $00000047,
-    FILE_DEVICE_GPIO = $00000048,
-    FILE_DEVICE_USBEX = $00000049,
-    FILE_DEVICE_CONSOLE = $00000050,
-    FILE_DEVICE_NFP = $00000051,
-    FILE_DEVICE_SYSENV = $00000052,
-    FILE_DEVICE_VIRTUAL_BLOCK = $00000053,
-    FILE_DEVICE_POINT_OF_SERVICE = $00000054,
-    FILE_DEVICE_STORAGE_REPLICATION = $00000055,
-    FILE_DEVICE_TRUST_ENV = $00000056,
-    FILE_DEVICE_UCM = $00000057,
-    FILE_DEVICE_UCMTCPCI = $00000058,
-    FILE_DEVICE_PERSISTENT_MEMORY = $00000059,
-    FILE_DEVICE_NVDIMM = $0000005a,
-    FILE_DEVICE_HOLOGRAPHIC = $0000005b,
-    FILE_DEVICE_SDFXHCI = $0000005c,
-    FILE_DEVICE_UCMUCSI = $0000005d
-  );
-  {$SCOPEDENUMS OFF}
-
-  // ntifs.4596
-  [NamingStyle(nsSnakeCase, 'METHOD')]
-  TIoControlMethod = (
-    METHOD_BUFFERED = 0,
-    METHOD_IN_DIRECT = 1,
-    METHOD_OUT_DIRECT = 2,
-    METHOD_NEITHER = 3
-  );
-
-  [FlagName(FILE_REMOVABLE_MEDIA, 'Removable Media')]
-  [FlagName(FILE_READ_ONLY_DEVICE, 'Read-only Device')]
-  [FlagName(FILE_FLOPPY_DISKETTE, 'Floppy Disk')]
-  [FlagName(FILE_WRITE_ONCE_MEDIA, 'Write-once Media')]
-  [FlagName(FILE_REMOTE_DEVICE, 'Remote Device')]
-  [FlagName(FILE_DEVICE_IS_MOUNTED, 'Device Is Mounted')]
-  [FlagName(FILE_VIRTUAL_VOLUME, 'Virtual Volume')]
-  [FlagName(FILE_AUTOGENERATED_DEVICE_NAME, 'Autogenerated Device Name')]
-  [FlagName(FILE_DEVICE_SECURE_OPEN, 'Device Secure Open')]
-  [FlagName(FILE_CHARACTERISTIC_PNP_DEVICE, 'PnP Device')]
-  [FlagName(FILE_CHARACTERISTIC_TS_DEVICE, 'TS Device')]
-  [FlagName(FILE_CHARACTERISTIC_WEBDAV_DEVICE, 'WebDav Device')]
-  [FlagName(FILE_CHARACTERISTIC_CSV, 'CSV')]
-  [FlagName(FILE_DEVICE_ALLOW_APPCONTAINER_TRAVERSAL, 'Allow AppContainer Traversal')]
-  [FlagName(FILE_PORTABLE_DEVICE, 'Portbale Device')]
-  TDeviceCharacteristics = type Cardinal;
-
-  // wdm.6962, info class 4
-  TFileFsDeviceInformation = record
-    DeviceType: TDeciveType;
-    Characteristics: TDeviceCharacteristics;
-  end;
-  PFileFsDeviceInformation = ^TFileFsDeviceInformation;
-
-  [FlagName(FILE_CASE_SENSITIVE_SEARCH, 'Case-sensitive Search')]
-  [FlagName(FILE_CASE_PRESERVED_NAMES, 'Case-preserved Names')]
-  [FlagName(FILE_UNICODE_ON_DISK, 'Unicode On Disk')]
-  [FlagName(FILE_PERSISTENT_ACLS, 'Persistent ACLs')]
-  [FlagName(FILE_FILE_COMPRESSION, 'Supports Compression')]
-  [FlagName(FILE_VOLUME_QUOTAS, 'Volume Quotas')]
-  [FlagName(FILE_SUPPORTS_SPARSE_FILES, 'Supports Sparse Files')]
-  [FlagName(FILE_SUPPORTS_REPARSE_POINTS, 'Supports Reparse Points')]
-  [FlagName(FILE_SUPPORTS_REMOTE_STORAGE, 'Supports Remote Storage')]
-  [FlagName(FILE_RETURNS_CLEANUP_RESULT_INFO, 'Returns Cleanup Result Info')]
-  [FlagName(FILE_SUPPORTS_POSIX_UNLINK_RENAME, 'Supports Posix Unlink Rename')]
-  [FlagName(FILE_VOLUME_IS_COMPRESSED, 'Volume Is Compressed')]
-  [FlagName(FILE_SUPPORTS_OBJECT_IDS, 'Supports Object IDs')]
-  [FlagName(FILE_SUPPORTS_ENCRYPTION, 'Supports Encryption')]
-  [FlagName(FILE_NAMED_STREAMS, 'Named Streams')]
-  [FlagName(FILE_READ_ONLY_VOLUME, 'Read-only Volume')]
-  [FlagName(FILE_SEQUENTIAL_WRITE_ONCE, 'Sequential Write Once')]
-  [FlagName(FILE_SUPPORTS_TRANSACTIONS, 'Supports Transactions')]
-  [FlagName(FILE_SUPPORTS_HARD_LINKS, 'Supports Hardlinks')]
-  [FlagName(FILE_SUPPORTS_EXTENDED_ATTRIBUTES, 'Supports EA')]
-  [FlagName(FILE_SUPPORTS_OPEN_BY_FILE_ID, 'Supports Open By ID')]
-  [FlagName(FILE_SUPPORTS_USN_JOURNAL, 'Supports USN Journal')]
-  [FlagName(FILE_SUPPORTS_INTEGRITY_STREAMS, 'Supports Integrity Streams')]
-  [FlagName(FILE_SUPPORTS_BLOCK_REFCOUNTING, 'Supports Block Ref. Counting')]
-  [FlagName(FILE_SUPPORTS_SPARSE_VDL, 'Supports Sparse VDL')]
-  [FlagName(FILE_DAX_VOLUME, 'DAX Volume')]
-  [FlagName(FILE_SUPPORTS_GHOSTING, 'Supports Ghosting')]
-  TFileSystemAttributes = type Cardinal;
-
-  // ntifs.6994, info class 5
-  TFileFsAttributeInformation = record
-    FileSystemAttributes: TFileSystemAttributes;
-    MaximumComponentNameLength: Integer;
-    [Counter(ctBytes)] FileSystemNameLength: Cardinal;
-    FileSystemName: TAnysizeArray<WideChar>;
-  end;
-  PFileFsAttributeInformation = ^TFileFsAttributeInformation;
-
-  // ntifs.7032, info class 6
-  TFileFsControlInformation = record
-    FreeSpaceStartFiltering: UInt64;
-    FreeSpaceThreshold: UInt64;
-    FreeSpaceStopFiltering: UInt64;
-    DefaultQuotaThreshold: UInt64;
-    DefaultQuotaLimit: UInt64;
-    [Hex] FileSystemControlFlags: Cardinal; // FILE_VC_*
-  end;
-  PFileFsControlInformation = ^TFileFsControlInformation;
-
-  // ntddk.4741, info class 7
-  TFileFsFullSizeInformation = record
-    TotalAllocationUnits: UInt64;
-    CallerAvailableAllocationUnits: UInt64;
-    ActualAvailableAllocationUnits: UInt64;
-    SectorsPerAllocationUnit: Cardinal;
-    [Bytes] BytesPerSector: Cardinal;
-  end;
-  PFileFsFullSizeInformation = ^TFileFsFullSizeInformation;
-
-  // ntddk.4915, info class 8
-  TFileFsObjectIdInformation = record
-    ObjectID: TGuid;
-    ExtendedInfo: array [0..2] of TGuid;
-  end;
-  PFileFsObjectIdInformation = ^TFileFsObjectIdInformation;
-
-  // ntifs.7001, info class 9
-  TFileFsDriverPathInformation = record
-    DriverInPath: Boolean;
-    [Counter(ctBytes)] DriverNameLength: Cardinal;
-    DriverName: TAnysizeArray<WideChar>;
-  end;
-  PFileFsDriverPathInformation = ^TFileFsDriverPathInformation;
 
   // Notifications
 
@@ -1022,189 +861,299 @@ type
   end;
   PFileNotifyExtendedInformation = ^TFileNotifyExtendedInformation;
 
+{ Function }
+
 // ntifs.7068
-function NtCreateFile(out FileHandle: THandle; DesiredAccess: TAccessMask;
-  const ObjectAttributes: TObjectAttributes; out IoStatusBlock: TIoStatusBlock;
-  AllocationSize: PLargeInteger; FileAttributes: Cardinal; ShareAccess:
-  TFileShareMode; CreateDisposition: TFileDisposition; CreateOptions: Cardinal;
-  EaBuffer: Pointer; EaLength: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtCreateFile(
+  out FileHandle: THandle;
+  DesiredAccess: TAccessMask;
+  ObjectAttributes: PObjectAttributes;
+  out IoStatusBlock: TIoStatusBlock;
+  AllocationSize: PLargeInteger;
+  FileAttributes: TFileAttributes;
+  ShareAccess: TFileShareMode;
+  CreateDisposition: TFileDisposition;
+  CreateOptions: TFileOpenOptions;
+  EaBuffer: Pointer;
+  EaLength: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtCreateNamedPipeFile(out FileHandle: THandle; DesiredAccess:
-  TAccessMask; const ObjectAttributes: TObjectAttributes; out IoStatusBlock:
-  TIoStatusBlock; ShareAccess: TFileShareMode; CreateDisposition:
-  TFileDisposition; CreateOptions: Cardinal; NamedPipeType: Cardinal; ReadMode:
-  TFilePipeReadMode; CompletionMode: TFilePipeCompletion; MaximumInstances:
-  Cardinal; InboundQuota: Cardinal; OutboundQuota: Cardinal; DefaultTimeout:
-  PULargeInteger): NTSTATUS; stdcall; external ntdll;
+function NtCreateNamedPipeFile(
+  out FileHandle: THandle;
+  DesiredAccess: TAccessMask;
+  const ObjectAttributes: TObjectAttributes;
+  out IoStatusBlock: TIoStatusBlock;
+  ShareAccess: TFileShareMode;
+  CreateDisposition: TFileDisposition;
+  CreateOptions: TFileOpenOptions;
+  NamedPipeType: TFilePipeType;
+  ReadMode: TFilePipeReadMode;
+  CompletionMode: TFilePipeCompletion;
+  MaximumInstances: Cardinal;
+  InboundQuota: Cardinal;
+  OutboundQuota: Cardinal;
+  DefaultTimeout: PULargeInteger
+): NTSTATUS; stdcall; external ntdll;
 
-function NtCreateMailslotFile(out FileHandle: THandle; DesiredAccess:
-  TAccessMask; const ObjectAttributes: TObjectAttributes; out IoStatusBlock:
-  TIoStatusBlock; CreateOptions: Cardinal; MailslotQuota: Cardinal;
-  MaximumMessageSize: Cardinal; const [ref] ReadTimeout: TULargeInteger):
-  NTSTATUS; stdcall; external ntdll;
+function NtCreateMailslotFile(
+  out FileHandle: THandle;
+  DesiredAccess: TAccessMask;
+  const ObjectAttributes: TObjectAttributes;
+  out IoStatusBlock: TIoStatusBlock;
+  CreateOptions: TFileOpenOptions;
+  MailslotQuota: Cardinal;
+  MaximumMessageSize: Cardinal;
+  const [ref] ReadTimeout: TULargeInteger
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.7148
-function NtOpenFile(out FileHandle: THandle; DesiredAccess: TAccessMask;
-  const ObjectAttributes: TObjectAttributes; out IoStatusBlock: TIoStatusBlock;
-  ShareAccess: TFileShareMode; OpenOptions: Cardinal): NTSTATUS; stdcall;
-  external ntdll;
+function NtOpenFile(
+  out FileHandle: THandle;
+  DesiredAccess: TAccessMask;
+  ObjectAttributes: PObjectAttributes;
+  out IoStatusBlock: TIoStatusBlock;
+  ShareAccess: TFileShareMode;
+  OpenOptions: TFileOpenOptions
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.27829
-function NtDeleteFile(const ObjectAttributes: TObjectAttributes): NTSTATUS;
-  stdcall; external ntdll;
+function NtDeleteFile(
+  const ObjectAttributes: TObjectAttributes
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.28249
-function NtFlushBuffersFile(FileHandle: THandle; out IoStatusBlock:
-  TIoStatusBlock): NTSTATUS; stdcall; external ntdll;
+function NtFlushBuffersFile(
+  FileHandle: THandle;
+  out IoStatusBlock: TIoStatusBlock
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.7202
-function NtQueryInformationFile(FileHandle: THandle; out IoStatusBlock:
-  TIoStatusBlock; FileInformation: Pointer; Length: Cardinal;
-  FileInformationClass: TFileInformationClass): NTSTATUS; stdcall;
-  external ntdll;
+function NtQueryInformationFile(
+  FileHandle: THandle;
+  IoStatusBlock: PIoStatusBlock;
+  FileInformation: Pointer;
+  Length: Cardinal;
+  FileInformationClass: TFileInformationClass
+): NTSTATUS; stdcall; external ntdll;
 
 // wdm.40673, Win 10 RS2+
-function NtQueryInformationByName(const ObjectAttributes: TObjectAttributes;
-  out IoStatusBlock: TIoStatusBlock; FileInformation: Pointer; Length: Cardinal;
-  FileInformationClass: TFileInformationClass): NTSTATUS; stdcall;
-  external ntdll delayed;
+function NtQueryInformationByName(
+  const ObjectAttributes: TObjectAttributes;
+  out IoStatusBlock: TIoStatusBlock;
+  FileInformation: Pointer;
+  Length: Cardinal;
+  FileInformationClass: TFileInformationClass
+): NTSTATUS; stdcall; external ntdll delayed;
 
 // ntifs.7269
-function NtSetInformationFile(FileHandle: THandle; out IoStatusBlock:
-  TIoStatusBlock; FileInformation: Pointer; Length: Cardinal;
-  FileInformationClass: TFileInformationClass): NTSTATUS; stdcall;
-  external ntdll;
+function NtSetInformationFile(
+  FileHandle: THandle;
+  IoStatusBlock: PIoStatusBlock;
+  FileInformation: Pointer;
+  Length: Cardinal;
+  FileInformationClass: TFileInformationClass
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.7162
-function NtQueryDirectoryFile(FileHandle: THandle; Event: THandle; ApcRoutine:
-  TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock: TIoStatusBlock;
-  FileInformation: Pointer; Length: Cardinal; FileInformationClass:
-  TFileInformationClass; ReturnSingleEntry: Boolean; FileName: PNtUnicodeString;
-  RestartScan: Boolean): NTSTATUS; stdcall; external ntdll;
+function NtQueryDirectoryFile(
+  FileHandle: THandle;
+  Event: THandle;
+  ApcRoutine: TIoApcRoutine;
+  ApcContext: Pointer;
+  out IoStatusBlock: TIoStatusBlock;
+  FileInformation: Pointer;
+  Length: Cardinal;
+  FileInformationClass: TFileInformationClass;
+  ReturnSingleEntry: Boolean;
+  FileName: PNtUnicodeString;
+  RestartScan: Boolean
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.28270
-function NtQueryEaFile(FileHandle: THandle; out IoStatusBlock: TIoStatusBlock;
-  Buffer: Pointer; Length: Cardinal; ReturnSingleEntry: Boolean; EaList:
-  Pointer; EaListLength: Cardinal; EaIndex: PCardinal; RestartScan: Boolean):
-  NTSTATUS; stdcall; external ntdll;
+function NtQueryEaFile(
+  FileHandle: THandle;
+  out IoStatusBlock: TIoStatusBlock;
+  Buffer: Pointer;
+  Length: Cardinal;
+  ReturnSingleEntry: Boolean;
+  EaList: Pointer;
+  EaListLength: Cardinal;
+  EaIndex: PCardinal;
+  RestartScan: Boolean
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.28284
-function ZwSetEaFile(FileHandle: THandle; out IoStatusBlock: TIoStatusBlock;
-  Buffer: Pointer; Length: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtSetEaFile(
+  FileHandle: THandle;
+  out IoStatusBlock: TIoStatusBlock;
+  Buffer: Pointer;
+  Length: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.7217
-function NtQueryQuotaInformationFile(FileHandle: THandle; out IoStatusBlock:
-  TIoStatusBlock; Buffer: Pointer; Length: Cardinal; ReturnSingleEntry: Boolean;
-  SidList: Pointer; SidListLength: Cardinal; StartSid: PSid; RestartScan:
-  Boolean): NTSTATUS; stdcall; external ntdll;
+function NtQueryQuotaInformationFile(
+  FileHandle: THandle;
+  out IoStatusBlock: TIoStatusBlock;
+  Buffer: Pointer;
+  Length: Cardinal;
+  ReturnSingleEntry: Boolean;
+  SidList: Pointer;
+  SidListLength: Cardinal;
+  StartSid: PSid;
+  RestartScan: Boolean
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.7284
-function NtSetQuotaInformationFile(FileHandle: THandle; out IoStatusBlock:
-  TIoStatusBlock; Buffer: Pointer; Length: Cardinal): NTSTATUS; stdcall;
-  external ntdll;
+function NtSetQuotaInformationFile(
+  FileHandle: THandle;
+  out IoStatusBlock: TIoStatusBlock;
+  Buffer: Pointer;
+  Length: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
-// ntifs.7235
-function NtQueryVolumeInformationFile(FileHandle: THandle; out IoStatusBlock:
-  TIoStatusBlock; FsInformation: Pointer; Length: Cardinal; FsInformationClass:
-  TFsInfoClass): NTSTATUS; stdcall; external ntdll;
+function NtCancelIoFile(
+  FileHandle: THandle;
+  out IoStatusBlock: TIoStatusBlock
+): NTSTATUS; stdcall; external ntdll;
 
-// ntifs.7296
-function NtSetVolumeInformationFile(FileHandle: THandle; out IoStatusBlock:
-  TIoStatusBlock; FsInformation: Pointer; Length: Cardinal; FsInformationClass:
-  TFsInfoClass): NTSTATUS; stdcall; external ntdll;
+function NtCancelIoFileEx(
+  FileHandle: THandle;
+  IoRequestToCancel: PIoStatusBlock;
+  out IoStatusBlock: TIoStatusBlock
+): NTSTATUS; stdcall; external ntdll;
 
-function NtCancelIoFile(FileHandle: THandle; out IoStatusBlock: TIoStatusBlock):
-  NTSTATUS; stdcall; external ntdll;
-
-function NtCancelIoFileEx(FileHandle: THandle; IoRequestToCancel:
-  PIoStatusBlock; out IoStatusBlock: TIoStatusBlock): NTSTATUS; stdcall;
-  external ntdll;
-
-function NtCancelSynchronousIoFile(FileHandle: THandle; IoRequestToCancel:
-  PIoStatusBlock; out IoStatusBlock: TIoStatusBlock): NTSTATUS; stdcall;
-  external ntdll;
+function NtCancelSynchronousIoFile(
+  FileHandle: THandle;
+  IoRequestToCancel: PIoStatusBlock;
+  out IoStatusBlock: TIoStatusBlock
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.7090
-function NtDeviceIoControlFile(FileHandle: THandle; Event: THandle; ApcRoutine:
-  TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock: TIoStatusBlock;
-  IoControlCode: Cardinal; InputBuffer: Pointer; InputBufferLength: Cardinal;
-  OutputBuffer: Pointer; OutputBufferLength: Cardinal): NTSTATUS; stdcall;
-  external ntdll;
-
-// ntifs.7111
-function NtFsControlFile(FileHandle: THandle; Event: THandle; ApcRoutine:
-  TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock: TIoStatusBlock;
-  FsControlCode: Cardinal; InputBuffer: Pointer; InputBufferLength: Cardinal;
-  OutputBuffer: Pointer; OutputBufferLength: Cardinal): NTSTATUS; stdcall;
-  external ntdll;
+function NtDeviceIoControlFile(
+  FileHandle: THandle;
+  Event: THandle;
+  ApcRoutine: TIoApcRoutine;
+  ApcContext: Pointer;
+  IoStatusBlock: PIoStatusBlock;
+  IoControlCode: Cardinal;
+  InputBuffer: Pointer;
+  InputBufferLength: Cardinal;
+  OutputBuffer: Pointer;
+  OutputBufferLength: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.7249
-function NtReadFile(FileHandle: THandle; Event: THandle; ApcRoutine:
-  TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock: TIoStatusBlock; Buffer:
-  Pointer; Length: Cardinal; ByteOffset: PUInt64; Key: PCardinal): NTSTATUS;
-  stdcall; external ntdll;
+function NtReadFile(
+  FileHandle: THandle;
+  Event: THandle;
+  ApcRoutine: TIoApcRoutine;
+  ApcContext: Pointer;
+  IoStatusBlock: PIoStatusBlock;
+  Buffer: Pointer;
+  Length: Cardinal;
+  ByteOffset: PUInt64;
+  Key: PCardinal
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.7310
-function NtWriteFile(FileHandle: THandle; Event: THandle; ApcRoutine:
-  TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock: TIoStatusBlock; Buffer:
-  Pointer; Length: Cardinal; ByteOffset: PUInt64; Key: PCardinal): NTSTATUS;
-  stdcall; external ntdll;
+function NtWriteFile(
+  FileHandle: THandle;
+  Event: THandle;
+  ApcRoutine: TIoApcRoutine;
+  ApcContext: Pointer;
+  IoStatusBlock: PIoStatusBlock;
+  Buffer: Pointer;
+  Length: Cardinal;
+  ByteOffset: PUInt64;
+  Key: PCardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtReadFileScatter(FileHandle: THandle; Event: THandle; ApcRoutine:
-  TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock: TIoStatusBlock;
-  SegmentArray: TArray<TFileSegmentElement>; Length: Cardinal; ByteOffset:
-  PUInt64; Key: PCardinal): NTSTATUS; stdcall; external ntdll;
+function NtReadFileScatter(
+  FileHandle: THandle;
+  Event: THandle;
+  ApcRoutine: TIoApcRoutine;
+  ApcContext: Pointer;
+  out IoStatusBlock: TIoStatusBlock;
+  SegmentArray: TArray<TFileSegmentElement>;
+  Length: Cardinal;
+  ByteOffset: PUInt64;
+  Key: PCardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtWriteFileGather(FileHandle: THandle; Event: THandle; ApcRoutine:
-  TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock: TIoStatusBlock;
-  SegmentArray: TArray<TFileSegmentElement>; Length: Cardinal; ByteOffset:
-  PUInt64; Key: PCardinal): NTSTATUS; stdcall; external ntdll;
+function NtWriteFileGather(
+  FileHandle: THandle;
+  Event: THandle;
+  ApcRoutine: TIoApcRoutine;
+  ApcContext: Pointer;
+  out IoStatusBlock: TIoStatusBlock;
+  SegmentArray: TArray<TFileSegmentElement>;
+  Length: Cardinal;
+  ByteOffset: PUInt64;
+  Key: PCardinal
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.7129
-function NtLockFile(FileHandle: THandle; Event: THandle; ApcRoutine:
-  TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock: TIoStatusBlock;
-  const [ref] ByteOffset: UInt64; const [ref] Length: UInt64; Key: Cardinal;
-  FailImmediately: Boolean; ExclusiveLock: Boolean): NTSTATUS; stdcall;
-  external ntdll;
+function NtLockFile(
+  FileHandle: THandle;
+  Event: THandle;
+  ApcRoutine: TIoApcRoutine;
+  ApcContext: Pointer;
+  out IoStatusBlock: TIoStatusBlock;
+  const [ref] ByteOffset: UInt64;
+  const [ref] Length: UInt64;
+  Key: Cardinal;
+  FailImmediately: Boolean;
+  ExclusiveLock: Boolean
+): NTSTATUS; stdcall; external ntdll;
 
 // ntifs.7327
-function NtUnlockFile(FileHandle: THandle; Event: THandle; ApcRoutine:
-  TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock: TIoStatusBlock;
-  const [ref] ByteOffset: UInt64; const [ref] Length: UInt64; Key: Cardinal):
-  NTSTATUS; stdcall; external ntdll;
+function NtUnlockFile(
+  FileHandle: THandle;
+  Event: THandle;
+  ApcRoutine: TIoApcRoutine;
+  ApcContext: Pointer;
+  out IoStatusBlock: TIoStatusBlock;
+  const [ref] ByteOffset: UInt64;
+  const [ref] Length: UInt64;
+  Key: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtQueryAttributesFile(const ObjectAttributes: TObjectAttributes;
-  out FileInformation: TFileBasicInformation): NTSTATUS; stdcall;
-  external ntdll;
+function NtQueryAttributesFile(
+  const ObjectAttributes: TObjectAttributes;
+  out FileInformation: TFileBasicInformation
+): NTSTATUS; stdcall; external ntdll;
 
 // wdm.40689
-function NtQueryFullAttributesFile(const ObjectAttributes: TObjectAttributes;
-   out FileInformation: TFileNetworkOpenInformation): NTSTATUS; stdcall;
-   external ntdll;
+function NtQueryFullAttributesFile(
+  const ObjectAttributes: TObjectAttributes;
+  out FileInformation: TFileNetworkOpenInformation
+): NTSTATUS; stdcall; external ntdll;
 
-function NtNotifyChangeDirectoryFile(FileHandle: THandle; Event: THandle;
-  ApcRoutine: TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock:
-  TIoStatusBlock; Buffer: PFileNotifyInformation; Length: Cardinal;
-  CompletionFilter: Cardinal; WatchTree: Boolean): NTSTATUS; stdcall;
-  external ntdll;
+function NtNotifyChangeDirectoryFile(
+  FileHandle: THandle;
+  Event: THandle;
+  ApcRoutine: TIoApcRoutine;
+  ApcContext: Pointer;
+  out IoStatusBlock: TIoStatusBlock;
+  Buffer: PFileNotifyInformation;
+  Length: Cardinal;
+  CompletionFilter: Cardinal;
+  WatchTree: Boolean
+): NTSTATUS; stdcall; external ntdll;
 
-function NtNotifyChangeDirectoryFileEx(FileHandle: THandle; Event: THandle;
-  ApcRoutine: TIoApcRoutine; ApcContext: Pointer; out IoStatusBlock:
-  TIoStatusBlock; Buffer: Pointer; Length: Cardinal; CompletionFilter: Cardinal;
-  WatchTree: Boolean; DirectoryNotifyInformationClass:
-  TDirectoryNotifyInformationClass): NTSTATUS; stdcall; external ntdll;
-
-// ntifs.4578
-function CTL_CODE(DeviceType: TDeciveType; Func: Cardinal; Method:
-  TIoControlMethod; Access: Cardinal): Cardinal;
+function NtNotifyChangeDirectoryFileEx(
+  FileHandle: THandle;
+  Event: THandle;
+  ApcRoutine: TIoApcRoutine;
+  ApcContext: Pointer;
+  out IoStatusBlock: TIoStatusBlock;
+  Buffer: Pointer;
+  Length: Cardinal;
+  CompletionFilter: Cardinal;
+  WatchTree: Boolean;
+  DirectoryNotifyInformationClass: TDirectoryNotifyInformationClass
+): NTSTATUS; stdcall; external ntdll;
 
 implementation
-
-function CTL_CODE(DeviceType: TDeciveType; Func: Cardinal; Method:
-  TIoControlMethod; Access: Cardinal): Cardinal;
-begin
-  Result := (Cardinal(DeviceType) shl 16) or (Access shl 14) or (Func shl 2) or
-    Cardinal(Method);
-end;
 
 end.

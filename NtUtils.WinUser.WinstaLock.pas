@@ -147,9 +147,8 @@ begin
     Exit;
 
   // Write the assembly and its context into winlogon's memory
-  Result := RtlxAllocWriteDataCodeProcess(hxProcess, @Param,
-    SizeOf(Param), RemoteContext, @UsrxLockerAsm,
-    SizeOf(UsrxLockerAsm), RemoteCode);
+  Result := RtlxAllocWriteDataCodeProcess(hxProcess, TMemory.Reference(Param),
+    RemoteContext, TMemory.Reference(UsrxLockerAsm), RemoteCode);
 
   if not Result.IsSuccess then
     Exit;
@@ -162,9 +161,8 @@ begin
     Exit;
 
   // Sychronize with it. Prolong remote memory lifetime on timeout.
-  Result := RtlxSyncThreadProcess(hxProcess.Handle, hxThread.Handle,
-    'Winlogon::' + GetLockerFunctionName(Lock), Timeout, [RemoteCode,
-    RemoteContext]);
+  Result := RtlxSyncThread(hxThread.Handle, 'Winlogon::' +
+    GetLockerFunctionName(Lock), Timeout, [RemoteCode, RemoteContext]);
 end;
 
 end.

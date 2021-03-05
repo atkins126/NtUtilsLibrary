@@ -12,19 +12,22 @@ const
   DEFAULT_REMOTE_TIMEOUT = 5000 * MILLISEC;
 
 // Copy data & code into the process
-function RtlxAllocWriteDataCodeProcess(hxProcess: IHandle;
-  DataBuffer: Pointer; DataBufferSize: NativeUInt; out Data: IMemory;
-  CodeBuffer: Pointer; CodeBufferSize: NativeUInt; out Code: IMemory;
+function RtlxAllocWriteDataCodeProcess(hxProcess: IHandle; const Data: TMemory;
+  out RemoteData: IMemory; const Code: TMemory; out RemoteCode: IMemory;
   EnsureWoW64Accessible: Boolean = False): TNtxStatus;
 
 // Wait for a thread & forward it exit status. If the wait times out, prevent
 // the memory from automatic deallocation (the thread might still use it).
-function RtlxSyncThreadProcess(hProcess: THandle; hThread: THandle;
-  StatusLocation: String; Timeout: Int64 = NT_INFINITE;
-  MemoryToCapture: TArray<IMemory> = nil): TNtxStatus;
+function RtlxSyncThread(hThread: THandle; StatusLocation: String; Timeout:
+  Int64 = NT_INFINITE; MemoryToCapture: TArray<IMemory> = nil): TNtxStatus;
 
 // Check if a thread wait timed out
 function RtlxThreadSyncTimedOut(const Status: TNtxStatus): Boolean;
+
+// Copy the code into the target, execute it, and wait for completion
+function RtlxRemoteExecute(hxProcess: IHandle; const Code, Context: TMemory;
+  StatusLocation: String; TargetIsWow64: Boolean = False; Timeout: Int64 =
+  DEFAULT_REMOTE_TIMEOUT): TNtxStatus;
 
 { Export location }
 
@@ -48,30 +51,29 @@ uses
   Ntapi.ntdef, Ntapi.ntstatus, NtUtils.Processes.Memory, NtUtils.Threads,
   NtUtils.Ldr, NtUtils.ImageHlp, NtUtils.Sections, NtUtils.Objects;
 
-function RtlxAllocWriteDataCodeProcess(hxProcess: IHandle;
-  DataBuffer: Pointer; DataBufferSize: NativeUInt; out Data: IMemory;
-  CodeBuffer: Pointer; CodeBufferSize: NativeUInt; out Code: IMemory;
+function RtlxAllocWriteDataCodeProcess(hxProcess: IHandle; const Data: TMemory;
+  out RemoteData: IMemory; const Code: TMemory; out RemoteCode: IMemory;
   EnsureWoW64Accessible: Boolean): TNtxStatus;
 begin
-  // Copy data into the process
-  Result := NtxAllocWriteMemoryProcess(hxProcess, DataBuffer, DataBufferSize,
-    Data, EnsureWoW64Accessible);
+  // Copy RemoteData into the process
+  Result := NtxAllocWriteMemoryProcess(hxProcess, Data, RemoteData,
+    EnsureWoW64Accessible);
 
-  // Copy code into the process
+  // Copy RemoteCode into the process
   if Result.IsSuccess then
-    Result := NtxAllocWriteExecMemoryProcess(hxProcess, CodeBuffer,
-      CodeBufferSize, Code, EnsureWoW64Accessible);
+    Result := NtxAllocWriteExecMemoryProcess(hxProcess, Code, RemoteCode,
+      EnsureWoW64Accessible);
 
+  // Undo allocations on failure
   if not Result.IsSuccess then
   begin
-    Data := nil;
-    Code := nil;
+    RemoteData := nil;
+    RemoteCode := nil;
   end;
 end;
 
-function RtlxSyncThreadProcess(hProcess: THandle; hThread: THandle;
-  StatusLocation: String; Timeout: Int64; MemoryToCapture: TArray<IMemory>)
-  : TNtxStatus;
+function RtlxSyncThread(hThread: THandle; StatusLocation: String; Timeout:
+  Int64; MemoryToCapture: TArray<IMemory>): TNtxStatus;
 var
   Info: TThreadBasicInformation;
   i: Integer;
@@ -104,6 +106,30 @@ end;
 function RtlxThreadSyncTimedOut(const Status: TNtxStatus): Boolean;
 begin
   Result := Status.Matches(STATUS_WAIT_TIMEOUT, 'NtWaitForSingleObject')
+end;
+
+function RtlxRemoteExecute(hxProcess: IHandle; const Code, Context: TMemory;
+  StatusLocation: String; TargetIsWow64: Boolean; Timeout: Int64): TNtxStatus;
+var
+  RemoteCode, RemoteContext: IMemory;
+  hxThread: IHandle;
+begin
+  // Allocate and copy everything to the target
+  Result := RtlxAllocWriteDataCodeProcess(hxProcess, Context, RemoteContext,
+    Code, RemoteCode, TargetIsWow64);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Create a thread to execute the code
+  Result := NtxCreateThread(hxThread, hxProcess.Handle, RemoteCode.Data,
+    RemoteContext.Data);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Synchronize with the thread
+  Result := RtlxSyncThread(hxThread.Handle, StatusLocation, Timeout);
 end;
 
 function RtlxFindKnownDllExportsNative(DllName: String;

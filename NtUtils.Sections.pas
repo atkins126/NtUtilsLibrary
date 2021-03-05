@@ -8,13 +8,11 @@ uses
 // Create a section
 function NtxCreateSection(out hxSection: IHandle; hFile: THandle;
   MaximumSize: UInt64; PageProtection: Cardinal; AllocationAttributes:
-  Cardinal = SEC_COMMIT; ObjectName: String = ''; RootDirectory: THandle = 0;
-  HandleAttributes: Cardinal = 0): TNtxStatus;
+  Cardinal = SEC_COMMIT; ObjectAttributes: IObjectAttributes = nil): TNtxStatus;
 
 // Open a section
 function NtxOpenSection(out hxSection: IHandle; DesiredAccess: TAccessMask;
-  ObjectName: String; RootDirectory: THandle = 0; HandleAttributes
-  : Cardinal = 0): TNtxStatus;
+  ObjectName: String; ObjectAttributes: IObjectAttributes = nil): TNtxStatus;
 
 // Map a section
 function NtxMapViewOfSection(hSection: THandle; hProcess: THandle; var Memory:
@@ -49,8 +47,7 @@ function RtlxMapSystemDll(out hxSection: IHandle; DllName: String; WoW64:
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntioapi, Ntapi.ntpsapi, Ntapi.ntexapi,
-  NtUtils.Access.Expected, NtUtils.Files;
+  Ntapi.ntdef, Ntapi.ntioapi, Ntapi.ntpsapi, Ntapi.ntexapi, NtUtils.Files;
 
 type
   TLocalAutoSection = class(TCustomAutoMemory, IMemory)
@@ -59,44 +56,37 @@ type
 
 function NtxCreateSection(out hxSection: IHandle; hFile: THandle;
   MaximumSize: UInt64; PageProtection, AllocationAttributes: Cardinal;
-  ObjectName: String; RootDirectory: THandle; HandleAttributes: Cardinal)
-  : TNtxStatus;
+  ObjectAttributes: IObjectAttributes): TNtxStatus;
 var
   hSection: THandle;
-  ObjAttr: TObjectAttributes;
   pSize: PUInt64;
 begin
-  InitializeObjectAttributes(ObjAttr, TNtUnicodeString.From(
-    ObjectName).RefOrNull, HandleAttributes);
-
   if MaximumSize <> 0 then
     pSize := @MaximumSize
   else
     pSize := nil;
 
-  // TODO: Expected file handle access
   Result.Location := 'NtCreateSection';
-  Result.Status := NtCreateSection(hSection, SECTION_ALL_ACCESS, @ObjAttr,
-    pSize, PageProtection, AllocationAttributes, hFile);
+  Result.LastCall.Expects(ExpectedSectionFileAccess(PageProtection));
+
+  Result.Status := NtCreateSection(hSection, SECTION_ALL_ACCESS,
+    AttributesRefOrNil(ObjectAttributes), pSize, PageProtection,
+    AllocationAttributes, hFile);
 
   if Result.IsSuccess then
     hxSection := TAutoHandle.Capture(hSection);
 end;
 
 function NtxOpenSection(out hxSection: IHandle; DesiredAccess: TAccessMask;
-  ObjectName: String; RootDirectory: THandle; HandleAttributes: Cardinal):
-  TNtxStatus;
+  ObjectName: String; ObjectAttributes: IObjectAttributes): TNtxStatus;
 var
   hSection: THandle;
-  ObjAttr: TObjectAttributes;
 begin
-  InitializeObjectAttributes(ObjAttr, TNtUnicodeString.From(
-    ObjectName).RefOrNull, HandleAttributes, RootDirectory);
-
   Result.Location := 'NtOpenSection';
   Result.LastCall.AttachAccess<TSectionAccessMask>(DesiredAccess);
 
-  Result.Status := NtOpenSection(hSection, DesiredAccess, ObjAttr);
+  Result.Status := NtOpenSection(hSection, DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(ObjectName).ToNative);
 
   if Result.IsSuccess then
     hxSection := TAutoHandle.Capture(hSection);
@@ -106,7 +96,7 @@ function NtxMapViewOfSection(hSection: THandle; hProcess: THandle; var Memory:
   TMemory; Protection: Cardinal; SectionOffset: UInt64) : TNtxStatus;
 begin
   Result.Location := 'NtMapViewOfSection';
-  RtlxComputeSectionMapAccess(Result.LastCall, Protection);
+  Result.LastCall.Expects(ExpectedSectionMapAccess(Protection));
   Result.LastCall.Expects<TProcessAccessMask>(PROCESS_VM_OPERATION);
 
   Result.Status := NtMapViewOfSection(hSection, hProcess, Memory.Address, 0, 0,

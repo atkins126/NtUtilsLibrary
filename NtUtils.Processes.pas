@@ -17,18 +17,23 @@ function NtxCurrentProcess: IHandle;
 
 // Open a process (always succeeds for the current PID)
 function NtxOpenProcess(out hxProcess: IHandle; PID: TProcessId;
-  DesiredAccess: TAccessMask; HandleAttributes: Cardinal = 0): TNtxStatus;
+  DesiredAccess: TAccessMask; HandleAttributes: TObjectAttributesFlags = 0):
+  TNtxStatus;
 
 // Reopen a handle to the current process with the specific access
 function NtxOpenCurrentProcess(out hxProcess: IHandle;
-  DesiredAccess: TAccessMask; HandleAttributes: Cardinal = 0): TNtxStatus;
+  DesiredAccess: TAccessMask; HandleAttributes: TObjectAttributesFlags = 0):
+  TNtxStatus;
 
-// Suspend/resume a process
+// Suspend/resume/terminate a process
 function NtxSuspendProcess(hProcess: THandle): TNtxStatus;
 function NtxResumeProcess(hProcess: THandle): TNtxStatus;
-
-// Terminate a process
 function NtxTerminateProcess(hProcess: THandle; ExitCode: NTSTATUS): TNtxStatus;
+
+// Resume/terminate a process when the object goes out of scope
+function NtxDelayedResumeProcess(hxProcess: IHandle): IAutoReleasable;
+function NtxDelayedTerminateProcess(hxProcess: IHandle; ExitCode: NTSTATUS):
+  IAutoReleasable;
 
 implementation
 
@@ -50,7 +55,8 @@ begin
 end;
 
 function NtxOpenProcess(out hxProcess: IHandle; PID: TProcessId;
-  DesiredAccess: TAccessMask; HandleAttributes: Cardinal = 0): TNtxStatus;
+  DesiredAccess: TAccessMask; HandleAttributes: TObjectAttributesFlags = 0):
+  TNtxStatus;
 var
   hProcess: THandle;
   ClientId: TClientId;
@@ -78,7 +84,8 @@ begin
 end;
 
 function NtxOpenCurrentProcess(out hxProcess: IHandle;
-  DesiredAccess: TAccessMask; HandleAttributes: Cardinal): TNtxStatus;
+  DesiredAccess: TAccessMask; HandleAttributes: TObjectAttributesFlags):
+  TNtxStatus;
 var
   hProcess: THandle;
   Flags: Cardinal;
@@ -117,9 +124,30 @@ end;
 
 function NtxTerminateProcess(hProcess: THandle; ExitCode: NTSTATUS): TNtxStatus;
 begin
-  Result.Location := 'NtResumeProcesNtTerminateProcesss';
+  Result.Location := 'NtTerminateProcesss';
   Result.LastCall.Expects<TProcessAccessMask>(PROCESS_TERMINATE);
   Result.Status := NtTerminateProcess(hProcess, ExitCode);
+end;
+
+function NtxDelayedResumeProcess(hxProcess: IHandle): IAutoReleasable;
+begin
+  Result := TDelayedOperation.Create(
+    procedure
+    begin
+      NtxResumeProcess(hxProcess.Handle);
+    end
+  );
+end;
+
+function NtxDelayedTerminateProcess(hxProcess: IHandle; ExitCode: NTSTATUS):
+  IAutoReleasable;
+begin
+  Result := TDelayedOperation.Create(
+    procedure
+    begin
+      NtxTerminateProcess(hxProcess.Handle, ExitCode);
+    end
+  );
 end;
 
 end.

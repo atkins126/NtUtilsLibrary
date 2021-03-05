@@ -172,7 +172,7 @@ type
 
   [NamingStyle(nsCamelCase, 'System')]
   TSystemInformationClass = (
-    SystemBasicInformation = 0,
+    SystemBasicInformation = 0, // q: TSystemBasicInformation
     SystemProcessorInformation = 1,
     SystemPerformanceInformation = 2,
     SystemTimeOfDayInformation = 3,
@@ -183,7 +183,7 @@ type
     SystemProcessorPerformanceInformation = 8,
     SystemFlagsInformation = 9,
     SystemCallTimeInformation = 10,
-    SystemModuleInformation = 11,
+    SystemModuleInformation = 11, // q: TRtlProcessModules
     SystemLocksInformation = 12,
     SystemStackTraceInformation = 13,
     SystemPagedPoolInformation = 14,
@@ -249,7 +249,7 @@ type
     SystemWow64SharedInformationObsolete = 74,
     SystemRegisterFirmwareTableInformationHandler = 75,
     SystemFirmwareTableInformation = 76,
-    SystemModuleInformationEx = 77,
+    SystemModuleInformationEx = 77, // q: TRtlProcessModuleInformationEx
     SystemVerifierTriageInformation = 78,
     SystemSuperfetchInformation = 79,
     SystemMemoryListInformation = 80,
@@ -322,6 +322,21 @@ type
     SystemPortableWorkspaceEfiLauncherInformation = 147,
     SystemFullProcessInformation = 148 // q: TSystemExtendedProcessInformation + TSystemProcessInformationExtension
   );
+
+  // info class 0
+  TSystemBasicInformation = record
+    [Unlisted] Reserved: Cardinal;
+    TimerResolution: Cardinal;
+    [Bytes] PageSize: Cardinal;
+    NumberOfPhysicalPages: Cardinal;
+    LowestPhysicalPageNumber: Cardinal;
+    HighestPhysicalPageNumber: Cardinal;
+    [Bytes] AllocationGranularity: Cardinal;
+    MinimumUserModeAddress: Pointer;
+    MaximumUserModeAddress: Pointer;
+    [Hex] ActiveProcessorsAffinityMask: NativeUInt;
+    NumberOfProcessors: Byte;
+  end;
 
   TSystemThreadInformation = record
     KernelTime: TLargeInteger;
@@ -515,7 +530,7 @@ type
     GrantedAccess: TAccessMask;
     CreatorBackTraceIndex: Word;
     ObjectTypeIndex: Word;
-    [Hex] HandleAttributes: Cardinal;
+    HandleAttributes: TObjectAttributesFlags;
     [Unlisted] Reserved: Cardinal;
   end;
   PSystemHandleTableEntryInfoEx = ^TSystemHandleTableEntryInfoEx;

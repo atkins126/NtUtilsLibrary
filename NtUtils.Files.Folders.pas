@@ -17,8 +17,9 @@ type
   // Note: ContinuePropagation applies only to folders and allows callers can
   // explicitly cancel traversing of specific locations, as well as enable it
   // back when skipping reparse points.
-  TFileCallback = function(const FileInfo: TFolderContentInfo; Root: IHandle;
-    RootName: String; var ContinuePropagation: Boolean): TNtxStatus;
+  TFileCallback = reference to function(const FileInfo: TFolderContentInfo;
+    Root: IHandle; RootName: String; var ContinuePropagation: Boolean):
+    TNtxStatus;
 
   TFileTraverseOptions = set of (ftInvokeOnFiles, ftInvokeOnFolders,
     ftIgnoreCallbackFailures, ftIgnoreTraverseFailures, ftSkipReparsePoints);
@@ -116,8 +117,8 @@ begin
   // Open the folder if necessary. Can happen only on the top of the hierarchy.
   if not Assigned(hxFolder) then
   begin
-    Result := NtxOpenFile(hxFolder, FILE_LIST_DIRECTORY, Path, 0, FILE_SHARE_ALL,
-      FILE_DIRECTORY_FILE);
+    Result := NtxOpenFile(hxFolder, FILE_LIST_DIRECTORY, Path, nil,
+      FILE_SHARE_ALL, FILE_DIRECTORY_FILE);
 
     if not Result.IsSuccess then
       Exit;
@@ -129,7 +130,7 @@ begin
   if not Result.IsSuccess then
   begin
     // Allow skipping this folder if we cannot enumerate it
-    if not (ftIgnoreTraverseFailures in Options) then
+    if ftIgnoreTraverseFailures in Options then
       Result.Status := STATUS_MORE_ENTRIES;
 
     Exit;
@@ -165,7 +166,7 @@ begin
     if IsFolder and ContinuePropagation and (MaxDepth > 0) then
     begin
       Result := NtxOpenFile(hxSubFolder, FILE_LIST_DIRECTORY, Files[i].Name,
-        hxFolder.Handle);
+        AttributeBuilder.UseRoot(hxFolder), FILE_SHARE_ALL, FILE_DIRECTORY_FILE);
 
       if not Result.IsSuccess then
       begin

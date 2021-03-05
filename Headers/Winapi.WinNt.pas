@@ -175,6 +175,7 @@ type
   // 839, for absolute times
   TLargeInteger = type Int64;
   PLargeInteger = ^TLargeInteger;
+  TUnixTime = type Cardinal;
 
   // 859, for relative times
   TULargeInteger = type UInt64;
@@ -704,7 +705,7 @@ type
   TImageFileHeader = record
     [Hex] Machine: Word;
     NumberOfSections: Word;
-    TimeDateStamp: Cardinal;
+    TimeDateStamp: TUnixTime;
     [Hex] PointerToSymbolTable: Cardinal;
     NumberOfSymbols: Cardinal;
     [Hex, Bytes] SizeOfOptionalHeader: Word;
@@ -868,7 +869,7 @@ type
   // 17982
   TImageExportDirectory = record
     [Hex] Characteristics: Cardinal;
-    TimeDateStamp: Cardinal;
+    TimeDateStamp: TUnixTime;
     MajorVersion: Word;
     MinorVersion: Word;
     Name: Cardinal;
@@ -891,7 +892,7 @@ type
   // 18104
   TImageImportDescriptor = record
     [Hex] OriginalFirstThunk: Cardinal;
-    TimeDateStamp: Cardinal;
+    TimeDateStamp: TUnixTime;
     [Hex] ForwarderChain: Cardinal;
     [Hex] Name: Cardinal;
     [Hex] FirstThunk: Cardinal;
@@ -907,7 +908,7 @@ type
     [Hex] ImportNameTableRVA: Cardinal;
     [Hex] BoundImportAddressTableRVA: Cardinal;
     [Hex] UnloadInformationTableRVA: Cardinal;
-    TimeDateStamp: Cardinal;
+    TimeDateStamp: TUnixTime;
   end;
   PImageDelayLoadDescriptor = ^TImageDelayLoadDescriptor;
 
@@ -1171,6 +1172,10 @@ function TimeoutToLargeInteger(var Timeout: Int64): PLargeInteger; inline;
 function DateTimeToLargeInteger(DateTime: TDateTime): TLargeInteger;
 function LargeIntegerToDateTime(QuadPart: TLargeInteger): TDateTime;
 
+// Expected access masks when accessing security
+function SecurityReadAccess(Info: TSecurityInformation): TAccessMask;
+function SecurityWriteAccess(Info: TSecurityInformation): TAccessMask;
+
 implementation
 
 { TSidIdentifierAuthority }
@@ -1236,6 +1241,50 @@ function LargeIntegerToDateTime(QuadPart: TLargeInteger): TDateTime;
 begin
   {$Q-}Result := (QuadPart - USER_SHARED_DATA.TimeZoneBias.QuadPart) /
     NATIVE_TIME_DAY - DAYS_FROM_1601;{$Q+}
+end;
+
+function SecurityReadAccess(Info: TSecurityInformation): TAccessMask;
+const
+  REQUIRE_READ_CONTROL = OWNER_SECURITY_INFORMATION or
+    GROUP_SECURITY_INFORMATION or DACL_SECURITY_INFORMATION or
+    LABEL_SECURITY_INFORMATION or ATTRIBUTE_SECURITY_INFORMATION or
+    SCOPE_SECURITY_INFORMATION or BACKUP_SECURITY_INFORMATION;
+
+  REQUIRE_SYSTEM_SECURITY = SACL_SECURITY_INFORMATION or
+    BACKUP_SECURITY_INFORMATION;
+begin
+  Result := 0;
+
+  if Info and REQUIRE_READ_CONTROL <> 0 then
+    Result := Result or READ_CONTROL;
+
+  if Info and REQUIRE_SYSTEM_SECURITY <> 0 then
+    Result := Result or ACCESS_SYSTEM_SECURITY;
+end;
+
+function SecurityWriteAccess(Info: TSecurityInformation): TAccessMask;
+const
+  REQUIRE_WRITE_DAC = DACL_SECURITY_INFORMATION or
+    ATTRIBUTE_SECURITY_INFORMATION or BACKUP_SECURITY_INFORMATION or
+    PROTECTED_DACL_SECURITY_INFORMATION or UNPROTECTED_DACL_SECURITY_INFORMATION;
+
+  REQUIRE_WRITE_OWNER = OWNER_SECURITY_INFORMATION or GROUP_SECURITY_INFORMATION
+    or LABEL_SECURITY_INFORMATION or BACKUP_SECURITY_INFORMATION;
+
+  REQUIRE_SYSTEM_SECURITY = SACL_SECURITY_INFORMATION or
+    SCOPE_SECURITY_INFORMATION or BACKUP_SECURITY_INFORMATION or
+    PROTECTED_SACL_SECURITY_INFORMATION or UNPROTECTED_SACL_SECURITY_INFORMATION;
+begin
+  Result := 0;
+
+  if Info and REQUIRE_WRITE_DAC <> 0 then
+    Result := Result or WRITE_DAC;
+
+  if Info and REQUIRE_WRITE_OWNER <> 0 then
+    Result := Result or WRITE_OWNER;
+
+  if Info and REQUIRE_SYSTEM_SECURITY <> 0 then
+    Result := Result or ACCESS_SYSTEM_SECURITY;
 end;
 
 end.

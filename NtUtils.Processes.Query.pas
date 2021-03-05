@@ -114,8 +114,9 @@ implementation
 
 uses
   Ntapi.ntdef, Ntapi.ntexapi, Ntapi.ntrtl, Ntapi.ntstatus, Ntapi.ntpebteb,
-  NtUtils.Access.Expected, NtUtils.Processes, NtUtils.Processes.Memory,
-  NtUtils.Security.Sid, NtUtils.System, DelphiUtils.AutoObject;
+  Ntapi.ntseapi, Ntapi.ntobapi, Ntapi.ntioapi, NtUtils.Processes,
+  NtUtils.Processes.Memory, NtUtils.Security.Sid, NtUtils.System,
+  DelphiUtils.AutoObject;
 
 function NtxQueryProcess(hProcess: THandle; InfoClass: TProcessInfoClass;
   out xMemory: IMemory; InitialBuffer: Cardinal; GrowthMethod:
@@ -125,7 +126,13 @@ var
 begin
   Result.Location := 'NtQueryInformationProcess';
   Result.LastCall.AttachInfoClass(InfoClass);
-  RtlxComputeProcessQueryAccess(Result.LastCall, InfoClass);
+  Result.LastCall.Expects(ExpectedProcessQueryAccess(InfoClass));
+
+  // Additional expected access
+  case InfoClass of
+    ProcessImageFileMapping:
+      Result.LastCall.Expects<TIoFileAccessMask>(FILE_EXECUTE or SYNCHRONIZE);
+  end;
 
   xMemory := TAutoMemory.Allocate(InitialBuffer);
   repeat
@@ -140,7 +147,21 @@ function NtxSetProcess(hProcess: THandle; InfoClass: TProcessInfoClass;
 begin
   Result.Location := 'NtSetInformationProcess';
   Result.LastCall.AttachInfoClass(InfoClass);
-  RtlxComputeProcessSetAccess(Result.LastCall, InfoClass);
+  Result.LastCall.Expects(ExpectedProcessSetAccess(InfoClass));
+  Result.LastCall.ExpectedPrivilege := ExpectedProcessSetPrivilege(InfoClass);
+
+  // Additional expected access
+  case InfoClass of
+    ProcessAccessToken:
+      Result.LastCall.Expects<TTokenAccessMask>(TOKEN_ASSIGN_PRIMARY);
+
+    ProcessDeviceMap:
+      Result.LastCall.Expects<TDirectoryAccessMask>(DIRECTORY_TRAVERSE);
+
+    ProcessCombineSecurityDomainsInformation:
+      Result.LastCall.Expects<TProcessAccessMask>(
+        PROCESS_QUERY_LIMITED_INFORMATION);
+  end;
 
   Result.Status := NtSetInformationProcess(hProcess, InfoClass, Data, DataSize);
 end;
@@ -150,7 +171,13 @@ class function NtxProcess.Query<T>(hProcess: THandle;
 begin
   Result.Location := 'NtQueryInformationProcess';
   Result.LastCall.AttachInfoClass(InfoClass);
-  RtlxComputeProcessQueryAccess(Result.LastCall, InfoClass);
+  Result.LastCall.Expects(ExpectedProcessQueryAccess(InfoClass));
+
+  // Additional expected access
+  case InfoClass of
+    ProcessImageFileMapping:
+      Result.LastCall.Expects<TIoFileAccessMask>(FILE_EXECUTE or SYNCHRONIZE);
+  end;
 
   Result.Status := NtQueryInformationProcess(hProcess, InfoClass, @Buffer,
     SizeOf(Buffer), nil);
@@ -186,15 +213,20 @@ var
   xMemory: IMemory;
   Data: TSystemProcessIdInformation;
 begin
-  // On input we specify PID and string buffer size
+  // On input, specify the PID and the buffer for the string
   Data.ProcessId := PID;
   Data.ImageName.Length := 0;
-  Data.ImageName.MaximumLength := Word(-2);
+  Data.ImageName.MaximumLength := $100;
 
-  xMemory := TAutoMemory.Allocate(Data.ImageName.MaximumLength);
-  Data.ImageName.Buffer := xMemory.Data;
+  repeat
+    xMemory := TAutoMemory.Allocate(Data.ImageName.MaximumLength);
+    Data.ImageName.Buffer := xMemory.Data;
 
-  Result := NtxSystem.Query(SystemProcessIdInformation, Data);
+    Result := NtxSystem.Query(SystemProcessIdInformation, Data);
+
+    // If necessary, repeat using the correct value the system put into
+    // MaximumLength
+  until Result.Status <> STATUS_INFO_LENGTH_MISMATCH;
 
   if Result.IsSuccess then
     ImageName := Data.ImageName.ToString;
@@ -302,7 +334,7 @@ begin
 
       // Read the string content
       Result := NtxReadMemoryProcess(hProcess, Pointer(StringData32.Buffer),
-        xMemory.Data, xMemory.Size);
+        xMemory.Region);
 
       // Save the string content
       if Result.IsSuccess then
@@ -370,8 +402,8 @@ begin
       IMemory(xMemory) := TAutoMemory.Allocate(StringData.Length);
 
       // Read the string content
-      Result := NtxReadMemoryProcess(hProcess, StringData.Buffer, xMemory.Data,
-        xMemory.Size);
+      Result := NtxReadMemoryProcess(hProcess, StringData.Buffer,
+        xMemory.Region);
 
       if Result.IsSuccess then
         SetString(PebString, xMemory.Data, xMemory.Size div SizeOf(WideChar));

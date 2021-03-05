@@ -3,7 +3,8 @@ unit NtUtils.Files;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntioapi, NtUtils, NtUtils.Objects, DelphiApi.Reflection;
+  Winapi.WinNt, Ntapi.ntioapi, Ntapi.ntdef, DelphiApi.Reflection, NtUtils,
+  DelphiUtils.AutoObject, DelphiUtils.Async;
 
 type
   TFileStreamInfo = record
@@ -22,11 +23,6 @@ type
 // Convert a Win32 path to an NT path
 function RtlxDosPathToNtPath(DosPath: String; out NtPath: String): TNtxStatus;
 function RtlxDosPathToNtPathVar(var Path: String): TNtxStatus;
-function RtlxDosPathToNtPathUnsafe(Path: String): String;
-
-// Convert an NT path to a Win32 path
-// TODO: Add safe NT to Win32 path conversion
-function RtlxNtPathToDosPathUnsafe(Path: String): String;
 
 // Get current path
 function RtlxGetCurrentPath(out CurrentPath: String): TNtxStatus;
@@ -38,24 +34,40 @@ function RtlxSetCurrentPath(CurrentPath: String): TNtxStatus;
 { Open & Create }
 
 // Create/open a file
-function NtxCreateFile(out hxFile: IHandle; DesiredAccess: THandle;
-  FileName: String; Root: THandle = 0; CreateDisposition: TFileDisposition =
-  FILE_CREATE; ShareAccess: TFileShareMode = FILE_SHARE_ALL; CreateOptions:
-  Cardinal = 0; FileAttributes: Cardinal = FILE_ATTRIBUTE_NORMAL;
-  HandleAttributes: Cardinal = 0; ActionTaken: PCardinal = nil): TNtxStatus;
+function NtxCreateFile(out hxFile: IHandle; DesiredAccess: THandle; FileName:
+  String; CreateDisposition: TFileDisposition; ShareAccess: TFileShareMode =
+  FILE_SHARE_ALL; CreateOptions: TFileOpenOptions =
+  FILE_SYNCHRONOUS_IO_NONALERT; ObjectAttributes: IObjectAttributes = nil;
+  FileAttributes: TFileAttributes = FILE_ATTRIBUTE_NORMAL; ActionTaken:
+  PFileIoStatusResult = nil): TNtxStatus;
 
 // Open a file
 function NtxOpenFile(out hxFile: IHandle; DesiredAccess: TAccessMask;
-  FileName: String; Root: THandle = 0; ShareAccess: TFileShareMode =
-  FILE_SHARE_ALL; OpenOptions: Cardinal = 0; HandleAttributes: Cardinal = 0):
-  TNtxStatus;
+  FileName: String; ObjectAttributes: IObjectAttributes = nil; ShareAccess:
+  TFileShareMode = FILE_SHARE_ALL; OpenOptions: TFileOpenOptions =
+  FILE_SYNCHRONOUS_IO_NONALERT): TNtxStatus;
 
 // Open a file by ID
 function NtxOpenFileById(out hxFile: IHandle; DesiredAccess: TAccessMask;
-  FileId: Int64; Root: THandle = 0; ShareAccess: TFileShareMode =
-  FILE_SHARE_ALL; HandleAttributes: Cardinal = 0): TNtxStatus;
+  const FileId: Int64; Root: THandle; ShareAccess: TFileShareMode =
+  FILE_SHARE_ALL; OpenOptions: TFileOpenOptions = FILE_SYNCHRONOUS_IO_NONALERT;
+  HandleAttributes: TObjectAttributesFlags = 0): TNtxStatus;
 
 { Operations }
+
+// Synchronously wait for a completion of an operation on an asynchronous handle
+procedure AwaitFileOperation(var Result: TNtxStatus; hFile: THandle;
+  xIoStatusBlock: IMemory<PIoStatusBlock>);
+
+// Read from a file into a buffer
+function NtxReadFile(hFile: THandle; Buffer: Pointer; BufferSize: Cardinal;
+  Offset: UInt64 = FILE_USE_FILE_POINTER_POSITION; AsyncCallback:
+  TAnonymousApcCallback = nil): TNtxStatus;
+
+// Write to a file from a buffer
+function NtxWriteFile(hFile: THandle; Buffer: Pointer; BufferSize: Cardinal;
+  Offset: UInt64 = FILE_USE_FILE_POINTER_POSITION; AsyncCallback:
+  TAnonymousApcCallback = nil): TNtxStatus;
 
 // Rename a file
 function NtxRenameFile(hFile: THandle; NewName: String;
@@ -111,8 +123,7 @@ function NtxEnumerateUsingProcessesFile(hFile: THandle;
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntrtl, Ntapi.ntpebteb,
-  DelphiUtils.AutoObject;
+  Ntapi.ntstatus, Ntapi.ntrtl, Ntapi.ntpebteb, NtUtils.Objects;
 
 { Paths }
 
@@ -143,16 +154,6 @@ begin
     Path := NtPath;
 end;
 
-function RtlxDosPathToNtPathUnsafe(Path: String): String;
-begin
-  Result := '\??\' + Path;
-end;
-
-function RtlxNtPathToDosPathUnsafe(Path: String): String;
-begin
-  Result := '\\.\Global\GLOBALROOT' + Path;
-end;
-
 function RtlxGetCurrentPath(out CurrentPath: String): TNtxStatus;
 var
   xMemory: IMemory<PWideChar>;
@@ -179,55 +180,61 @@ end;
 
 { Open & Create }
 
-function NtxCreateFile(out hxFile: IHandle; DesiredAccess: THandle;
-  FileName: String; Root: THandle; CreateDisposition: TFileDisposition;
-  ShareAccess: TFileShareMode; CreateOptions: Cardinal; FileAttributes:
-  Cardinal; HandleAttributes: Cardinal; ActionTaken: PCardinal): TNtxStatus;
+function NtxCreateFile(out hxFile: IHandle; DesiredAccess: THandle; FileName:
+  String; CreateDisposition: TFileDisposition; ShareAccess: TFileShareMode;
+  CreateOptions: TFileOpenOptions; ObjectAttributes: IObjectAttributes;
+  FileAttributes: TFileAttributes; ActionTaken: PFileIoStatusResult):
+  TNtxStatus;
 var
   hFile: THandle;
-  ObjAttr: TObjectAttributes;
   IoStatusBlock: TIoStatusBlock;
 begin
-  InitializeObjectAttributes(ObjAttr, TNtUnicodeString.From(FileName).RefOrNull,
-    HandleAttributes, Root);
+  // Synchronious operations fail without SYNCHRONIZE right,
+  // asynchronious handles are useless without it as well.
+  DesiredAccess := DesiredAccess or SYNCHRONIZE;
 
   Result.Location := 'NtCreateFile';
   Result.LastCall.AttachAccess<TFileAccessMask>(DesiredAccess);
 
-  Result.Status := NtCreateFile(hFile, DesiredAccess, ObjAttr, IoStatusBlock,
-    nil, FileAttributes, ShareAccess, CreateDisposition, CreateOptions, nil, 0);
+  Result.Status := NtCreateFile(hFile, DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(FileName).ToNative,
+    IoStatusBlock, nil, FileAttributes, ShareAccess, CreateDisposition,
+    CreateOptions, nil, 0);
 
   if Result.IsSuccess then
+  begin
     hxFile := TAutoHandle.Capture(hFile);
 
-  if Result.IsSuccess and Assigned(ActionTaken) then
-    ActionTaken^ := Cardinal(IoStatusBlock.Information);
+    if Assigned(ActionTaken) then
+      ActionTaken^ := TFileIoStatusResult(IoStatusBlock.Information);
+  end;
 end;
 
 function NtxOpenFile(out hxFile: IHandle; DesiredAccess: TAccessMask;
-  FileName: String; Root: THandle; ShareAccess: TFileShareMode; OpenOptions:
-  Cardinal; HandleAttributes: Cardinal): TNtxStatus;
+  FileName: String; ObjectAttributes: IObjectAttributes; ShareAccess:
+  TFileShareMode; OpenOptions: TFileOpenOptions): TNtxStatus;
 var
   hFile: THandle;
-  ObjAttr: TObjectAttributes;
   IoStatusBlock: TIoStatusBlock;
 begin
-  InitializeObjectAttributes(ObjAttr, TNtUnicodeString.From(FileName).RefOrNull,
-    HandleAttributes, Root);
+  // Synchronious opens fail without SYNCHRONIZE right,
+  // asynchronious handles are useless without it as well.
+  DesiredAccess := DesiredAccess or SYNCHRONIZE;
 
   Result.Location := 'NtOpenFile';
   Result.LastCall.AttachAccess<TFileAccessMask>(DesiredAccess);
 
-  Result.Status := NtOpenFile(hFile, DesiredAccess, ObjAttr, IoStatusBlock,
-    ShareAccess, OpenOptions);
+  Result.Status := NtOpenFile(hFile, DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(FileName).ToNative,
+    IoStatusBlock, ShareAccess, OpenOptions);
 
   if Result.IsSuccess then
     hxFile := TAutoHandle.Capture(hFile);
 end;
 
 function NtxOpenFileById(out hxFile: IHandle; DesiredAccess: TAccessMask;
-  FileId: Int64; Root: THandle; ShareAccess: TFileShareMode; HandleAttributes:
-  Cardinal): TNtxStatus;
+  const FileId: Int64; Root: THandle; ShareAccess: TFileShareMode; OpenOptions:
+  TFileOpenOptions; HandleAttributes: TObjectAttributesFlags): TNtxStatus;
 var
   hFile: THandle;
   ObjName: TNtUnicodeString;
@@ -243,14 +250,79 @@ begin
   Result.Location := 'NtOpenFile';
   Result.LastCall.AttachAccess<TFileAccessMask>(DesiredAccess);
 
-  Result.Status := NtOpenFile(hFile, DesiredAccess, ObjAttr, IoStatusBlock,
-    ShareAccess, FILE_OPEN_BY_FILE_ID or FILE_SYNCHRONOUS_IO_NONALERT);
+  Result.Status := NtOpenFile(hFile, DesiredAccess, @ObjAttr, IoStatusBlock,
+    ShareAccess, OpenOptions or FILE_OPEN_BY_FILE_ID);
 
   if Result.IsSuccess then
     hxFile := TAutoHandle.Capture(hFile);
 end;
 
 { Operations }
+
+procedure AwaitFileOperation(var Result: TNtxStatus; hFile: THandle;
+  xIoStatusBlock: IMemory<PIoStatusBlock>);
+begin
+  // When performing a synchronous operation on an asynchronous handle, we
+  // must wait for completion ourselves.
+
+  if Result.Status = STATUS_PENDING then
+  begin
+    Result := NtxWaitForSingleObject(hFile);
+
+    // On success, extract the status. On failure, the only option we
+    // have is to prolong the lifetime of the I/O status block indefinitely
+    // because we never know when the system will write to its memory.
+
+    if Result.IsSuccess then
+      Result.Status := xIoStatusBlock.Data.Status
+    else
+      xIoStatusBlock.AutoRelease := False;
+  end;
+end;
+
+function NtxReadFile(hFile: THandle; Buffer: Pointer; BufferSize: Cardinal;
+  Offset: UInt64; AsyncCallback: TAnonymousApcCallback): TNtxStatus;
+var
+  ApcContext: IAnonymousIoApcContext;
+  xIsb: IMemory<PIoStatusBlock>;
+begin
+  Result.Location := 'NtReadFile';
+  Result.LastCall.Expects<TIoFileAccessMask>(FILE_READ_DATA);
+
+  Result.Status := NtReadFile(hFile, 0, GetApcRoutine(AsyncCallback),
+    Pointer(ApcContext), PrepareApcIsbEx(ApcContext, AsyncCallback, xIsb),
+    Buffer, BufferSize, @Offset, nil);
+
+  // Keep the context alive until the callback executes
+  if Assigned(ApcContext) and Result.IsSuccess then
+    ApcContext._AddRef;
+
+  // Wait on asynchronous handles if no callback is available
+  if not Assigned(AsyncCallback) then
+    AwaitFileOperation(Result, hFile, xIsb);
+end;
+
+function NtxWriteFile(hFile: THandle; Buffer: Pointer; BufferSize: Cardinal;
+  Offset: UInt64; AsyncCallback: TAnonymousApcCallback): TNtxStatus;
+var
+  ApcContext: IAnonymousIoApcContext;
+  xIsb: IMemory<PIoStatusBlock>;
+begin
+  Result.Location := 'NtWriteFile';
+  Result.LastCall.Expects<TIoFileAccessMask>(FILE_WRITE_DATA);
+
+  Result.Status := NtWriteFile(hFile, 0, GetApcRoutine(AsyncCallback),
+    Pointer(ApcContext), PrepareApcIsbEx(ApcContext, AsyncCallback, xIsb),
+    Buffer, BufferSize, @Offset, nil);
+
+  // Keep the context alive until the callback executes
+  if Assigned(ApcContext) and Result.IsSuccess then
+    ApcContext._AddRef;
+
+  // Wait on asynchronous handles if no callback is available
+  if not Assigned(AsyncCallback) then
+    AwaitFileOperation(Result, hFile, xIsb);
+end;
 
 function NtxpSetRenameInfoFile(hFile: THandle; TargetName: String;
   ReplaceIfExists: Boolean; RootDirectory: THandle;
@@ -299,10 +371,11 @@ function NtxQueryFile(hFile: THandle; InfoClass: TFileInformationClass;
   out xMemory: IMemory; InitialBuffer: Cardinal; GrowthMethod:
   TBufferGrowthMethod): TNtxStatus;
 var
-  IoStatusBlock: TIoStatusBlock;
+  xIsb: IMemory<PIoStatusBlock>;
 begin
   Result.Location := 'NtQueryInformationFile';
   Result.LastCall.AttachInfoClass(InfoClass);
+  IMemory(xIsb) := TAutoMemory.Allocate(SizeOf(TIoStatusBlock));
 
   // NtQueryInformationFile does not return the required size. We either need
   // to know how to grow the buffer, or we should guess.
@@ -311,35 +384,48 @@ begin
 
   xMemory := TAutoMemory.Allocate(InitialBuffer);
   repeat
-    IoStatusBlock.Information := 0;
-    Result.Status := NtQueryInformationFile(hFile, IoStatusBlock, xMemory.Data,
+    xIsb.Data.Information := 0;
+
+    Result.Status := NtQueryInformationFile(hFile, xIsb.Data, xMemory.Data,
       xMemory.Size, InfoClass);
-  until not NtxExpandBufferEx(Result, xMemory, IoStatusBlock.Information,
+
+    // Wait on async handles
+    AwaitFileOperation(Result, hFile, xIsb);
+
+  until not NtxExpandBufferEx(Result, xMemory, xIsb.Data.Information,
     GrowthMethod);
 end;
 
 function NtxSetFile(hFile: THandle; InfoClass: TFileInformationClass;
   Buffer: Pointer; BufferSize: Cardinal): TNtxStatus;
 var
-  IoStatusBlock: TIoStatusBlock;
+  xIsb: IMemory<PIoStatusBlock>;
 begin
   Result.Location := 'NtSetInformationFile';
   Result.LastCall.AttachInfoClass(InfoClass);
+  IMemory(xIsb) := TAutoMemory.Allocate(SizeOf(TIoStatusBlock));
 
-  Result.Status := NtSetInformationFile(hFile, IoStatusBlock, Buffer,
+  Result.Status := NtSetInformationFile(hFile, xIsb.Data, Buffer,
     BufferSize, InfoClass);
+
+  // Wait on async handles
+  AwaitFileOperation(Result, hFile, xIsb);
 end;
 
 class function NtxFile.Query<T>(hFile: THandle;
   InfoClass: TFileInformationClass; out Buffer: T): TNtxStatus;
 var
-  IoStatusBlock: TIoStatusBlock;
+  xIsb: IMemory<PIoStatusBlock>;
 begin
   Result.Location := 'NtQueryInformationFile';
   Result.LastCall.AttachInfoClass(InfoClass);
+  IMemory(xIsb) := TAutoMemory.Allocate(SizeOf(TIoStatusBlock));
 
-  Result.Status := NtQueryInformationFile(hFile, IoStatusBlock, @Buffer,
+  Result.Status := NtQueryInformationFile(hFile, xIsb.Data, @Buffer,
     SizeOf(Buffer), InfoClass);
+
+  // Wait on async handles
+  AwaitFileOperation(Result, hFile, xIsb);
 end;
 
 class function NtxFile.SetInfo<T>(hFile: THandle;

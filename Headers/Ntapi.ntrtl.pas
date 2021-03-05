@@ -50,6 +50,12 @@ const
   HEAP_CREATE_ENABLE_TRACING = $00020000;
   HEAP_CREATE_ENABLE_EXECUTE = $00040000;
 
+  // WinUser.258, table id for RtlFindMessage
+  RT_MESSAGETABLE = 11;
+
+  MESSAGE_RESOURCE_UNICODE = $0001;
+  MESSAGE_RESOURCE_UTF8 = $0002;
+
 type
   PPEnvironment = ^PEnvironment;
 
@@ -155,6 +161,39 @@ type
   TUserThreadStartRoutine = function (ThreadParameter: Pointer): NTSTATUS;
     stdcall;
 
+  // Modules
+
+  TRtlProcessModuleInformation = record
+    Section: THandle;
+    MappedBase: Pointer;
+    ImageBase: Pointer;
+    [Bytes] ImageSize: Cardinal;
+    [Hex] Flags: Cardinal;
+    LoadOrderIndex: Word;
+    InitOrderIndex: Word;
+    LoadCount: Word;
+    [UnlistedAttribute] OffsetToFileName: Word;
+    FullPathName: array [Byte] of AnsiChar;
+  end;
+  PRtlProcessModuleInformation = ^TRtlProcessModuleInformation;
+
+  // system info class 11
+  TRtlProcessModules = record
+    NumberOfModules: Cardinal;
+    Modules: TAnysizeArray<TRtlProcessModuleInformation>;
+  end;
+  PRtlProcessModules = ^TRtlProcessModules;
+
+  // system info class 77
+  TRtlProcessModuleInformationEx = record
+    [Unlisted] NextOffset: Word;
+    [Aggregate] BaseInfo: TRtlProcessModuleInformation;
+    ImageChecksum: Cardinal;
+    TimeDateStamp: TUnixTime;
+    DefaultBase: Pointer;
+  end;
+  PRtlProcessModuleInformationEx = ^TRtlProcessModuleInformationEx;
+
   // Paths
 
   [NamingStyle(nsCamelCase, 'RtlPathType')]
@@ -168,6 +207,15 @@ type
     RtlPathTypeLocalDevice = 6,
     RtlPathTypeRootLocalDevice = 7
   );
+
+  // Messages
+
+  TMessageResourceEntry = record
+    Length: Word;
+    Flags: Word; // MESSAGE_RESOURCE_*
+    Text: TAnysizeArray<Byte>;
+  end;
+  PMessageResourceEntry = ^TMessageResourceEntry;
 
   // Time
 
@@ -413,6 +461,12 @@ function RtlGetCurrentTransaction: THandle; stdcall; external ntdll;
 
 function RtlSetCurrentTransaction(TransactionHandle: THandle): LongBool;
   stdcall; external ntdll;
+
+// Messages
+
+function RtlFindMessage(DllHandle: HMODULE; MessageTableId: Cardinal;
+  MessageLanguageId: Cardinal; MessageId: Cardinal; out MessageEntry:
+  PMessageResourceEntry): NTSTATUS; stdcall; external ntdll;
 
 // Errors
 
@@ -661,6 +715,27 @@ function memmove(Dst: Pointer; Src: Pointer; Size: NativeUInt): Pointer; cdecl;
 function memset(Dst: Pointer; Val: Cardinal; Size: NativeUInt): Pointer; cdecl;
   external ntdll;
 
+function wcscmp(StrA, StrB: PWideChar): Integer; cdecl; external ntdll;
+
+// Local debugging
+
+// wdm.21907
+procedure DbgBreakPoint; stdcall; external ntdll;
+
+// wdm.12963
+function DbgPrint(Format: PAnsiChar): NTSTATUS; cdecl; varargs; external ntdll;
+
+procedure DbgBreakOnFailure(Status: NTSTATUS);
+
 implementation
+
+uses
+  Ntapi.ntpebteb;
+
+procedure DbgBreakOnFailure(Status: NTSTATUS);
+begin
+  if not NT_SUCCESS(Status) and RtlGetCurrentPeb.BeingDebugged then
+    DbgBreakPoint;
+end;
 
 end.

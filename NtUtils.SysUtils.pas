@@ -18,14 +18,21 @@ function RtlxIntToStr(Value: Cardinal; Base: Cardinal = 10; Width: Cardinal = 0)
 function RtlxIntToStr(Value: UInt64; Base: Cardinal = 10; Width: Cardinal = 0)
   : String; overload;
 
+function RtlxStrToInt(var Value: Cardinal; S: String; Base: Cardinal = 10):
+  Boolean;
+
 // GUIDs
 
 function RtlxGuidToString(const Guid: TGuid): String;
 
+// Paths
+
+function RtlxNtPathToDosPath(Path: String): String;
+
 implementation
 
 uses
-  Ntapi.ntrtl, Ntapi.ntdef;
+  Winapi.WinNt, Ntapi.ntrtl, Ntapi.ntdef;
 
 procedure RtlxSetStringW(out S: String; Buffer: PWideChar; MaxLength: Cardinal);
 var
@@ -113,6 +120,12 @@ begin
     Result := '';
 end;
 
+function RtlxStrToInt(var Value: Cardinal; S: String; Base: Cardinal): Boolean;
+begin
+  Result := NT_SUCCESS(RtlUnicodeStringToInteger(TNtUnicodeString.From(S), Base,
+    Value));
+end;
+
 function RtlxGuidToString(const Guid: TGuid): String;
 var
   Str: TNtUnicodeString;
@@ -126,6 +139,26 @@ begin
   end
   else
     Result := '';
+end;
+
+function RtlxNtPathToDosPath(Path: String): String;
+const
+  DOS_DEVICES = '\??\';
+  SYSTEM_ROOT = '\SystemRoot';
+begin
+  Result := Path;
+
+  // Remove the DOS devices prefix
+  if RtlxPrefixString(DOS_DEVICES, Result) then
+    Delete(Result, Low(String), Length(DOS_DEVICES))
+
+  // Expand the SystemRoot symlink
+  else if RtlxPrefixString(SYSTEM_ROOT, Result) then
+    Result := USER_SHARED_DATA.NtSystemRoot + Copy(Result,
+      Succ(Length(SYSTEM_ROOT)), Length(Result))
+
+  // Otherwise, follow the symlink to the global root of the namespace
+  else Result := '\\.\Global\GLOBALROOT' + Path;
 end;
 
 end.

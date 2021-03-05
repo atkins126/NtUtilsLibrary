@@ -48,14 +48,23 @@ function SymxEnumSymbols(out Symbols: TArray<TSymbolEntry>; Module:
 function SymxEnumSymbolsFile(out Symbols: TArray<TSymbolEntry>; ImageName:
   String; LoadExternalSymbols: Boolean = True): TNtxStatus;
 
-// Find the nearest symbol to the corresponding RVA
-function SymxFindBestMatch(const Module: TModuleEntry; const Symbols:
-  TArray<TSymbolEntry>; RVA: UInt64): TBestMatchSymbol;
+// Enumerate symbols in a file caching the results
+function SymxCacheEnumSymbolsFile(FileName: String;
+  out Symbols: TArray<TSymbolEntry>): TNtxStatus;
+
+// Find the nearest symbol to the corresponding RVA in the module
+function SymxFindBestMatchModule(const Module: TModuleEntry; const Symbols:
+  TArray<TSymbolEntry>; const RVA: UInt64): TBestMatchSymbol;
+
+// Find the nearest symbol within the nearest module
+function SymxFindBestMatch(const Modules: TArray<TModuleEntry>;
+  const Address: Pointer): TBestMatchSymbol;
 
 implementation
 
 uses
-  Winapi.WinNt, DelphiUtils.AutoObject, NtUtils.Processes, NtUtils.SysUtils;
+  Winapi.WinNt, Ntapi.ntrtl, Ntapi.ntstatus, DelphiUtils.AutoObject,
+  NtUtils.Processes, NtUtils.SysUtils, DelphiUtils.Arrays;
 
 type
   TAutoSymbolContext = class (TCustomAutoReleasable, ISymbolContext)
@@ -132,7 +141,12 @@ begin
     Result := Result + '!' + Symbol.Name;
 
   if Offset <> 0 then
-    Result := Result + '+' + RtlxIntToStr(Offset, 16);
+  begin
+    if Result <> '' then
+      Result := Result + '+';
+
+    Result := Result + RtlxIntToStr(Offset, 16);
+  end;
 end;
 
 { Functions }
@@ -234,8 +248,46 @@ begin
   Result := SymxEnumSymbols(Symbols, Module);
 end;
 
-function SymxFindBestMatch(const Module: TModuleEntry; const Symbols:
-  TArray<TSymbolEntry>; RVA: UInt64): TBestMatchSymbol;
+var
+  // Symbol cache
+  SymxNamesCache: TArray<String>;
+  SymxSymbolCache: TArray<TArray<TSymbolEntry>>;
+
+function SymxCacheEnumSymbolsFile(FileName: String;
+  out Symbols: TArray<TSymbolEntry>): TNtxStatus;
+var
+  Index: Integer;
+begin
+  // Check if we have the module cached
+  Index := TArray.BinarySearch<String>(SymxNamesCache,
+    function (const Entry: String): Integer
+    begin
+      Result := wcscmp(PWideChar(Entry), PWideChar(FileName));
+    end
+  );
+
+  // Cache hit
+  if Index >= 0 then
+  begin
+    Symbols := SymxSymbolCache[Index];
+    Result.Status := STATUS_ALREADY_COMPLETE;
+    Exit;
+  end;
+
+  // Cache miss, load symbols
+  Result := SymxEnumSymbolsFile(Symbols, FileName);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Save into the cache, preserving its order
+  Index := -(Index + 1);
+  Insert(FileName, SymxNamesCache, Index);
+  Insert(Symbols, SymxSymbolCache, Index);
+end;
+
+function SymxFindBestMatchModule(const Module: TModuleEntry; const Symbols:
+  TArray<TSymbolEntry>; const RVA: UInt64): TBestMatchSymbol;
 var
   i: Integer;
   Distance: UInt64;
@@ -266,6 +318,35 @@ begin
 
   Result.Module := Module;
   Result.Offset := RVA - Result.Symbol.RVA;
+end;
+
+function SymxFindBestMatch(const Modules: TArray<TModuleEntry>;
+  const Address: Pointer): TBestMatchSymbol;
+var
+  i: Integer;
+  Symbols: TArray<TSymbolEntry>;
+begin
+  // Find the module containg the address
+
+  for i := 0 to High(Modules) do
+    if Modules[i].IsInRange(Address) then
+    begin
+      // Try loading symbols for this module
+      if not SymxCacheEnumSymbolsFile(Modules[i].FullDllName,
+        Symbols).IsSuccess then
+        Symbols := nil;
+
+      // Find the best matching symbol
+      Result := SymxFindBestMatchModule(Modules[i], Symbols, UIntPtr(Address) -
+        UIntPtr(Modules[i].DllBase));
+
+      Exit;
+    end;
+
+  // No module found, make a pseudo-symbol for the address
+  Result := Default(TBestMatchSymbol);
+  Result.Symbol.Flags := SYMFLAG_VIRTUAL;
+  Result.Offset := UIntPtr(Address);
 end;
 
 end.

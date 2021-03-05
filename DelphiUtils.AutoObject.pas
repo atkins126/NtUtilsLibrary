@@ -8,13 +8,16 @@ type
   TMemory = record
     Address: Pointer;
     Size: NativeUInt;
+    class function From(Address: Pointer; Size: NativeUInt): TMemory; static;
+    class function Reference<T>(const [ref] Buffer: T): TMemory; static;
   end;
 
   { Interfaces}
 
   IAutoReleasable = interface
+    function GetAutoRelease: Boolean;
     procedure SetAutoRelease(Value: Boolean);
-    property AutoRelease: Boolean write SetAutoRelease;
+    property AutoRelease: Boolean read GetAutoRelease write SetAutoRelease;
   end;
 
   IHandle = interface(IAutoReleasable)
@@ -34,8 +37,9 @@ type
 
     // Inheriting a generic interface from a non-generic one confuses Delphi's
     // autocompletion. Reintroduce inherited entries here to fix it.
+    function GetAutoRelease: Boolean;
     procedure SetAutoRelease(Value: Boolean);
-    property AutoRelease: Boolean write SetAutoRelease;
+    property AutoRelease: Boolean read GetAutoRelease write SetAutoRelease;
   end;
 
   IMemory = IMemory<Pointer>;
@@ -52,6 +56,7 @@ type
     FAutoRelease: Boolean;
   public
     constructor Create;
+    function GetAutoRelease: Boolean;
     procedure SetAutoRelease(Value: Boolean); virtual;
   end;
 
@@ -85,7 +90,30 @@ type
     destructor Destroy; override;
   end;
 
+  TOperation = reference to procedure;
+
+  // Automatically performs an operation when the object goes out of scope
+  TDelayedOperation = class (TCustomAutoReleasable, IAutoReleasable)
+    FOperation: TOperation;
+    constructor Create(Operation: TOperation);
+    destructor Destroy; override;
+  end;
+
 implementation
+
+{ TMemory }
+
+class function TMemory.From(Address: Pointer; Size: NativeUInt): TMemory;
+begin
+  Result.Address := Address;
+  Result.Size := Size;
+end;
+
+class function TMemory.Reference<T>(const [ref] Buffer: T): TMemory;
+begin
+  Result.Address := @Buffer;
+  Result.Size := SizeOf(Buffer);
+end;
 
 { Ptr }
 
@@ -104,6 +132,11 @@ end;
 constructor TCustomAutoReleasable.Create;
 begin
   FAutoRelease := True;
+end;
+
+function TCustomAutoReleasable.GetAutoRelease: Boolean;
+begin
+  Result := FAutoRelease;
 end;
 
 procedure TCustomAutoReleasable.SetAutoRelease(Value: Boolean);
@@ -178,6 +211,22 @@ procedure TAutoMemory.SwapWith(Instance: TAutoMemory);
 begin
   FAddress := AtomicExchange(Instance.FAddress, FAddress);
   FSize := AtomicExchange(Instance.FSize, FSize);
+end;
+
+{ TDelayedOperation }
+
+constructor TDelayedOperation.Create(Operation: TOperation);
+begin
+  inherited Create;
+  FOperation := Operation;
+end;
+
+destructor TDelayedOperation.Destroy;
+begin
+  if FAutoRelease and Assigned(FOperation) then
+    FOperation;
+
+  inherited;
 end;
 
 end.

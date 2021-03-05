@@ -20,11 +20,13 @@ function NtxCurrentThread: IHandle;
 
 // Open a thread (always succeeds for the current PID)
 function NtxOpenThread(out hxThread: IHandle; TID: TThreadId;
-  DesiredAccess: TAccessMask; HandleAttributes: Cardinal = 0): TNtxStatus;
+  DesiredAccess: TAccessMask; HandleAttributes: TObjectAttributesFlags = 0):
+  TNtxStatus;
 
 // Reopen a handle to the current thread with the specific access
 function NtxOpenCurrentThread(out hxThread: IHandle;
-  DesiredAccess: TAccessMask; HandleAttributes: Cardinal = 0): TNtxStatus;
+  DesiredAccess: TAccessMask; HandleAttributes: TObjectAttributesFlags = 0):
+  TNtxStatus;
 
 // Query variable-size information
 function NtxQueryThread(hThread: THandle; InfoClass: TThreadInfoClass;
@@ -74,21 +76,25 @@ function NtxGetContextThread(hThread: THandle; FlagsToQuery: Cardinal;
 function NtxSetContextThread(hThread: THandle; Context: PContext):
   TNtxStatus;
 
-// Suspend/resume a thread
+// Suspend/resume/terminate a thread
 function NtxSuspendThread(hThread: THandle): TNtxStatus;
 function NtxResumeThread(hThread: THandle): TNtxStatus;
-
-// Terminate a thread
 function NtxTerminateThread(hThread: THandle; ExitStatus: NTSTATUS): TNtxStatus;
 
+// Resume/terminate a thread when the object goes out of scope
+function NtxDelayedResumeThread(hxThread: IHandle): IAutoReleasable;
+function NtxDelayedTerminateThread(hxThread: IHandle; ExitStatus: NTSTATUS):
+  IAutoReleasable;
+
 // Delay current thread's execution
-function NtxSleep(Timeout: Int64; Alertable: Boolean = False): TNtxStatus;
+function NtxDelayExecution(Timeout: Int64; Alertable: Boolean = False):
+  TNtxStatus;
 
 // Create a thread in a process
 function NtxCreateThread(out hxThread: IHandle; hProcess: THandle; StartRoutine:
   TUserThreadStartRoutine; Argument: Pointer; CreateFlags: Cardinal = 0;
   ZeroBits: NativeUInt = 0; StackSize: NativeUInt = 0; MaxStackSize:
-  NativeUInt = 0; HandleAttributes: Cardinal = 0): TNtxStatus;
+  NativeUInt = 0; ObjectAttributes: IObjectAttributes = nil): TNtxStatus;
 
 // Create a thread in a process
 function RtlxCreateThread(out hxThread: IHandle; hProcess: THandle;
@@ -98,8 +104,8 @@ function RtlxCreateThread(out hxThread: IHandle; hProcess: THandle;
 implementation
 
 uses
-  Ntapi.ntstatus, Ntapi.ntobapi, Ntapi.ntseapi, Ntapi.ntexapi,
-  NtUtils.Access.Expected, NtUtils.Version;
+  Ntapi.ntstatus, Ntapi.ntobapi, Ntapi.ntseapi, Ntapi.ntexapi, Ntapi.ntmmapi,
+  NtUtils.Version;
 
 var
   NtxpCurrentThread: IHandle;
@@ -116,7 +122,8 @@ begin
 end;
 
 function NtxOpenThread(out hxThread: IHandle; TID: TThreadId;
-  DesiredAccess: TAccessMask; HandleAttributes: Cardinal = 0): TNtxStatus;
+  DesiredAccess: TAccessMask; HandleAttributes: TObjectAttributesFlags = 0):
+  TNtxStatus;
 var
   hThread: THandle;
   ClientId: TClientId;
@@ -124,6 +131,7 @@ var
 begin
   if TID = NtCurrentThreadId then
   begin
+    // Always succeed on the current thread
     hxThread := NtxCurrentThread;
     Result.Status := STATUS_SUCCESS;
   end
@@ -143,7 +151,8 @@ begin
 end;
 
 function NtxOpenCurrentThread(out hxThread: IHandle;
-  DesiredAccess: TAccessMask; HandleAttributes: Cardinal): TNtxStatus;
+  DesiredAccess: TAccessMask; HandleAttributes: TObjectAttributesFlags):
+  TNtxStatus;
 var
   hThread: THandle;
   Flags: Cardinal;
@@ -174,7 +183,7 @@ var
 begin
   Result.Location := 'NtQueryInformationThread';
   Result.LastCall.AttachInfoClass(InfoClass);
-  RtlxComputeThreadQueryAccess(Result.LastCall, InfoClass);
+  Result.LastCall.Expects(ExpectedThreadQueryAccess(InfoClass));
 
   xMemory := TAutoMemory.Allocate(InitialBuffer);
   repeat
@@ -189,7 +198,20 @@ function NtxSetThread(hThread: THandle; InfoClass: TThreadInfoClass;
 begin
   Result.Location := 'NtSetInformationThread';
   Result.LastCall.AttachInfoClass(InfoClass);
-  RtlxComputeThreadSetAccess(Result.LastCall, InfoClass);
+  Result.LastCall.Expects(ExpectedThreadSetAccess(InfoClass));
+  Result.LastCall.ExpectedPrivilege := ExpectedThreadSetPrivilege(InfoClass);
+
+  // Additional expected access
+  case InfoClass of
+    ThreadImpersonationToken:
+      Result.LastCall.Expects<TTokenAccessMask>(TOKEN_IMPERSONATE);
+
+    ThreadCpuAccountingInformation:
+      Result.LastCall.Expects<TSessionAccessMask>(SESSION_MODIFY_ACCESS);
+
+    ThreadAttachContainer:
+      Result.LastCall.Expects<TJobObjectAccessMask>(JOB_OBJECT_IMPERSONATE);
+  end;
 
   Result.Status := NtSetInformationThread(hThread, InfoClass, Data, DataSize);
 end;
@@ -199,7 +221,7 @@ class function NtxThread.Query<T>(hThread: THandle;
 begin
   Result.Location := 'NtQueryInformationThread';
   Result.LastCall.AttachInfoClass(InfoClass);
-  RtlxComputeThreadQueryAccess(Result.LastCall, InfoClass);
+  Result.LastCall.Expects(ExpectedThreadQueryAccess(InfoClass));
 
   Result.Status := NtQueryInformationThread(hThread, InfoClass, @Buffer,
     SizeOf(Buffer), nil);
@@ -320,7 +342,28 @@ begin
   Result.Status := NtTerminateThread(hThread, ExitStatus);
 end;
 
-function NtxSleep(Timeout: Int64; Alertable: Boolean): TNtxStatus;
+function NtxDelayedResumeThread(hxThread: IHandle): IAutoReleasable;
+begin
+  Result := TDelayedOperation.Create(
+    procedure
+    begin
+      NtxResumeThread(hxThread.Handle);
+    end
+  );
+end;
+
+function NtxDelayedTerminateThread(hxThread: IHandle; ExitStatus: NTSTATUS):
+  IAutoReleasable;
+begin
+  Result := TDelayedOperation.Create(
+    procedure
+    begin
+      NtxTerminateThread(hxThread.Handle, ExitStatus);
+    end
+  );
+end;
+
+function NtxDelayExecution(Timeout: Int64; Alertable: Boolean): TNtxStatus;
 begin
   Result.Location := 'NtDelayExecution';
   Result.Status := NtDelayExecution(Alertable, PLargeInteger(@Timeout));
@@ -328,20 +371,17 @@ end;
 
 function NtxCreateThread(out hxThread: IHandle; hProcess: THandle; StartRoutine:
   TUserThreadStartRoutine; Argument: Pointer; CreateFlags: Cardinal; ZeroBits:
-  NativeUInt; StackSize: NativeUInt; MaxStackSize: NativeUInt; HandleAttributes:
-  Cardinal): TNtxStatus;
+  NativeUInt; StackSize: NativeUInt; MaxStackSize: NativeUInt; ObjectAttributes:
+  IObjectAttributes): TNtxStatus;
 var
   hThread: THandle;
-  ObjAttr: TObjectAttributes;
 begin
-  InitializeObjectAttributes(ObjAttr, nil, HandleAttributes);
-
   Result.Location := 'NtCreateThreadEx';
   Result.LastCall.Expects<TProcessAccessMask>(PROCESS_CREATE_THREAD);
 
-  Result.Status := NtCreateThreadEx(hThread, THREAD_ALL_ACCESS, @ObjAttr,
-    hProcess, StartRoutine, Argument, CreateFlags, ZeroBits, StackSize,
-    MaxStackSize, nil);
+  Result.Status := NtCreateThreadEx(hThread, THREAD_ALL_ACCESS,
+    AttributesRefOrNil(ObjectAttributes), hProcess, StartRoutine, Argument,
+    CreateFlags, ZeroBits, StackSize, MaxStackSize, nil);
 
   if Result.IsSuccess then
     hxThread := TAutoHandle.Capture(hThread);

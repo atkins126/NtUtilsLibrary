@@ -24,8 +24,8 @@ procedure ShowNtxException(ParentWnd: HWND; E: Exception);
 implementation
 
 uses
-  Winapi.CommCtrl, Ntapi.ntdef, Ntapi.ntstatus, NtUiLib.Exceptions.Messages,
-  NtUiLib.Exceptions.Report, NtUiLib.Exceptions;
+  Winapi.CommCtrl, Ntapi.ntdef, Ntapi.ntstatus, NtUiLib.Errors,
+  NtUiLib.Exceptions, NtUiLib.Reflection.Exceptions;
 
 var
   Suggestors: array of TSuggestor;
@@ -90,7 +90,7 @@ begin
     Dlg.pszMainIcon := TD_WARNING_ICON;
 
   // Make a pretty header
-  Dlg.pszMainInstruction := PWideChar(NtxStatusDescription(NtxStatus.Status));
+  Dlg.pszMainInstruction := PWideChar(RtlxNtStatusSummary(NtxStatus));
 
   if Dlg.pszMainInstruction = '' then
     Dlg.pszMainInstruction := 'System error';
@@ -108,7 +108,7 @@ var
 begin
   if E is ENtError then
     // Extract a TNtxStatus from an exception
-    ShowNtxStatus(ParentWnd, ENtError(E).ToNtxStarus)
+    ShowNtxStatus(ParentWnd, ENtError(E).NtxStatus)
   else
   begin
     InitDlg(Dlg, ParentWnd);

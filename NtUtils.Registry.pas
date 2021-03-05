@@ -4,7 +4,7 @@ interface
 
 uses
   Winapi.WinNt, Ntapi.ntregapi, NtUtils, NtUtils.Objects,
-  DelphiUtils.AutoObject;
+  DelphiUtils.AutoObject, DelphiUtils.Async;
 
 type
   TRegValueType = Ntapi.ntregapi.TRegValueType;
@@ -20,17 +20,33 @@ type
     ValueName: String;
   end;
 
+  TSubKeyEntry = record
+    ProcessId: TProcessId;
+    KeyName: String;
+  end;
+
 { Keys }
 
 // Open a key
 function NtxOpenKey(out hxKey: IHandle; Name: String;
-  DesiredAccess: TAccessMask; Root: THandle = 0; OpenOptions: Cardinal = 0;
-  Attributes: Cardinal = 0): TNtxStatus;
+  DesiredAccess: TAccessMask; OpenOptions: TRegOpenOptions = 0;
+  ObjectAttributes: IObjectAttributes = nil): TNtxStatus;
+
+// Open a key in a (either normal or registry) transaction
+function NtxOpenKeyTransacted(out hxKey: IHandle; hTransaction: THandle; Name:
+  String; DesiredAccess: TAccessMask; OpenOptions: TRegOpenOptions = 0;
+  ObjectAttributes: IObjectAttributes = nil): TNtxStatus;
 
 // Create a key
-function NtxCreateKey(out hxKey: IHandle; Name: String;
-  DesiredAccess: TAccessMask; Root: THandle = 0; CreateOptions: Cardinal = 0;
-  Attributes: Cardinal = 0; Disposition: PRegDisposition = nil): TNtxStatus;
+function NtxCreateKey(out hxKey: IHandle; Name: String; DesiredAccess:
+  TAccessMask; CreateOptions: TRegOpenOptions = 0; ObjectAttributes:
+  IObjectAttributes = nil; Disposition: PRegDisposition = nil): TNtxStatus;
+
+// Create a key in a (either normal or registry) transaction
+function NtxCreateKeyTransacted(out hxKey: IHandle; hTransaction: THandle;
+  Name: String; DesiredAccess: TAccessMask; CreateOptions: TRegOpenOptions = 0;
+  ObjectAttributes: IObjectAttributes = nil; Disposition: PRegDisposition = nil)
+  : TNtxStatus;
 
 // Delete a key
 function NtxDeleteKey(hKey: THandle): TNtxStatus;
@@ -69,11 +85,11 @@ type
 { Symbolic Links }
 
 // Create a symbolic link key
-function NtxCreateSymlinkKey(Source: String; Target: String;
-  SourceRoot: THandle = 0; Options: Cardinal = 0): TNtxStatus;
+function NtxCreateSymlinkKey(Source: String; Target: String; Options:
+  Cardinal = 0; ObjectAttributes: IObjectAttributes = nil): TNtxStatus;
 
 // Delete a symbolic link key
-function NtxDeleteSymlinkKey(Name: String; Root: THandle = 0; Options:
+function NtxDeleteSymlinkKey(Name: String; Root: IHandle = nil; Options:
   Cardinal = 0): TNtxStatus;
 
 { Values }
@@ -132,53 +148,94 @@ function NtxDeleteValueKey(hKey: THandle; ValueName: String): TNtxStatus;
 
 // Mount a hive file to the registry
 function NtxLoadKeyEx(out hxKey: IHandle; FileName: String; KeyPath: String;
-  Flags: Cardinal = REG_LOAD_HIVE_OPEN_HANDLE; TrustClassKey: THandle = 0;
-  FileRoot: THandle = 0): TNtxStatus;
+  Flags: Cardinal = 0; TrustClassKey: THandle = 0; FileObjAttr:
+  IObjectAttributes = nil; KeyObjAttr: IObjectAttributes = nil): TNtxStatus;
 
 // Unmount a hive file from the registry
-function NtxUnloadKey(KeyName: String; Force: Boolean = False): TNtxStatus;
+function NtxUnloadKey(KeyName: String; Force: Boolean = False; ObjectAttributes:
+  IObjectAttributes = nil): TNtxStatus;
+
+// Enumerate opened subkeys from a part of the registry
+function NtxEnumerateOpenedSubkeys(out SubKeys: TArray<TSubKeyEntry>;
+  KeyName: String; ObjectAttributes: IObjectAttributes = nil): TNtxStatus;
+
+// Subsribe for registry changes notifications
+function NtxNotifyChangeKey(hKey: THandle; Flags: TRegNotifyFlags;
+  WatchTree: Boolean; AsyncCallback: TAnonymousApcCallback): TNtxStatus;
 
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntseapi, DelphiUtils.Arrays;
+  Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntseapi, Ntapi.ntioapi, Ntapi.nttmapi,
+  DelphiUtils.Arrays;
 
 { Keys }
 
-function NtxOpenKey(out hxKey: IHandle; Name: String;
-  DesiredAccess: TAccessMask; Root: THandle; OpenOptions: Cardinal;
-  Attributes: Cardinal): TNtxStatus;
+function NtxOpenKey(out hxKey: IHandle; Name: String; DesiredAccess:
+  TAccessMask; OpenOptions: TRegOpenOptions; ObjectAttributes:
+  IObjectAttributes): TNtxStatus;
 var
   hKey: THandle;
-  ObjAttr: TObjectAttributes;
 begin
-  InitializeObjectAttributes(ObjAttr, TNtUnicodeString.From(Name).RefOrNull,
-    Attributes or OBJ_CASE_INSENSITIVE, Root);
-
   Result.Location := 'NtOpenKeyEx';
   Result.LastCall.AttachAccess<TRegKeyAccessMask>(DesiredAccess);
 
-  Result.Status := NtOpenKeyEx(hKey, DesiredAccess, ObjAttr, OpenOptions);
+  Result.Status := NtOpenKeyEx(hKey, DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative, OpenOptions);
 
   if Result.IsSuccess then
     hxKey := TAutoHandle.Capture(hKey);
 end;
 
-function NtxCreateKey(out hxKey: IHandle; Name: String;
-  DesiredAccess: TAccessMask; Root: THandle; CreateOptions: Cardinal;
-  Attributes: Cardinal; Disposition: PRegDisposition): TNtxStatus;
+function NtxOpenKeyTransacted(out hxKey: IHandle; hTransaction: THandle; Name:
+  String; DesiredAccess: TAccessMask; OpenOptions: TRegOpenOptions;
+  ObjectAttributes: IObjectAttributes): TNtxStatus;
 var
   hKey: THandle;
-  ObjAttr: TObjectAttributes;
 begin
-  InitializeObjectAttributes(ObjAttr, TNtUnicodeString.From(Name).RefOrNull,
-    Attributes or OBJ_CASE_INSENSITIVE, Root);
+  Result.Location := 'NtOpenKeyTransactedEx';
+  Result.LastCall.AttachAccess<TRegKeyAccessMask>(DesiredAccess);
+  Result.LastCall.Expects<TTmTxAccessMask>(TRANSACTION_ENLIST);
 
+  Result.Status := NtOpenKeyTransactedEx(hKey, DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative, OpenOptions,
+    hTransaction);
+
+  if Result.IsSuccess then
+    hxKey := TAutoHandle.Capture(hKey);
+end;
+
+function NtxCreateKey(out hxKey: IHandle; Name: String; DesiredAccess:
+  TAccessMask; CreateOptions: TRegOpenOptions; ObjectAttributes:
+  IObjectAttributes; Disposition: PRegDisposition): TNtxStatus;
+var
+  hKey: THandle;
+begin
   Result.Location := 'NtCreateKey';
   Result.LastCall.AttachAccess<TRegKeyAccessMask>(DesiredAccess);
 
-  Result.Status := NtCreateKey(hKey, DesiredAccess, ObjAttr, 0, nil,
+  Result.Status := NtCreateKey(hKey, DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative, 0, nil,
     CreateOptions, Disposition);
+
+  if Result.IsSuccess then
+    hxKey := TAutoHandle.Capture(hKey);
+end;
+
+function NtxCreateKeyTransacted(out hxKey: IHandle; hTransaction: THandle;
+  Name: String; DesiredAccess: TAccessMask; CreateOptions: TRegOpenOptions;
+  ObjectAttributes: IObjectAttributes; Disposition: PRegDisposition):
+  TNtxStatus;
+var
+  hKey: THandle;
+begin
+  Result.Location := 'NtCreateKeyTransacted';
+  Result.LastCall.AttachAccess<TRegKeyAccessMask>(DesiredAccess);
+  Result.LastCall.Expects<TTmTxAccessMask>(TRANSACTION_ENLIST);
+
+  Result.Status := NtCreateKeyTransacted(hKey, DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative, 0, nil,
+    CreateOptions, hTransaction, Disposition);
 
   if Result.IsSuccess then
     hxKey := TAutoHandle.Capture(hKey);
@@ -319,13 +376,13 @@ end;
 { Symbolic Links }
 
 function NtxCreateSymlinkKey(Source: String; Target: String;
-  SourceRoot: THandle; Options: Cardinal): TNtxStatus;
+  Options: Cardinal; ObjectAttributes: IObjectAttributes): TNtxStatus;
 var
   hxKey: IHandle;
 begin
   // Create a key
   Result := NtxCreateKey(hxKey, Source, KEY_SET_VALUE or KEY_CREATE_LINK,
-    SourceRoot, Options or REG_OPTION_CREATE_LINK);
+    Options or REG_OPTION_CREATE_LINK, ObjectAttributes);
 
   if Result.IsSuccess then
   begin
@@ -339,12 +396,13 @@ begin
   end;
 end;
 
-function NtxDeleteSymlinkKey(Name: String; Root: THandle; Options: Cardinal)
+function NtxDeleteSymlinkKey(Name: String; Root: IHandle; Options: Cardinal)
   : TNtxStatus;
 var
   hxKey: IHandle;
 begin
-  Result := NtxOpenKey(hxKey, Name, _DELETE, Root, Options, OBJ_OPENLINK);
+  Result := NtxOpenKey(hxKey, Name, _DELETE, Options, AttributeBuilder
+    .UseAttributes(OBJ_OPENLINK).UseRoot(Root));
 
   if Result.IsSuccess then
     Result := NtxDeleteKey(hxKey.Handle);
@@ -565,34 +623,30 @@ begin
 end;
 
 function NtxLoadKeyEx(out hxKey: IHandle; FileName: String; KeyPath: String;
-  Flags: Cardinal; TrustClassKey: THandle; FileRoot: THandle): TNtxStatus;
+  Flags: Cardinal; TrustClassKey: THandle; FileObjAttr, KeyObjAttr:
+  IObjectAttributes): TNtxStatus;
 var
-  Target, Source: TObjectAttributes;
   hKey: THandle;
 begin
-  InitializeObjectAttributes(Source, TNtUnicodeString.From(FileName).RefOrNull,
-    OBJ_CASE_INSENSITIVE, FileRoot);
-
-  InitializeObjectAttributes(Target, TNtUnicodeString.From(KeyPath).RefOrNull,
-    OBJ_CASE_INSENSITIVE);
+  // Make sure we always get the handle
+  Flags := Flags or REG_LOAD_HIVE_OPEN_HANDLE;
 
   Result.Location := 'NtLoadKeyEx';
   Result.LastCall.ExpectedPrivilege := SE_RESTORE_PRIVILEGE;
 
-  Result.Status := NtLoadKeyEx(Target, Source, Flags, TrustClassKey, 0,
-    KEY_ALL_ACCESS, hKey, nil);
+  Result.Status := NtLoadKeyEx(AttributeBuilder(KeyObjAttr).UseName(KeyPath)
+    .ToNative, AttributeBuilder(FileObjAttr).UseName(FileName).ToNative,
+    Flags, TrustClassKey, 0, KEY_ALL_ACCESS, hKey, nil);
 
   if Result.IsSuccess then
     hxKey := TAutoHandle.Capture(hKey);
 end;
 
-function NtxUnloadKey(KeyName: String; Force: Boolean): TNtxStatus;
+function NtxUnloadKey(KeyName: String; Force: Boolean; ObjectAttributes:
+  IObjectAttributes): TNtxStatus;
 var
-  ObjAttr: TObjectAttributes;
   Flags: Cardinal;
 begin
-  InitializeObjectAttributes(ObjAttr, TNtUnicodeString.From(KeyName).RefOrNull);
-
   if Force then
     Flags := REG_FORCE_UNLOAD
   else
@@ -600,7 +654,58 @@ begin
 
   Result.Location := 'NtUnloadKey2';
   Result.LastCall.ExpectedPrivilege := SE_RESTORE_PRIVILEGE;
-  Result.Status := NtUnloadKey2(ObjAttr, Flags);
+  Result.Status := NtUnloadKey2(AttributeBuilder(ObjectAttributes)
+    .UseName(KeyName).ToNative, Flags);
+end;
+
+function NtxEnumerateOpenedSubkeys(out SubKeys: TArray<TSubKeyEntry>;
+  KeyName: String; ObjectAttributes: IObjectAttributes): TNtxStatus;
+var
+  pObjAttr: PObjectAttributes;
+  xMemory: IMemory<PKeyOpenSubkeysInformation>;
+  RequiredSize: Cardinal;
+  i: Integer;
+begin
+  pObjAttr := AttributeBuilder(ObjectAttributes).UseName(KeyName).ToNative;
+
+  Result.Location := 'NtQueryOpenSubKeysEx';
+  Result.LastCall.ExpectedPrivilege := SE_RESTORE_PRIVILEGE;
+
+  IMemory(xMemory) := TAutoMemory.Allocate($1000);
+  repeat
+    Result.Status := NtQueryOpenSubKeysEx(pObjAttr, xMemory.Size, xMemory.Data,
+      RequiredSize);
+  until not NtxExpandBufferEx(Result, IMemory(xMemory), RequiredSize, nil);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  SetLength(SubKeys, xMemory.Data.Count);
+
+  for i := 0 to High(SubKeys) do
+    with SubKeys[i] do
+    begin
+      ProcessId := xMemory.Data.KeyArray{$R-}[i]{$R+}.ProcessId;
+      KeyName := xMemory.Data.KeyArray{$R-}[i]{$R+}.KeyName.ToString;
+    end;
+end;
+
+function NtxNotifyChangeKey(hKey: THandle; Flags: TRegNotifyFlags;
+  WatchTree: Boolean; AsyncCallback: TAnonymousApcCallback): TNtxStatus;
+var
+  ApcContext: IAnonymousIoApcContext;
+  Isb: TIoStatusBlock;
+begin
+  Result.Location := 'NtNotifyChangeKey';
+  Result.LastCall.Expects<TRegKeyAccessMask>(KEY_NOTIFY);
+
+  Result.Status := NtNotifyChangeKey(hKey, 0, GetApcRoutine(AsyncCallback),
+    Pointer(ApcContext), PrepareApcIsb(ApcContext, AsyncCallback, Isb), Flags,
+    WatchTree, nil, 0, Assigned(AsyncCallback));
+
+  // Keep the context until the callback executes
+  if Assigned(ApcContext) and Result.IsSuccess then
+    ApcContext._AddRef;
 end;
 
 end.

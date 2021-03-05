@@ -23,6 +23,9 @@ const
   SECURITY_ACCESS_REMOTE_INTERACTIVE_LOGON = $00000400;
   SECURITY_ACCESS_DENY_REMOTE_INTERACTIVE_LOGON = $00000800;
 
+  SECURITY_ACCESS_ALLOWED_MASK = $00000417;
+  SECURITY_ACCESS_DENIED_MASK = $00000BC0;
+
   // 1757
   POLICY_VIEW_LOCAL_INFORMATION = $00000001;
   POLICY_VIEW_AUDIT_INFORMATION = $00000002;
@@ -102,6 +105,18 @@ type
   [FlagName(ACCOUNT_ADJUST_QUOTAS, 'Adjust Quotas')]
   [FlagName(ACCOUNT_ADJUST_SYSTEM_ACCESS, 'Adjust System Access')]
   TLsaAccountAccessMask = type TAccessMask;
+
+  [FlagName(SECURITY_ACCESS_INTERACTIVE_LOGON, 'Allow Interactive Logon')]
+  [FlagName(SECURITY_ACCESS_NETWORK_LOGON, 'Allow Network Logon')]
+  [FlagName(SECURITY_ACCESS_BATCH_LOGON, 'Allow Batch Logon')]
+  [FlagName(SECURITY_ACCESS_SERVICE_LOGON, 'Allow Service Logon')]
+  [FlagName(SECURITY_ACCESS_REMOTE_INTERACTIVE_LOGON, 'Allow RDP Logon')]
+  [FlagName(SECURITY_ACCESS_DENY_INTERACTIVE_LOGON, 'Deny Interactive Logon')]
+  [FlagName(SECURITY_ACCESS_DENY_NETWORK_LOGON, 'Deny Network Logon')]
+  [FlagName(SECURITY_ACCESS_DENY_BATCH_LOGON, 'Deny Batch Logon')]
+  [FlagName(SECURITY_ACCESS_DENY_SERVICE_LOGON, 'Deny Service Logon')]
+  [FlagName(SECURITY_ACCESS_DENY_REMOTE_INTERACTIVE_LOGON, 'Deny RDP Logon')]
+  TSystemAccess = type Cardinal;
 
   // 1900
   [NamingStyle(nsCamelCase, 'PolicyServer'), Range(2)]
@@ -415,11 +430,11 @@ function LsaSetQuotasForAccount(AccountHandle: TLsaHandle; const QuotaLimits:
 
 // 3489
 function LsaGetSystemAccessAccount(AccountHandle: TLsaHandle; out SystemAccess:
-  Cardinal): NTSTATUS; stdcall; external advapi32;
+  TSystemAccess): NTSTATUS; stdcall; external advapi32;
 
 // 3496
 function LsaSetSystemAccessAccount(AccountHandle: TLsaHandle; SystemAccess:
-  Cardinal): NTSTATUS; stdcall; external advapi32;
+  TSystemAccess): NTSTATUS; stdcall; external advapi32;
 
 // 3574
 function LsaLookupPrivilegeValue(PolicyHandle: TLsaHandle; const Name:
@@ -444,6 +459,62 @@ function LsaManageSidNameMapping(OpType: TLsaSidNameMappingOperationType;
   PLsaSidNameMappingOperationGenericOutput): NTSTATUS; stdcall;
   external advapi32;
 
+{ Expected Access Masks }
+
+function ExpectedPolicyQueryAccess(InfoClass: TPolicyInformationClass):
+  TLsaPolicyAccessMask;
+
+function ExpectedPolicySetAccess(InfoClass: TPolicyInformationClass):
+  TLsaPolicyAccessMask;
+
 implementation
+
+function ExpectedPolicyQueryAccess(InfoClass: TPolicyInformationClass):
+  TLsaPolicyAccessMask;
+begin
+  // See [MS-LSAD] & LsapDbRequiredAccessQueryPolicy
+  case InfoClass of
+    PolicyAuditLogInformation, PolicyAuditEventsInformation,
+    PolicyAuditFullQueryInformation:
+      Result := POLICY_VIEW_AUDIT_INFORMATION;
+
+    PolicyPrimaryDomainInformation, PolicyAccountDomainInformation,
+    PolicyLsaServerRoleInformation, PolicyReplicaSourceInformation,
+    PolicyDefaultQuotaInformation, PolicyDnsDomainInformation,
+    PolicyDnsDomainInformationInt, PolicyLocalAccountDomainInformation:
+      Result := POLICY_VIEW_LOCAL_INFORMATION;
+
+    PolicyPdAccountInformation:
+      Result := POLICY_GET_PRIVATE_INFORMATION;
+  else
+    Result := 0;
+  end;
+end;
+
+function ExpectedPolicySetAccess(InfoClass: TPolicyInformationClass):
+  TLsaPolicyAccessMask;
+begin
+  // See [MS-LSAD] & LsapDbRequiredAccessSetPolicy
+  case InfoClass of
+    PolicyPrimaryDomainInformation, PolicyAccountDomainInformation,
+    PolicyDnsDomainInformation, PolicyDnsDomainInformationInt,
+    PolicyLocalAccountDomainInformation:
+      Result := POLICY_TRUST_ADMIN;
+
+    PolicyAuditLogInformation, PolicyAuditFullSetInformation:
+      Result := POLICY_AUDIT_LOG_ADMIN;
+
+    PolicyAuditEventsInformation:
+      Result := POLICY_SET_AUDIT_REQUIREMENTS;
+
+    PolicyLsaServerRoleInformation, PolicyReplicaSourceInformation:
+      Result := POLICY_SERVER_ADMIN;
+
+    PolicyDefaultQuotaInformation:
+      Result := POLICY_SET_DEFAULT_QUOTA_LIMITS;
+  else
+    Result := 0;
+  end;
+end;
 
 end.

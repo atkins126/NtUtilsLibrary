@@ -5,7 +5,8 @@ unit Ntapi.ntmmapi;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, DelphiApi.Reflection, NtUtils.Version;
+  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntioapi, DelphiApi.Reflection,
+  NtUtils.Version;
 
 const
   // WinNt.12784
@@ -260,7 +261,7 @@ function NtCreateSection(out SectionHandle: THandle; DesiredAccess: TAccessMask;
   FileHandle: THandle): NTSTATUS; stdcall; external ntdll;
 
 function NtOpenSection(out SectionHandle: THandle; DesiredAccess: TAccessMask;
-  const ObjectAttributes: TObjectAttributes): NTSTATUS; stdcall; external ntdll;
+  ObjectAttributes: PObjectAttributes): NTSTATUS; stdcall; external ntdll;
 
 function NtMapViewOfSection(SectionHandle: THandle; ProcessHandle: THandle;
   var BaseAddress: Pointer; ZeroBits: NativeUInt; CommitSize: NativeUInt;
@@ -289,6 +290,56 @@ function NtFlushInstructionCache(ProcessHandle: THandle; BaseAddress: Pointer;
 
 function NtFlushWriteBuffer: NTSTATUS; stdcall; external ntdll;
 
+ { Expected Access Masks }
+
+function ExpectedSectionFileAccess(Win32Protect: Cardinal): TIoFileAccessMask;
+function ExpectedSectionMapAccess(Win32Protect: Cardinal): TSectionAccessMask;
+
 implementation
+
+function ExpectedSectionFileAccess(Win32Protect: Cardinal): TIoFileAccessMask;
+begin
+  case Win32Protect and $FF of
+    PAGE_NOACCESS, PAGE_READONLY, PAGE_WRITECOPY:
+      Result := FILE_READ_DATA;
+
+    PAGE_READWRITE:
+      Result := FILE_WRITE_DATA or FILE_READ_DATA;
+
+    PAGE_EXECUTE:
+      Result := FILE_EXECUTE;
+
+    PAGE_EXECUTE_READ, PAGE_EXECUTE_WRITECOPY:
+      Result := FILE_EXECUTE or FILE_READ_DATA;
+
+    PAGE_EXECUTE_READWRITE:
+      Result := FILE_EXECUTE or FILE_WRITE_DATA or FILE_READ_DATA;
+
+    else
+      Result := 0;
+  end;
+end;
+
+function ExpectedSectionMapAccess(Win32Protect: Cardinal): TSectionAccessMask;
+begin
+  case Win32Protect and $FF of
+    PAGE_NOACCESS, PAGE_READONLY, PAGE_WRITECOPY:
+      Result := SECTION_MAP_READ;
+
+    PAGE_READWRITE:
+      Result := SECTION_MAP_WRITE;
+
+    PAGE_EXECUTE:
+      Result := SECTION_MAP_EXECUTE;
+
+    PAGE_EXECUTE_READ, PAGE_EXECUTE_WRITECOPY:
+      Result := SECTION_MAP_EXECUTE or SECTION_MAP_READ;
+
+    PAGE_EXECUTE_READWRITE:
+      Result := SECTION_MAP_EXECUTE or SECTION_MAP_WRITE;
+  else
+    Result := 0;
+  end;
+end;
 
 end.

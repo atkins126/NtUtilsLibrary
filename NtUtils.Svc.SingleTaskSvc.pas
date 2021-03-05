@@ -3,18 +3,18 @@ unit NtUtils.Svc.SingleTaskSvc;
 interface
 
 uses
-  NtUtils.Svc;
+  NtUtils, NtUtils.Svc;
 
 type
-  TSvcxPayload = procedure(ScvParams: TArray<String>);
+  TSvcxPayload = reference to procedure(ScvParams: TArray<String>);
 
 // Starts service control dispatcher.
-function SvcxMain(ServiceName: String; Payload: TSvcxPayload): Boolean;
+function SvcxMain(ServiceName: String; Payload: TSvcxPayload): TNtxStatus;
 
 implementation
 
 uses
-  Winapi.Svc, Winapi.WinError, Winapi.WinBase;
+  Winapi.WinNt, Winapi.Svc, Winapi.WinError, Winapi.WinBase;
 
 var
   SvcxName: String;
@@ -32,7 +32,7 @@ var
     );
 
 function SvcxHandlerEx(Control: TServiceControl; EventType: Cardinal;
-  EventData: Pointer; Context: Pointer): Cardinal; stdcall;
+  EventData: Pointer; var Context): Cardinal; stdcall;
 begin
   if Control = SERVICE_CONTROL_INTERROGATE then
     Result := ERROR_SUCCESS
@@ -41,7 +41,7 @@ begin
 end;
 
 procedure SvcxServiceMain(dwNumServicesArgs: Integer;
-  lpServiceArgVectors: PServiceArgsW) stdcall;
+  const [ref] ServiceArgVectors: TAnysizeArray<PWideChar>) stdcall;
 var
   i: Integer;
   Parameters: TArray<String>;
@@ -57,14 +57,14 @@ begin
   SetLength(Parameters, dwNumServicesArgs);
 
   for i := 0 to High(Parameters) do
-    Parameters[i] := String(lpServiceArgVectors{$R-}[i]{$R+});
+    Parameters[i] := String(ServiceArgVectors{$R-}[i]{$R+});
 
   {$IFDEF DEBUG}
   OutputDebugStringW(PWideChar(ParamStr(0)));
   OutputDebugStringW('Service parameters: ');
 
   for i := 0 to dwNumServicesArgs - 1 do
-    OutputDebugStringW(lpServiceArgVectors{$R-}[i]{$R+});
+    OutputDebugStringW(ServiceArgVectors{$R-}[i]{$R+});
   {$ENDIF}
 
   // Call the payload
@@ -80,7 +80,7 @@ begin
   SetServiceStatus(SvcxStatusHandle, SvcxStatus);
 end;
 
-function SvcxMain(ServiceName: String; Payload: TSvcxPayload): Boolean;
+function SvcxMain(ServiceName: String; Payload: TSvcxPayload): TNtxStatus;
 var
   ServiceTable: array [0 .. 1] of TServiceTableEntryW;
 begin
@@ -92,7 +92,9 @@ begin
   ServiceTable[1].ServiceName := nil;
   ServiceTable[1].ServiceProc := nil;
 
-  Result := StartServiceCtrlDispatcherW(PServiceTableEntryW(@ServiceTable));
+  Result.Location := 'StartServiceCtrlDispatcherW';
+  Result.Win32Result := StartServiceCtrlDispatcherW(PServiceTableEntryW(
+    @ServiceTable));
 end;
 
 end.

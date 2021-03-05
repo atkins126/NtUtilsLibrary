@@ -1,5 +1,6 @@
 unit Ntapi.ntregapi;
 
+{$WARN SYMBOL_PLATFORM OFF}
 {$MINENUMSIZE 4}
 
 interface
@@ -30,6 +31,8 @@ const
   REG_OPTION_VOLATILE = $00000001;
   REG_OPTION_CREATE_LINK = $00000002;
   REG_OPTION_BACKUP_RESTORE = $00000004;
+  REG_OPTION_OPEN_LINK = $00000008;
+  REG_OPTION_DONT_VIRTUALIZE = $00000010;
 
   // WinNt.21285, load/restore flags
   REG_WHOLE_HIVE_VOLATILE = $00000001;    // Restore whole hive volatile
@@ -72,6 +75,14 @@ const
   REG_SET_VIRTUAL_STORE = $0002;
   REG_SET_VIRTUAL_SOURCE = $0004;
 
+  // winnt.21739
+  REG_NOTIFY_CHANGE_NAME = $00000001;
+  REG_NOTIFY_CHANGE_ATTRIBUTES = $00000002;
+  REG_NOTIFY_CHANGE_LAST_SET = $00000004;
+  REG_NOTIFY_CHANGE_SECURITY = $00000008;
+  REG_NOTIFY_CHANGE_ALL = $0000000F;
+  REG_NOTIFY_THREAD_AGNOSTIC = $10000000; // Windows 8+
+
 type
   [FriendlyName('registry'), ValidMask(KEY_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(KEY_QUERY_VALUE, 'Query Values')]
@@ -82,8 +93,22 @@ type
   [FlagName(KEY_CREATE_LINK, 'Create Links')]
   TRegKeyAccessMask = type TAccessMask;
 
+  [FlagName(REG_OPTION_VOLATILE, 'Volatile')]
+  [FlagName(REG_OPTION_CREATE_LINK, 'Create Link')]
+  [FlagName(REG_OPTION_BACKUP_RESTORE, 'Backup/Restore')]
+  [FlagName(REG_OPTION_OPEN_LINK, 'Open Link')]
+  [FlagName(REG_OPTION_DONT_VIRTUALIZE, 'Don''t Virtualize')]
+  TRegOpenOptions = type Cardinal;
+
+  [FlagName(REG_NOTIFY_CHANGE_NAME, 'Name')]
+  [FlagName(REG_NOTIFY_CHANGE_ATTRIBUTES, 'Attributes')]
+  [FlagName(REG_NOTIFY_CHANGE_LAST_SET, 'Last Set')]
+  [FlagName(REG_NOTIFY_CHANGE_SECURITY, 'Security')]
+  [FlagName(REG_NOTIFY_THREAD_AGNOSTIC, 'Thread-Agnostic')]
+  TRegNotifyFlags = type Cardinal;
+
   // WinNt.21271
-  [NamingStyle(nsSnakeCase, 'REG'), Range(0)]
+  [NamingStyle(nsSnakeCase, 'REG'), Range(1)]
   TRegDisposition = (
     REG_DISPOSITION_RESERVED = 0,
     REG_CREATED_NEW_KEY = 1,
@@ -208,88 +233,200 @@ type
   end;
   PKeyValuePartialInfromation = ^TKeyValuePartialInfromation;
 
-function NtCreateKey(out KeyHandle: THandle; DesiredAccess: TAccessMask;
-  const ObjectAttributes: TObjectAttributes; TitleIndex: Cardinal; ClassName:
-  PNtUnicodeString; CreateOptions: Cardinal; Disposition: PRegDisposition):
-  NTSTATUS; stdcall; external ntdll;
+  [NamingStyle(nsCamelCase, 'KeyLoad'), RangeAttribute(1)]
+  TKeyLoadHandleType = (
+    KeyLoadReserved = 0,
+    KeyLoadTrustClassKey = 1,
+    KeyLoadEvent = 2,
+    KeyLoadToken = 3
+  );
 
-function NtCreateKeyTransacted(out KeyHandle: THandle; DesiredAccess: TAccessMask;
-  const ObjectAttributes: TObjectAttributes; TitleIndex: Cardinal;
-  ClassName: PNtUnicodeString; CreateOptions: Cardinal; TransactionHandle:
-  THandle; Disposition: PRegDisposition): NTSTATUS; stdcall; external ntdll;
+  TKeyLoadHandle = record
+    HandleType: TKeyLoadHandleType;
+    Handle: THandle;
+  end;
 
-function NtOpenKeyEx(out KeyHandle: THandle; DesiredAccess: TAccessMask;
-  const ObjectAttributes: TObjectAttributes; OpenOptions: Cardinal): NTSTATUS;
-    stdcall; external ntdll;
+  TKeyPidInformation = record
+    ProcessId: TProcessId;
+    KeyName: TNtUnicodeString;
+  end;
 
-function NtOpenKeyTransactedEx(out KeyHandle: THandle; DesiredAccess: TAccessMask;
-  const ObjectAttributes: TObjectAttributes; OpenOptions: Cardinal;
-  TransactionHandle: THandle): NTSTATUS; stdcall; external ntdll;
+  TKeyOpenSubkeysInformation = record
+    [Counter] Count: Cardinal;
+    KeyArray: TAnysizeArray<TKeyPidInformation>;
+  end;
+  PKeyOpenSubkeysInformation = ^TKeyOpenSubkeysInformation;
 
-function NtDeleteKey(KeyHandle: THandle): NTSTATUS; stdcall; external ntdll;
+function NtCreateKey(
+  out KeyHandle: THandle;
+  DesiredAccess: TRegKeyAccessMask;
+  ObjectAttributes: PObjectAttributes;
+  TitleIndex: Cardinal;
+  ClassName: PNtUnicodeString;
+  CreateOptions: TRegOpenOptions;
+  Disposition: PRegDisposition
+): NTSTATUS; stdcall; external ntdll;
 
-function NtRenameKey(KeyHandle: THandle; const NewName: TNtUnicodeString):
-  NTSTATUS; stdcall; external ntdll;
+function NtCreateKeyTransacted(
+  out KeyHandle: THandle;
+  DesiredAccess: TRegKeyAccessMask;
+  ObjectAttributes: PObjectAttributes;
+  TitleIndex: Cardinal;
+  ClassName: PNtUnicodeString;
+  CreateOptions: TRegOpenOptions;
+  TransactionHandle: THandle;
+  Disposition: PRegDisposition
+): NTSTATUS; stdcall; external ntdll;
 
-function NtDeleteValueKey(KeyHandle: THandle; const ValueName: TNtUnicodeString):
-  NTSTATUS; stdcall; external ntdll;
+function NtOpenKeyEx(
+  out KeyHandle: THandle;
+  DesiredAccess: TRegKeyAccessMask;
+  ObjectAttributes: PObjectAttributes;
+  OpenOptions: TRegOpenOptions
+): NTSTATUS; stdcall; external ntdll;
 
-function NtQueryKey(KeyHandle: THandle; KeyInformationClass:
-  TKeyInformationClass; KeyInformation: Pointer; Length: Cardinal;
-  out ResultLength: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtOpenKeyTransactedEx(
+  out KeyHandle: THandle;
+  DesiredAccess: TRegKeyAccessMask;
+  ObjectAttributes: PObjectAttributes;
+  OpenOptions: TRegOpenOptions;
+  TransactionHandle: THandle
+): NTSTATUS; stdcall; external ntdll;
 
-function NtSetInformationKey(KeyHandle: THandle; KeySetInformationClass:
-  TKeySetInformationClass; KeySetInformation: Pointer;
-  KeySetInformationLength: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtDeleteKey(
+  KeyHandle: THandle
+): NTSTATUS; stdcall; external ntdll;
 
-function NtQueryValueKey(KeyHandle: THandle; const ValueName: TNtUnicodeString;
-  KeyValueInformationClass: TKeyValueInformationClass; KeyValueInformation:
-  Pointer; Length: Cardinal; out ResultLength: Cardinal): NTSTATUS; stdcall;
-  external ntdll;
+function NtRenameKey(
+  KeyHandle: THandle;
+  const NewName: TNtUnicodeString
+): NTSTATUS; stdcall; external ntdll;
 
-function NtSetValueKey(KeyHandle: THandle; const ValueName: TNtUnicodeString;
-  TitleIndex: Cardinal; ValueType: TRegValueType; Data: Pointer;
-  DataSize: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtDeleteValueKey(
+  KeyHandle: THandle;
+  const ValueName: TNtUnicodeString
+): NTSTATUS; stdcall; external ntdll;
 
-function NtEnumerateKey(KeyHandle: THandle; Index: Cardinal;
-  KeyInformationClass: TKeyInformationClass; KeyInformation: Pointer;
-  Length: Cardinal; out ResultLength: Cardinal): NTSTATUS; stdcall;
-  external ntdll;
+function NtQueryKey(
+  KeyHandle: THandle;
+  KeyInformationClass: TKeyInformationClass;
+  KeyInformation: Pointer;
+  Length: Cardinal;
+  out ResultLength: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtEnumerateValueKey(KeyHandle: THandle; Index: Cardinal;
+function NtSetInformationKey(
+  KeyHandle: THandle;
+  KeySetInformationClass: TKeySetInformationClass;
+  KeySetInformation: Pointer;
+  KeySetInformationLength: Cardinal
+): NTSTATUS; stdcall; external ntdll;
+
+function NtQueryValueKey(
+  KeyHandle: THandle;
+  const ValueName: TNtUnicodeString;
   KeyValueInformationClass: TKeyValueInformationClass;
-  KeyValueInformation: Pointer; Length: Cardinal; out ResultLength: Cardinal):
-  NTSTATUS; stdcall; external ntdll;
+  KeyValueInformation: Pointer;
+  Length: Cardinal;
+  out ResultLength: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtFlushKey(KeyHandle: THandle): NTSTATUS; stdcall; external ntdll;
+function NtSetValueKey(
+  KeyHandle: THandle;
+  const ValueName: TNtUnicodeString;
+  TitleIndex: Cardinal;
+  ValueType: TRegValueType;
+  Data: Pointer;
+  DataSize: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtCompressKey(Key: THandle): NTSTATUS; stdcall; external ntdll;
+function NtEnumerateKey(
+  KeyHandle: THandle;
+  Index: Cardinal;
+  KeyInformationClass: TKeyInformationClass;
+  KeyInformation: Pointer;
+  Length: Cardinal;
+  out ResultLength: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtLoadKey(const TargetKey: TObjectAttributes;
-  const SourceFile: TObjectAttributes): NTSTATUS; stdcall; external ntdll;
+function NtEnumerateValueKey(
+  KeyHandle: THandle;
+  Index: Cardinal;
+  KeyValueInformationClass: TKeyValueInformationClass;
+  KeyValueInformation: Pointer;
+  Length: Cardinal;
+  out ResultLength: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtLoadKey2(const TargetKey: TObjectAttributes; const SourceFile:
-  TObjectAttributes; Flags: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtFlushKey(
+  KeyHandle: THandle
+): NTSTATUS; stdcall; external ntdll;
 
-function NtLoadKeyEx(const TargetKey: TObjectAttributes; const SourceFile:
-  TObjectAttributes; Flags: Cardinal; TrustClassKey: THandle; Event: THandle;
-  DesiredAccess: TAccessMask; out RootHandle: THandle;
-  IoStatus: PIoStatusBlock): NTSTATUS; stdcall; external ntdll;
+function NtCompressKey(
+  Key: THandle
+): NTSTATUS; stdcall; external ntdll;
 
-function NtSaveKey(KeyHandle: THandle; FileHandle: THandle): NTSTATUS; stdcall;
-  external ntdll;
+function NtLoadKeyEx(
+  TargetKey: PObjectAttributes;
+  SourceFile: PObjectAttributes;
+  Flags: Cardinal;
+  TrustClassKey: THandle;
+  Event: THandle;
+  DesiredAccess: TRegKeyAccessMask;
+  out RootHandle: THandle;
+  IoStatus: PIoStatusBlock
+): NTSTATUS; stdcall; external ntdll;
 
-function NtUnloadKey(const TargetKey: TObjectAttributes): NTSTATUS; stdcall;
-  external ntdll;
+// Win10 20H1+
+function NtLoadKey3(
+  const TargetKey: TObjectAttributes;
+  const SourceFile: TObjectAttributes;
+  Flags: Cardinal;
+  LoadEntries: TArray<TKeyLoadHandle>;
+  LoadEntryCount: Cardinal;
+  DesiredAccess: TRegKeyAccessMask;
+  out RootHandle: THandle;
+  IoStatus: PIoStatusBlock
+): NTSTATUS; stdcall; external ntdll delayed;
 
-function NtUnloadKey2(const TargetKey: TObjectAttributes; Flags: Cardinal)
-  : NTSTATUS; stdcall; external ntdll;
+function NtSaveKey(
+  KeyHandle: THandle;
+  FileHandle: THandle
+): NTSTATUS; stdcall; external ntdll;
 
-function NtQueryOpenSubKeys(const TargetKey: TObjectAttributes;
-  out HandleCount: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtUnloadKey2(
+  TargetKey: PObjectAttributes;
+  Flags: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtFreezeRegistry(TimeOutInSeconds: Cardinal): NTSTATUS; stdcall;
-  external ntdll;
+function NtQueryOpenSubKeys(
+  const TargetKey: TObjectAttributes;
+  out HandleCount: Cardinal
+): NTSTATUS; stdcall; external ntdll;
+
+function NtQueryOpenSubKeysEx(
+  TargetKey: PObjectAttributes;
+  BufferLength: Cardinal;
+  Buffer: PKeyOpenSubkeysInformation;
+  out RequiredSize: Cardinal
+): NTSTATUS; stdcall; external ntdll;
+
+function NtNotifyChangeKey(
+  KeyHandle: THandle;
+  Event: THandle;
+  ApcRoutine: TIoApcRoutine;
+  ApcContext: Pointer;
+  IoStatusBlock: PIoStatusBlock;
+  CompletionFilter: TRegNotifyFlags;
+  WatchTree: Boolean;
+  Buffer: Pointer;
+  BufferSize: Cardinal;
+  Asynchronous: Boolean
+): NTSTATUS; stdcall; external ntdll;
+
+function NtFreezeRegistry(
+  TimeOutInSeconds: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
 function NtThawRegistry: NTSTATUS; stdcall; external ntdll;
 
