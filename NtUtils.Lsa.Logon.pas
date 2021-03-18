@@ -1,5 +1,9 @@
 unit NtUtils.Lsa.Logon;
 
+{
+  This module enumerating and retrieving information about active logon sessions
+}
+
 interface
 
 uses
@@ -9,14 +13,20 @@ type
   ILogonSession = IMemory<PSecurityLogonSessionData>;
 
 // Enumerate logon sessions
-function LsaxEnumerateLogonSessions(out Luids: TArray<TLogonId>): TNtxStatus;
+function LsaxEnumerateLogonSessions(
+  out Luids: TArray<TLogonId>
+): TNtxStatus;
 
 // Query logon session information
-function LsaxQueryLogonSession(LogonId: TLogonId; out Data: ILogonSession):
-  TNtxStatus;
+function LsaxQueryLogonSession(
+  LogonId: TLogonId;
+  out Data: ILogonSession
+): TNtxStatus;
 
 // Construct a SID for one of well-known logon sessions
-function LsaxLookupKnownLogonSessionSid(LogonId: TLogonId): ISid;
+function LsaxLookupKnownLogonSessionSid(
+  LogonId: TLogonId
+): ISid;
 
 implementation
 
@@ -25,21 +35,20 @@ uses
 
 type
   TLsaAutoMemory = class (TCustomAutoMemory, IMemory)
-    destructor Destroy; override;
+    procedure Release; override;
   end;
 
 { TLogonAutoMemory<P> }
 
-destructor TLsaAutoMemory.Destroy;
+procedure TLsaAutoMemory.Release;
 begin
-  if FAutoRelease then
-    LsaFreeReturnBuffer(FAddress);
+  LsaFreeReturnBuffer(FAddress);
   inherited;
 end;
 
 { Functions }
 
-function LsaxEnumerateLogonSessions(out Luids: TArray<TLogonId>): TNtxStatus;
+function LsaxEnumerateLogonSessions;
 var
   Count, i: Integer;
   Buffer: PLuidArray;
@@ -73,8 +82,7 @@ begin
     Insert(ANONYMOUS_LOGON_LUID, Luids, 0);
 end;
 
-function LsaxQueryLogonSession(LogonId: TLogonId; out Data: ILogonSession):
-  TNtxStatus;
+function LsaxQueryLogonSession;
 var
   Buffer: PSecurityLogonSessionData;
 begin
@@ -97,7 +105,7 @@ begin
   IMemory(Data) := TLsaAutoMemory.Capture(Buffer, Buffer.Size);
 end;
 
-function LsaxLookupKnownLogonSessionSid(LogonId: TLogonId): ISid;
+function LsaxLookupKnownLogonSessionSid;
 begin
   case LogonId of
     SYSTEM_LUID:

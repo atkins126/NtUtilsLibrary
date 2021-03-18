@@ -169,6 +169,25 @@ type
   end;
   PProcessInformation = ^TProcessInformation;
 
+  [FlagName(DEBUG_PROCESS, 'Debug')]
+  [FlagName(DEBUG_ONLY_THIS_PROCESS, 'Debug Only This')]
+  [FlagName(CREATE_SUSPENDED, 'Suspended')]
+  [FlagName(DETACHED_PROCESS, 'Detached')]
+  [FlagName(CREATE_NEW_CONSOLE, 'New Console')]
+  [FlagName(CREATE_NEW_PROCESS_GROUP, 'New Process Group')]
+  [FlagName(CREATE_UNICODE_ENVIRONMENT, 'Unicode Environment')]
+  [FlagName(CREATE_PROTECTED_PROCESS, 'Protected')]
+  [FlagName(EXTENDED_STARTUPINFO_PRESENT, 'Extended Startup Info')]
+  [FlagName(CREATE_SECURE_PROCESS, 'Secure')]
+  [FlagName(CREATE_BREAKAWAY_FROM_JOB, 'Breakaway From Job')]
+  [FlagName(CREATE_DEFAULT_ERROR_MODE, 'Defaule Error Mode')]
+  [FlagName(CREATE_NO_WINDOW, 'No Window')]
+  [FlagName(PROFILE_USER, 'Profile User')]
+  [FlagName(PROFILE_KERNEL, 'Profile Kernel')]
+  [FlagName(PROFILE_SERVER, 'Profile Server')]
+  [FlagName(CREATE_IGNORE_SYSTEM_DEFAULT, 'Ignore System Default')]
+  TProcessCreateFlags = type Cardinal;
+
   [FlagName(STARTF_USESHOWWINDOW, 'Use Show Window')]
   [FlagName(STARTF_USESIZE, 'Use Size')]
   [FlagName(STARTF_USEPOSITION, 'Use Position')]
@@ -237,54 +256,90 @@ type
   TProcessLogonFlags = type Cardinal;
 
 // 377
-function CreateProcessW(ApplicationName: PWideChar; CommandLine: PWideChar;
-  ProcessAttributes: PSecurityAttributes; ThreadAttributes: PSecurityAttributes;
-  InheritHandles: LongBool; CreationFlags: Cardinal; Environment: PEnvironment;
-  CurrentDirectory: PWideChar; const StartupInfo: TStartupInfoExW;
-  out ProcessInformation: TProcessInformation): LongBool; stdcall;
-  external kernel32;
+function CreateProcessW(
+  ApplicationName: PWideChar;
+  CommandLine: PWideChar;
+  ProcessAttributes: PSecurityAttributes;
+  ThreadAttributes: PSecurityAttributes;
+  InheritHandles: LongBool;
+  CreationFlags: TProcessCreateFlags;
+  Environment: PEnvironment;
+  CurrentDirectory: PWideChar;
+  const StartupInfo: TStartupInfoExW;
+  out ProcessInformation: TProcessInformation
+): LongBool; stdcall; external kernel32;
 
 // 422
-procedure GetStartupInfoW(out StartupInfo: TStartupInfoW); stdcall;
-  external kernel32;
+procedure GetStartupInfoW(
+  out StartupInfo: TStartupInfoW
+); stdcall; external kernel32;
 
 // 433
-function CreateProcessAsUserW(hToken: THandle; ApplicationName: PWideChar;
-  CommandLine: PWideChar; ProcessAttributes: PSecurityAttributes;
-  ThreadAttributes: PSecurityAttributes; InheritHandles: LongBool;
-  CreationFlags: Cardinal; Environment: PEnvironment; CurrentDirectory:
-  PWideChar; const StartupInfo: TStartupInfoExW; out ProcessInformation:
-  TProcessInformation): LongBool; stdcall; external advapi32;
+function CreateProcessAsUserW(
+  hToken: THandle;
+  ApplicationName: PWideChar;
+  CommandLine: PWideChar;
+  ProcessAttributes: PSecurityAttributes;
+  ThreadAttributes: PSecurityAttributes;
+  InheritHandles: LongBool;
+  CreationFlags: TProcessCreateFlags;
+  Environment: PEnvironment;
+  CurrentDirectory: PWideChar;
+  const StartupInfo: TStartupInfoExW;
+  out ProcessInformation: TProcessInformation
+): LongBool; stdcall; external advapi32;
 
 // 637
-function InitializeProcThreadAttributeList(AttributeList:
-  PProcThreadAttributeList; AttributeCount: Integer; Flags: Cardinal;
-  var Size: NativeUInt): LongBool; stdcall; external kernel32;
+function InitializeProcThreadAttributeList(
+  AttributeList: PProcThreadAttributeList;
+  AttributeCount: Integer;
+  Flags: Cardinal; // Reserved
+  var Size: NativeUInt
+): LongBool; stdcall; external kernel32;
 
 // 648
-procedure DeleteProcThreadAttributeList(AttributeList:
-  PProcThreadAttributeList); stdcall; external kernel32;
+procedure DeleteProcThreadAttributeList(
+  AttributeList: PProcThreadAttributeList
+); stdcall; external kernel32;
 
 // 678
-function UpdateProcThreadAttribute(AttributeList: PProcThreadAttributeList;
-  Flags: Cardinal; Attribute: NativeUInt; const Value; Size: NativeUInt;
-  PreviousValue: PEnvironment = nil; ReturnSize: PNativeUInt = nil): LongBool;
-  stdcall; external kernel32;
+function UpdateProcThreadAttribute(
+  AttributeList: PProcThreadAttributeList;
+  Flags: Cardinal; // Reserved
+  Attribute: NativeUInt;
+  const Value;
+  Size: NativeUInt;
+  PreviousValue: PEnvironment = nil;
+  ReturnSize: PNativeUInt = nil
+): LongBool; stdcall; external kernel32;
 
 // WinBase.7276
-function CreateProcessWithLogonW(Username: PWideChar; Domain: PWideChar;
-  Password: PWideChar; LogonFlags: TProcessLogonFlags; ApplicationName:
-  PWideChar; CommandLine: PWideChar; CreationFlags: Cardinal; Environment:
-  PEnvironment; CurrentDirectory: PWideChar; const StartupInfo: TStartupInfoW;
-  out ProcessInformation: TProcessInformation): LongBool; stdcall;
-  external advapi32;
+function CreateProcessWithLogonW(
+  Username: PWideChar;
+  Domain: PWideChar;
+  Password: PWideChar;
+  LogonFlags: TProcessLogonFlags;
+  ApplicationName: PWideChar;
+  CommandLine: PWideChar;
+  CreationFlags: TProcessCreateFlags;
+  Environment: PEnvironment;
+  CurrentDirectory: PWideChar;
+  const StartupInfo: TStartupInfoW;
+  out ProcessInformation: TProcessInformation
+): LongBool; stdcall; external advapi32;
 
 // WinBase.7293
-function CreateProcessWithTokenW(hToken: THandle; LogonFlags:
-  TProcessLogonFlags; ApplicationName: PWideChar; CommandLine: PWideChar;
-  CreationFlags: Cardinal; Environment: PEnvironment; CurrentDirectory:
-  PWideChar; const StartupInfo: TStartupInfoW; out ProcessInformation:
-  TProcessInformation): LongBool; stdcall; external advapi32;
+function CreateProcessWithTokenW(
+  hToken: THandle;
+  LogonFlags: TProcessLogonFlags;
+  ApplicationName: PWideChar;
+  CommandLine: PWideChar;
+  CreationFlags: TProcessCreateFlags;
+  Environment: PEnvironment;
+  CurrentDirectory: PWideChar;
+  const StartupInfo: TStartupInfoW;
+  out ProcessInformation: TProcessInformation
+): LongBool; stdcall; external advapi32;
 
 implementation
 

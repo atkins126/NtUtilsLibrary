@@ -12,8 +12,9 @@ uses
 
 type
   // A prototype for an anonymous APC callback
-  TAnonymousApcCallback = reference to procedure (const IoStatusBlock:
-    TIoStatusBlock);
+  TAnonymousApcCallback = reference to procedure (
+    const IoStatusBlock: TIoStatusBlock
+  );
 
   { Interfaces }
 
@@ -33,6 +34,7 @@ type
     Payload: TAnonymousApcCallback;
     function GetCallback: TAnonymousApcCallback;
     constructor Create(ApcCallback: TAnonymousApcCallback);
+    procedure Release; override;
   end;
 
   TAnonymousIoApcContext = class (TAnonymousApcContext, IAnonymousIoApcContext)
@@ -45,34 +47,43 @@ function GetApcRoutine(AsyncCallback: TAnonymousApcCallback): TIoApcRoutine;
 
 // Prepare an APC context with an I/O status block for asyncronous operations
 // or reference the I/O status block from the stack for synchronous calls
-function PrepareApcIsb(out ApcContext: IAnonymousIoApcContext; AsyncCallback:
-  TAnonymousApcCallback; const [ref] IoStatusBlock: TIoStatusBlock):
-  PIoStatusBlock;
+function PrepareApcIsb(
+  out ApcContext: IAnonymousIoApcContext;
+  AsyncCallback: TAnonymousApcCallback;
+  const [ref] IoStatusBlock: TIoStatusBlock
+): PIoStatusBlock;
 
 // Prepare an APC context with an I/O status block for asyncronous operations
 // or allocate one from the heap
-function PrepareApcIsbEx(out ApcContext: IAnonymousIoApcContext; AsyncCallback:
-  TAnonymousApcCallback; out xIoStatusBlock: IMemory<PIoStatusBlock>):
-  PIoStatusBlock;
+function PrepareApcIsbEx(
+  out ApcContext: IAnonymousIoApcContext;
+  AsyncCallback: TAnonymousApcCallback;
+  out xIoStatusBlock: IMemory<PIoStatusBlock>
+): PIoStatusBlock;
 
 implementation
 
 { TAnonymousApcContext }
 
-constructor TAnonymousApcContext.Create(ApcCallback: TAnonymousApcCallback);
+constructor TAnonymousApcContext.Create;
 begin
   inherited Create;
   Payload := ApcCallback;
 end;
 
-function TAnonymousApcContext.GetCallback: TAnonymousApcCallback;
+function TAnonymousApcContext.GetCallback;
 begin
   Result := Payload;
 end;
 
+procedure TAnonymousApcContext.Release;
+begin
+  inherited;
+end;
+
 { TAnonymousIoApcContext }
 
-function TAnonymousIoApcContext.IoStatusBlock: PIoStatusBlock;
+function TAnonymousIoApcContext.IoStatusBlock;
 begin
   Result := @Iob;
 end;
@@ -80,8 +91,11 @@ end;
 { Functions }
 
 // An APC-compatibe wrapper for calling anonymous functions
-procedure ApcCallbackForwarder(ApcContext: Pointer; const IoStatusBlock:
-  TIoStatusBlock; Reserved: Cardinal); stdcall;
+procedure ApcCallbackForwarder(
+  ApcContext: Pointer;
+  const IoStatusBlock: TIoStatusBlock;
+  Reserved: Cardinal
+); stdcall;
 var
   ContextData: IAnonymousApcContext absolute ApcContext;
 begin
@@ -89,13 +103,13 @@ begin
     try
       ContextData.Callback(IoStatusBlock);
     finally
-      // Clean-up the captured variablesof one-time callbacks
+      // Clean-up the captured variables of a one-time callbacks
       if ContextData.AutoRelease then
         ContextData._Release;
     end;
 end;
 
-function GetApcRoutine(AsyncCallback: TAnonymousApcCallback): TIoApcRoutine;
+function GetApcRoutine;
 begin
   // All anonymous functions go through a forwarder that manages their lifetime
   if Assigned(AsyncCallback) then
@@ -104,9 +118,7 @@ begin
     Result := nil;
 end;
 
-function PrepareApcIsb(out ApcContext: IAnonymousIoApcContext; AsyncCallback:
-  TAnonymousApcCallback; const [ref] IoStatusBlock: TIoStatusBlock):
-  PIoStatusBlock;
+function PrepareApcIsb;
 begin
   if Assigned(AsyncCallback) then
   begin
@@ -122,9 +134,7 @@ begin
   end;
 end;
 
-function PrepareApcIsbEx(out ApcContext: IAnonymousIoApcContext; AsyncCallback:
-  TAnonymousApcCallback; out xIoStatusBlock: IMemory<PIoStatusBlock>):
-  PIoStatusBlock;
+function PrepareApcIsbEx;
 begin
   if Assigned(AsyncCallback) then
   begin

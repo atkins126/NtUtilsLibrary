@@ -215,8 +215,9 @@ const
   IO_COMPLETION_ALL_ACCESS = STANDARD_RIGHTS_ALL or $03;
 
 type
-  [FriendlyName('file object'), ValidMask(FILE_ALL_ACCESS), IgnoreUnnamed]
+  TFileId = type UInt64;
 
+  [FriendlyName('file object'), ValidMask(FILE_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(FILE_READ_DATA, 'Read Data / List Directory')]
   [FlagName(FILE_WRITE_DATA, 'Write Data / Add File')]
   [FlagName(FILE_APPEND_DATA, 'Append Data / Add Sub-directory / Create Pipe Instance')]
@@ -326,8 +327,11 @@ type
   PIoStatusBlock = ^TIoStatusBlock;
 
   // wdm.6597
-  TIoApcRoutine = procedure (ApcContext: Pointer; const IoStatusBlock:
-    TIoStatusBlock; Reserved: Cardinal); stdcall;
+  TIoApcRoutine = procedure (
+    ApcContext: Pointer;
+    const IoStatusBlock: TIoStatusBlock;
+    Reserved: Cardinal
+  ); stdcall;
 
   // wdm.6972
   TFileSegmentElement = record
@@ -452,7 +456,7 @@ type
 
   // ntifs.6319, info class 1, use with NtQueryDirectoryFile
   TFileDirectoryInformation = record
-    NextEntryOffset: Cardinal;
+    [Unlisted] NextEntryOffset: Cardinal;
     FileIndex: Cardinal;
     [Aggregate] Times: TFileTimes;
     [Bytes] EndOfFile: UInt64;
@@ -465,7 +469,7 @@ type
 
   // ntifs.6333, info class 2, use with NtQueryDirectoryFile
   TFileFullDirInformation = record
-    NextEntryOffset: Cardinal;
+    [Unlisted] NextEntryOffset: Cardinal;
     FileIndex: Cardinal;
     [Aggregate] Times: TFileTimes;
     [Bytes] EndOfFile: UInt64;
@@ -524,7 +528,7 @@ type
 
   // ntifs.6304, info class 12
   TFileNamesInformation = record
-    NextEntryOffset: Cardinal;
+    [Unlisted] NextEntryOffset: Cardinal;
     FileIndex: Cardinal;
     [Counter(ctBytes)] FileNameLength: Cardinal;
     FileName: TAnysizeArray<WideChar>;
@@ -533,7 +537,7 @@ type
 
   // wdm.6825, info class 15
   TFileFullEaInformation = record
-    NextEntryOffset: Cardinal;
+    [Unlisted] NextEntryOffset: Cardinal;
     [Hex] Flags: Byte;
     [Counter(ctBytes)] EaNameLength: Byte;
     EaValueLength: Word;
@@ -556,7 +560,7 @@ type
     StandardInformation: TFileStandardInformation;
     IndexNumber: UInt64;
     [Bytes] EaSize: Cardinal;
-    AccessFlags: TAccessMask;
+    AccessFlags: TFileAccessMask;
     CurrentByteOffset: UInt64;
     Mode: TFileMode;
     AlignmentRequirement: Cardinal;
@@ -566,7 +570,7 @@ type
 
   // ntifs.6692, info class 22
   TFileStreamInformation = record
-    NextEntryOffset: Cardinal;
+    [Unlisted] NextEntryOffset: Cardinal;
     [Counter(ctBytes)] StreamNameLength: Cardinal;
     [Bytes] StreamSize: UInt64;
     [Bytes] StreamAllocationSize: UInt64;
@@ -689,7 +693,7 @@ type
   // ntifs.6762, info class 33
   TFileReparsePointInformation = record
     [Hex] FileReference: UInt64;
-    [Hex] Tag: Cardinal;
+    [Hex] Tag: Cardinal; // TODO: make sub enum
   end;
   PFileReparsePointInformation = ^TFileReparsePointInformation;
 
@@ -705,7 +709,7 @@ type
   // ntddk.4659, info class 35
   TFileAttributeTagInformation = record
     FileAttributes: TFileAttributes;
-    [Hex] ReparseTag: Cardinal;
+    [Hex] ReparseTag: Cardinal; // TODO: make sub enum
   end;
   PFileAttributeTagInformation = ^TFileAttributeTagInformation;
 
@@ -721,8 +725,8 @@ type
 
   // ntifs.6769
   TFileLinkEntryInformation = record
-    NextEntryOffset: Cardinal;
-    ParentFileID: Int64;
+    [Unlisted] NextEntryOffset: Cardinal;
+    ParentFileID: TFileId;
     [Counter(ctBytes)] FileNameLength: Cardinal;
     FileName: TAnysizeArray<WideChar>;
   end;
@@ -834,7 +838,7 @@ type
 
   // ntifs.6183, info class 1
   TFileNotifyInformation = record
-    NextEntryOffset: Cardinal;
+    [Unlisted] NextEntryOffset: Cardinal;
     Action: TFileAction;
     [Counter(ctBytes)] FileNameLength: Cardinal;
     FileName: TAnysizeArray<WideChar>;
@@ -844,7 +848,7 @@ type
   // ntifs.6191, info class 2
   [MinOsVersion(OsWin10RS3)]
   TFileNotifyExtendedInformation = record
-    NextEntryOffset: Cardinal;
+    [Unlisted] NextEntryOffset: Cardinal;
     Action: TFileAction;
     CreationTime: TLargeInteger;
     LastModificationTime: TLargeInteger;
@@ -853,9 +857,9 @@ type
     [Bytes] AllocatedLength: UInt64;
     [Bytes] FileSize: UInt64;
     FileAttributes: TFileAttributes;
-    ReparsePointTag: Cardinal;
-    FileID: UInt64;
-    ParentFileID: UInt64;
+    ReparsePointTag: Cardinal; // TODO: sub enum
+    FileID: TFileId;
+    ParentFileID: TFileId;
     [Counter(ctBytes)] FileNameLength: Cardinal;
     FileName: TAnysizeArray<WideChar>;
   end;
@@ -866,8 +870,8 @@ type
 // ntifs.7068
 function NtCreateFile(
   out FileHandle: THandle;
-  DesiredAccess: TAccessMask;
-  ObjectAttributes: PObjectAttributes;
+  DesiredAccess: TFileAccessMask;
+  const ObjectAttributes: TObjectAttributes;
   out IoStatusBlock: TIoStatusBlock;
   AllocationSize: PLargeInteger;
   FileAttributes: TFileAttributes;
@@ -880,7 +884,7 @@ function NtCreateFile(
 
 function NtCreateNamedPipeFile(
   out FileHandle: THandle;
-  DesiredAccess: TAccessMask;
+  DesiredAccess: TIoPipeAccessMask;
   const ObjectAttributes: TObjectAttributes;
   out IoStatusBlock: TIoStatusBlock;
   ShareAccess: TFileShareMode;
@@ -897,7 +901,7 @@ function NtCreateNamedPipeFile(
 
 function NtCreateMailslotFile(
   out FileHandle: THandle;
-  DesiredAccess: TAccessMask;
+  DesiredAccess: TFileAccessMask;
   const ObjectAttributes: TObjectAttributes;
   out IoStatusBlock: TIoStatusBlock;
   CreateOptions: TFileOpenOptions;
@@ -909,8 +913,8 @@ function NtCreateMailslotFile(
 // ntifs.7148
 function NtOpenFile(
   out FileHandle: THandle;
-  DesiredAccess: TAccessMask;
-  ObjectAttributes: PObjectAttributes;
+  DesiredAccess: TFileAccessMask;
+  const ObjectAttributes: TObjectAttributes;
   out IoStatusBlock: TIoStatusBlock;
   ShareAccess: TFileShareMode;
   OpenOptions: TFileOpenOptions
@@ -938,7 +942,7 @@ function NtQueryInformationFile(
 
 // wdm.40673, Win 10 RS2+
 function NtQueryInformationByName(
-  const ObjectAttributes: TObjectAttributes;
+  ObjectAttributes: PObjectAttributes;
   out IoStatusBlock: TIoStatusBlock;
   FileInformation: Pointer;
   Length: Cardinal;

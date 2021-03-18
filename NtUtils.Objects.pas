@@ -1,5 +1,10 @@
 unit NtUtils.Objects;
 
+{
+  This modules provides functions for operations with handles that are common
+  for all types of kernel objects.
+}
+
 interface
 
 uses
@@ -7,8 +12,9 @@ uses
   DelphiApi.Reflection;
 
 type
+  // A wrapper for handles to kernel objects that require NtClose to free them
   TAutoHandle = class(TCustomAutoHandle, IHandle)
-    destructor Destroy; override;
+    procedure Release; override;
   end;
 
   TObjectBasicInformaion = Ntapi.ntobapi.TObjectBasicInformaion;
@@ -19,84 +25,132 @@ type
   end;
 
 // Close a handle safely and set it to zero
-function NtxSafeClose(var hObject: THandle): NTSTATUS;
+function NtxSafeClose(var hObject: THandle): TNtxStatus;
 
 // ------------------------------ Duplication ------------------------------ //
 
 // Duplicate a handle to an object. Supports MAXIMUM_ALLOWED.
-function NtxDuplicateHandle(SourceProcessHandle: THandle;
-  SourceHandle: THandle; TargetProcessHandle: THandle;
-  out TargetHandle: THandle; DesiredAccess: TAccessMask;
-  HandleAttributes: TObjectAttributesFlags; Options: Cardinal): TNtxStatus;
+function NtxDuplicateHandle(
+  SourceProcessHandle: THandle;
+  SourceHandle: THandle;
+  TargetProcessHandle: THandle;
+  out TargetHandle: THandle;
+  DesiredAccess: TAccessMask;
+  HandleAttributes: TObjectAttributesFlags;
+  Options: TDuplicateOptions
+): TNtxStatus;
 
 // Duplicate a handle locally
-function NtxDuplicateHandleLocal(SourceHandle: THandle; out hxNewHandle:
-  IHandle; DesiredAccess: TAccessMask; HandleAttributes: TObjectAttributesFlags
-  = 0; Options: Cardinal = 0): TNtxStatus;
+function NtxDuplicateHandleLocal(
+  SourceHandle: THandle;
+  out hxNewHandle: IHandle;
+  DesiredAccess: TAccessMask;
+  HandleAttributes: TObjectAttributesFlags = 0;
+  Options: TDuplicateOptions = 0
+): TNtxStatus;
 
 // Reopen a local handle. Works with exclusive handles as well.
-function NtxReopenHandle(var hxHandle: IHandle; DesiredAccess: TAccessMask;
-  HandleAttributes: TObjectAttributesFlags = 0; Options: Cardinal = 0):
-  TNtxStatus;
+function NtxReopenHandle(
+  var hxHandle: IHandle;
+  DesiredAccess: TAccessMask;
+  HandleAttributes: TObjectAttributesFlags = 0;
+  Options: TDuplicateOptions = 0
+): TNtxStatus;
 
 // Retrieve a handle from a process
-function NtxDuplicateHandleFrom(hProcess: THandle; hRemoteHandle: THandle;
-  out hxLocalHandle: IHandle; Options: Cardinal = DUPLICATE_SAME_ACCESS;
-  DesiredAccess: TAccessMask = 0; HandleAttributes: TObjectAttributesFlags = 0)
-  : TNtxStatus;
+function NtxDuplicateHandleFrom(
+  hProcess: THandle;
+  hRemoteHandle: THandle;
+  out hxLocalHandle: IHandle;
+  Options: TDuplicateOptions = DUPLICATE_SAME_ACCESS;
+  DesiredAccess: TAccessMask = 0;
+  HandleAttributes: TObjectAttributesFlags = 0
+): TNtxStatus;
 
 // Send a handle to a process
-function NtxDuplicateHandleTo(hProcess: THandle; hLocalHandle: THandle;
-  out hRemoteHandle: THandle; Options: Cardinal = DUPLICATE_SAME_ACCESS;
-  DesiredAccess: TAccessMask = 0; HandleAttributes: TObjectAttributesFlags = 0)
-  : TNtxStatus;
+function NtxDuplicateHandleTo(
+  hProcess: THandle;
+  hLocalHandle: THandle;
+  out hRemoteHandle: THandle;
+  Options: TDuplicateOptions = DUPLICATE_SAME_ACCESS;
+  DesiredAccess: TAccessMask = 0;
+  HandleAttributes: TObjectAttributesFlags = 0
+): TNtxStatus;
 
 // Closes a handle in a process
-function NtxCloseRemoteHandle(hProcess: THandle; hObject: THandle;
-  DoubleCheck: Boolean = False): TNtxStatus;
+function NtxCloseRemoteHandle(
+  hProcess: THandle;
+  hObject: THandle;
+  DoubleCheck: Boolean = False
+): TNtxStatus;
 
 // ------------------------------ Information ------------------------------ //
 
 // Query variable-length object information
-function NtxQueryObject(hObject: THandle; InfoClass: TObjectInformationClass;
-  out xMemory: IMemory; InitialBuffer: Cardinal = 0; GrowthMethod:
-  TBufferGrowthMethod = nil): TNtxStatus;
+function NtxQueryObject(
+  hObject: THandle;
+  InfoClass: TObjectInformationClass;
+  out xMemory: IMemory;
+  InitialBuffer: Cardinal = 0;
+  GrowthMethod: TBufferGrowthMethod = nil
+): TNtxStatus;
 
 // Query name of an object
-function NtxQueryNameObject(hObject: THandle; out Name: String): TNtxStatus;
+function NtxQueryNameObject(
+  hObject: THandle;
+  out Name: String
+): TNtxStatus;
 
 // Query basic information about an object
-function NtxQueryBasicObject(hObject: THandle; out Info: TObjectBasicInformaion)
-  : TNtxStatus;
+function NtxQueryBasicObject(
+  hObject: THandle;
+  out Info: TObjectBasicInformaion
+): TNtxStatus;
 
 // Query object type information
-function NtxQueryTypeObject(hObject: THandle;
-  out Info: TObjectTypeInfo): TNtxStatus;
+function NtxQueryTypeObject(
+  hObject: THandle;
+  out Info: TObjectTypeInfo
+): TNtxStatus;
 
 // Set flags for a handle
-function NtxSetFlagsHandle(hObject: THandle; Inherit: Boolean;
-  ProtectFromClose: Boolean): TNtxStatus;
+function NtxSetFlagsHandle(
+  hObject: THandle;
+  Inherit: Boolean;
+  ProtectFromClose: Boolean
+): TNtxStatus;
 
 // --------------------------------- Waits --------------------------------- //
 
 // Wait for an object to enter signaled state
-function NtxWaitForSingleObject(hObject: THandle; Timeout: Int64 = NT_INFINITE;
-  Alertable: Boolean = False): TNtxStatus;
+function NtxWaitForSingleObject(
+  hObject: THandle;
+  Timeout: Int64 = NT_INFINITE;
+  Alertable: Boolean = False
+): TNtxStatus;
 
 // Wait for any/all objects to enter a signaled state
-function NtxWaitForMultipleObjects(Objects: TArray<THandle>; WaitType:
-  TWaitType; Timeout: Int64 = NT_INFINITE; Alertable: Boolean = False)
-  : TNtxStatus;
+function NtxWaitForMultipleObjects(
+  Objects: TArray<THandle>;
+  WaitType: TWaitType;
+  Timeout: Int64 = NT_INFINITE;
+  Alertable: Boolean = False): TNtxStatus;
 
 // ------------------------------- Security -------------------------------- //
 
 // Query security descriptor of a kernel object
-function NtxQuerySecurityObject(hObject: THandle; Info: TSecurityInformation;
-  out SD: ISecDesc): TNtxStatus;
+function NtxQuerySecurityObject(
+  hObject: THandle;
+  Info: TSecurityInformation;
+  out SD: ISecDesc
+): TNtxStatus;
 
 // Set security descriptor on a kernel object
-function NtxSetSecurityObject(hObject: THandle; Info: TSecurityInformation;
-  SD: PSecurityDescriptor): TNtxStatus;
+function NtxSetSecurityObject(
+  hObject: THandle;
+  Info: TSecurityInformation;
+  SD: PSecurityDescriptor
+): TNtxStatus;
 
 implementation
 
@@ -105,36 +159,40 @@ implementation
 uses
   Ntapi.ntstatus, Ntapi.ntpsapi, Ntapi.ntpebteb, Ntapi.ntrtl;
 
-destructor TAutoHandle.Destroy;
+procedure TAutoHandle.Release;
 begin
-  if FAutoRelease then
-    NtxSafeClose(FHandle);
+  NtxSafeClose(FHandle);
   inherited;
 end;
 
-function NtxSafeClose(var hObject: THandle): NTSTATUS;
+function NtxSafeClose;
 begin
   if hObject > MAX_HANDLE then
-    Result := STATUS_INVALID_HANDLE
+  begin
+    Result.Location := 'NtxSafeClose';
+    Result.Status := STATUS_INVALID_HANDLE
+  end
   else
   try
-    // NtClose might throw exceptions
-    Result := NtClose(hObject);
+    // Clear handle protection (just in case)
+    Result := NtxSetFlagsHandle(hObject, False, False);
+
+    // Note: NtClose might throw exceptions
+    Result.Location := 'NtClose';
+    Result.Status := NtClose(hObject);
   except
-    Result := STATUS_UNHANDLED_EXCEPTION;
+    Result.Location := 'NtxSafeClose';
+    Result.Status := STATUS_UNHANDLED_EXCEPTION;
   end;
 
   // Help debugging handle problems
-  DbgBreakOnFailure(Result);
+  DbgBreakOnFailure(Result.Status);
 
   // Prevent future use
   hObject := 0;
 end;
 
-function NtxDuplicateHandle(SourceProcessHandle: THandle;
-  SourceHandle: THandle; TargetProcessHandle: THandle;
-  out TargetHandle: THandle; DesiredAccess: TAccessMask;
-  HandleAttributes: TObjectAttributesFlags; Options: Cardinal): TNtxStatus;
+function NtxDuplicateHandle;
 var
   hSameAccess, hTemp: THandle;
   objTypeInfo: TObjectTypeInfo;
@@ -258,9 +316,7 @@ begin
   end;
 end;
 
-function NtxDuplicateHandleLocal(SourceHandle: THandle; out hxNewHandle:
-  IHandle; DesiredAccess: TAccessMask; HandleAttributes:
-  TObjectAttributesFlags; Options: Cardinal): TNtxStatus;
+function NtxDuplicateHandleLocal;
 var
   hNewHandle: THandle;
 begin
@@ -271,8 +327,7 @@ begin
     hxNewHandle := TAutoHandle.Capture(hNewHandle);
 end;
 
-function NtxReopenHandle(var hxHandle: IHandle; DesiredAccess: TAccessMask;
-  HandleAttributes: TObjectAttributesFlags; Options: Cardinal): TNtxStatus;
+function NtxReopenHandle;
 var
   hNewHandle: THandle;
 begin
@@ -282,14 +337,15 @@ begin
 
   if Result.IsSuccess then
   begin
+    // NtDuplicateObject already closed the handle for us
     hxHandle.AutoRelease := False;
+
+    // Swap it with the new one
     hxHandle := TAutoHandle.Capture(hNewHandle);
   end;
 end;
 
-function NtxDuplicateHandleFrom(hProcess: THandle; hRemoteHandle: THandle;
-  out hxLocalHandle: IHandle; Options: Cardinal; DesiredAccess: TAccessMask;
-  HandleAttributes: TObjectAttributesFlags): TNtxStatus;
+function NtxDuplicateHandleFrom;
 var
   hLocalHandle: THandle;
 begin
@@ -300,16 +356,13 @@ begin
     hxLocalHandle := TAutoHandle.Capture(hLocalHandle);
 end;
 
-function NtxDuplicateHandleTo(hProcess: THandle; hLocalHandle: THandle;
-  out hRemoteHandle: THandle; Options: Cardinal; DesiredAccess: TAccessMask;
-  HandleAttributes: TObjectAttributesFlags): TNtxStatus;
+function NtxDuplicateHandleTo;
 begin
   Result := NtxDuplicateHandle(NtCurrentProcess, hLocalHandle, hProcess,
     hRemoteHandle, DesiredAccess, HandleAttributes, Options);
 end;
 
-function NtxCloseRemoteHandle(hProcess: THandle; hObject: THandle;
-  DoubleCheck: Boolean): TNtxStatus;
+function NtxCloseRemoteHandle;
 var
   hxTemp: IHandle;
 begin
@@ -333,16 +386,16 @@ begin
     begin
       Result.Location := 'NtxCloseRemoteHandle';
       Result.Status := STATUS_HANDLE_NOT_CLOSABLE;
-      Exit;
     end
-    else if Result.Status <> STATUS_INVALID_HANDLE then
-      Exit; // Something else went wrong unexpectedly.
+    else if Result.Status = STATUS_INVALID_HANDLE then
+      // The handle was closed successfully
+      Result.Status := STATUS_SUCCESS;
+
+    // If something else went wrong, forward the error
   end;
 end;
 
-function NtxQueryObject(hObject: THandle; InfoClass: TObjectInformationClass;
-  out xMemory: IMemory; InitialBuffer: Cardinal; GrowthMethod:
-  TBufferGrowthMethod): TNtxStatus;
+function NtxQueryObject;
 var
   Required: Cardinal;
 begin
@@ -357,7 +410,7 @@ begin
   until not NtxExpandBufferEx(Result, xMemory, Required, GrowthMethod);
 end;
 
-function NtxQueryNameObject(hObject: THandle; out Name: String): TNtxStatus;
+function NtxQueryNameObject;
 var
   xMemory: IMemory<PNtUnicodeString>;
 begin
@@ -367,8 +420,7 @@ begin
     Name := xMemory.Data.ToString;
 end;
 
-function NtxQueryBasicObject(hObject: THandle; out Info: TObjectBasicInformaion)
-  : TNtxStatus;
+function NtxQueryBasicObject;
 begin
   Result.Location := 'NtQueryObject';
   Result.LastCall.AttachInfoClass(ObjectBasicInformation);
@@ -377,8 +429,7 @@ begin
     SizeOf(Info), nil);
 end;
 
-function NtxQueryTypeObject(hObject: THandle;
-  out Info: TObjectTypeInfo): TNtxStatus;
+function NtxQueryTypeObject;
 var
   xMemory: IMemory<PObjectTypeInformation>;
 begin
@@ -393,8 +444,7 @@ begin
   Info.Other.TypeName.Buffer := PWideChar(Info.TypeName);
 end;
 
-function NtxSetFlagsHandle(hObject: THandle; Inherit: Boolean;
-  ProtectFromClose: Boolean): TNtxStatus;
+function NtxSetFlagsHandle;
 var
   Info: TObjectHandleFlagInformation;
 begin
@@ -408,8 +458,7 @@ begin
     @Info, SizeOf(Info));
 end;
 
-function NtxWaitForSingleObject(hObject: THandle; Timeout: Int64;
-  Alertable: Boolean): TNtxStatus;
+function NtxWaitForSingleObject;
 begin
   Result.Location := 'NtWaitForSingleObject';
   Result.LastCall.Expects<TAccessMask>(SYNCHRONIZE);
@@ -417,8 +466,7 @@ begin
     TimeoutToLargeInteger(Timeout));
 end;
 
-function NtxWaitForMultipleObjects(Objects: TArray<THandle>; WaitType:
-  TWaitType; Timeout: Int64; Alertable: Boolean): TNtxStatus;
+function NtxWaitForMultipleObjects;
 begin
   Result.Location := 'NtWaitForMultipleObjects';
   Result.LastCall.Expects<TAccessMask>(SYNCHRONIZE);
@@ -426,13 +474,12 @@ begin
     WaitType, Alertable, TimeoutToLargeInteger(Timeout));
 end;
 
-function NtxQuerySecurityObject(hObject: THandle; Info: TSecurityInformation;
-  out SD: ISecDesc): TNtxStatus;
+function NtxQuerySecurityObject;
 var
   Required: Cardinal;
 begin
   Result.Location := 'NtQuerySecurityObject';
-  Result.LastCall.AttachAccess<TAccessMask>(SecurityReadAccess(Info));
+  Result.LastCall.Expects(SecurityReadAccess(Info));
 
   IMemory(SD) := TAutoMemory.Allocate(0);
   repeat
@@ -442,11 +489,10 @@ begin
   until not NtxExpandBufferEx(Result, IMemory(SD), Required, nil);
 end;
 
-function NtxSetSecurityObject(hObject: THandle; Info: TSecurityInformation;
-  SD: PSecurityDescriptor): TNtxStatus;
+function NtxSetSecurityObject;
 begin
   Result.Location := 'NtSetSecurityObject';
-  Result.LastCall.AttachAccess<TAccessMask>(SecurityWriteAccess(Info));
+  Result.LastCall.Expects(SecurityWriteAccess(Info));
   Result.Status := NtSetSecurityObject(hObject, Info, SD);
 end;
 

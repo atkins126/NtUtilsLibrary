@@ -1,5 +1,14 @@
 unit DelphiUtils.AutoObject;
 
+{
+  This module provides the core facilities for automatic lifetime management
+  for resources that require cleanup. When interactining with such resources
+  through interfaces, Delphi automatically emits code that counts outstanding
+  references and immediately releases the underlying resource when this value
+  drops to zero. Here you can find the definitions for the interfaces, as
+  well as their default implementations.
+}
+
 interface
 
 type
@@ -14,18 +23,22 @@ type
 
   { Interfaces}
 
+  //  Every resource that requires cleanup should implement this interface
   IAutoReleasable = interface
     function GetAutoRelease: Boolean;
     procedure SetAutoRelease(Value: Boolean);
     property AutoRelease: Boolean read GetAutoRelease write SetAutoRelease;
   end;
 
+  // A resource, defined by a THandle value
   IHandle = interface(IAutoReleasable)
     function GetHandle: THandle;
     property Handle: THandle read GetHandle;
   end;
 
-  IMemory<P> = interface(IAutoReleasable) // P should be a Pointer type
+  // A memory allocation with a custom undelying pointer type.
+  // You can safely cast between IMemory<P1> and IMemory<P2> when necessary.
+  IMemory<P> = interface(IAutoReleasable) // P must be a Pointer type
     ['{171B8E12-F2AE-480E-8095-78A5D8114993}']
     function GetAddress: P;
     function GetSize: NativeUInt;
@@ -42,25 +55,28 @@ type
     property AutoRelease: Boolean read GetAutoRelease write SetAutoRelease;
   end;
 
+  // An untyped automatic memory
   IMemory = IMemory<Pointer>;
 
-  Ptr = class abstract
+  IMem = class abstract
     // Get the underlying memory or nil
     class function RefOrNil<P>(Memory: IMemory<P>): P; static;
   end;
 
   { Base classes }
 
-  TCustomAutoReleasable = class(TInterfacedObject)
+  TCustomAutoReleasable = class abstract (TInterfacedObject)
   protected
     FAutoRelease: Boolean;
   public
     constructor Create;
     function GetAutoRelease: Boolean;
     procedure SetAutoRelease(Value: Boolean); virtual;
+    procedure Release; virtual; abstract;
+    destructor Destroy; override;
   end;
 
-  TCustomAutoHandle = class(TCustomAutoReleasable)
+  TCustomAutoHandle = class abstract (TCustomAutoReleasable)
   protected
     FHandle: THandle;
   public
@@ -68,7 +84,7 @@ type
     function GetHandle: THandle; virtual;
   end;
 
-  TCustomAutoMemory = class(TCustomAutoReleasable)
+  TCustomAutoMemory = class abstract (TCustomAutoReleasable)
   protected
     FAddress: Pointer;
     FSize: NativeUInt;
@@ -82,12 +98,21 @@ type
 
   { Default implementations }
 
-  // Auto-releases Delphi memory of a generic pointer type with FreeMem
+  // Auto-releases Delphi memory of a generic pointer type with FreeMem.
+  // You can cast the result to an arbitrary IMemory<P> by using a left-side
+  // cast to an untyped IMemory (aka IMemory<Pointer>):
+  //
+  //   var
+  //     x: IMemory<PMyRecordType>;
+  //   begin
+  //     IMemory(x) := TAutoMemory.Allocate(SizeOf(TMyRecordType));
+  //   end;
+  //
   TAutoMemory = class (TCustomAutoMemory, IMemory)
     constructor Allocate(Size: NativeUInt);
     constructor CaptureCopy(Buffer: Pointer; Size: NativeUInt);
     procedure SwapWith(Instance: TAutoMemory);
-    destructor Destroy; override;
+    procedure Release; override;
   end;
 
   TOperation = reference to procedure;
@@ -96,28 +121,28 @@ type
   TDelayedOperation = class (TCustomAutoReleasable, IAutoReleasable)
     FOperation: TOperation;
     constructor Create(Operation: TOperation);
-    destructor Destroy; override;
+    procedure Release; override;
   end;
 
 implementation
 
 { TMemory }
 
-class function TMemory.From(Address: Pointer; Size: NativeUInt): TMemory;
+class function TMemory.From;
 begin
   Result.Address := Address;
   Result.Size := Size;
 end;
 
-class function TMemory.Reference<T>(const [ref] Buffer: T): TMemory;
+class function TMemory.Reference<T>;
 begin
   Result.Address := @Buffer;
   Result.Size := SizeOf(Buffer);
 end;
 
-{ Ptr }
+{ IMem }
 
-class function Ptr.RefOrNil<P>(Memory: IMemory<P>): P;
+class function IMem.RefOrNil<P>;
 var
   ResultAsPtr: Pointer absolute Result;
 begin
@@ -134,19 +159,27 @@ begin
   FAutoRelease := True;
 end;
 
-function TCustomAutoReleasable.GetAutoRelease: Boolean;
+destructor TCustomAutoReleasable.Destroy;
+begin
+  if FAutoRelease then
+    Release;
+
+  inherited;
+end;
+
+function TCustomAutoReleasable.GetAutoRelease;
 begin
   Result := FAutoRelease;
 end;
 
-procedure TCustomAutoReleasable.SetAutoRelease(Value: Boolean);
+procedure TCustomAutoReleasable.SetAutoRelease;
 begin
   FAutoRelease := Value;
 end;
 
 { TCustomAutoHandle }
 
-constructor TCustomAutoHandle.Capture(hObject: THandle);
+constructor TCustomAutoHandle.Capture;
 begin
   inherited Create;
   FHandle := hObject;
@@ -159,55 +192,54 @@ end;
 
 { TCustomAutoMemory }
 
-constructor TCustomAutoMemory.Capture(Address: Pointer; Size: NativeUInt);
+constructor TCustomAutoMemory.Capture;
 begin
   inherited Create;
   FAddress := Address;
   FSize := Size;
 end;
 
-function TCustomAutoMemory.GetAddress: Pointer;
+function TCustomAutoMemory.GetAddress;
 begin
   Result := FAddress;
 end;
 
-function TCustomAutoMemory.GetRegion: TMemory;
+function TCustomAutoMemory.GetRegion;
 begin
   Result.Address := FAddress;
   Result.Size := FSize;
 end;
 
-function TCustomAutoMemory.GetSize: NativeUInt;
+function TCustomAutoMemory.GetSize;
 begin
   Result := FSize;
 end;
 
-function TCustomAutoMemory.Offset(Bytes: NativeUInt): Pointer;
+function TCustomAutoMemory.Offset;
 begin
   Result := PByte(FAddress) + Bytes;
 end;
 
 { TAutoMemory }
 
-constructor TAutoMemory.Allocate(Size: NativeUInt);
+constructor TAutoMemory.Allocate;
 begin
   Capture(AllocMem(Size), Size);
 end;
 
-constructor TAutoMemory.CaptureCopy(Buffer: Pointer; Size: NativeUInt);
+constructor TAutoMemory.CaptureCopy;
 begin
   Allocate(Size);
   Move(Buffer^, FAddress^, Size);
 end;
 
-destructor TAutoMemory.Destroy;
+procedure TAutoMemory.Release;
 begin
-  if FAutoRelease then
-    FreeMem(FAddress);
+  FreeMem(FAddress);
   inherited;
 end;
 
-procedure TAutoMemory.SwapWith(Instance: TAutoMemory);
+procedure TAutoMemory.SwapWith;
 begin
   FAddress := AtomicExchange(Instance.FAddress, FAddress);
   FSize := AtomicExchange(Instance.FSize, FSize);
@@ -215,18 +247,18 @@ end;
 
 { TDelayedOperation }
 
-constructor TDelayedOperation.Create(Operation: TOperation);
+constructor TDelayedOperation.Create;
 begin
   inherited Create;
   FOperation := Operation;
 end;
 
-destructor TDelayedOperation.Destroy;
+procedure TDelayedOperation.Release;
 begin
-  if FAutoRelease and Assigned(FOperation) then
+  if Assigned(FOperation) then
     FOperation;
 
-  inherited;
+  inherited
 end;
 
 end.

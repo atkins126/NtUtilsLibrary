@@ -195,6 +195,21 @@ type
   [FlagName(PROCESS_SET_LIMITED_INFORMATION, 'Set Limited Information')]
   TProcessAccessMask = type TAccessMask;
 
+  [FlagName(PROCESS_NEXT_REVERSE_ORDER, 'Reverse Order')]
+  TProcessNextFlags = type Cardinal;
+
+  [FlagName(PROCESS_CREATE_FLAGS_BREAKAWAY, 'Breakaway')]
+  [FlagName(PROCESS_CREATE_FLAGS_NO_DEBUG_INHERIT, 'No Debug Inherit')]
+  [FlagName(PROCESS_CREATE_FLAGS_INHERIT_HANDLES, 'Inherit Handles')]
+  [FlagName(PROCESS_CREATE_FLAGS_OVERRIDE_ADDRESS_SPACE, 'Override Address Space')]
+  [FlagName(PROCESS_CREATE_FLAGS_LARGE_PAGES, 'Large Pages')]
+  [FlagName(PROCESS_CREATE_FLAGS_LARGE_PAGE_SYSTEM_DLL, 'Large Page System DLL')]
+  [FlagName(PROCESS_CREATE_FLAGS_PROTECTED_PROCESS, 'Protected')]
+  [FlagName(PROCESS_CREATE_FLAGS_CREATE_SESSION, 'Create Session')]
+  [FlagName(PROCESS_CREATE_FLAGS_INHERIT_FROM_PARENT, 'Inherit From Parent')]
+  [FlagName(PROCESS_CREATE_FLAGS_SUSPENDED, 'Suspended')]
+  TProcessCreateFlags = type Cardinal;
+
   // ntddk.5070
   [NamingStyle(nsCamelCase, 'Process')]
   TProcessInfoClass = (
@@ -425,7 +440,7 @@ type
   PProcessCycleTimeInformation = TProcessCycleTimeInformation;
 
   TProcessWindowInformation = record
-    WindowFlags: Cardinal;
+    WindowFlags: Cardinal; // TStarupFlags
     [Counter(ctBytes)] WindowTitleLength: Word;
     WindowTitle: TAnysizeArray<WideChar>;
   end;
@@ -554,6 +569,14 @@ type
   [FlagName(THREAD_QUERY_LIMITED_INFORMATION, 'Query Limited Information')]
   [FlagName(THREAD_RESUME, 'Resume')]
   TThreadAccessMask = type TAccessMask;
+
+  [FlagName(THREAD_CREATE_FLAGS_CREATE_SUSPENDED, 'Create Suspended')]
+  [FlagName(THREAD_CREATE_FLAGS_SKIP_THREAD_ATTACH, 'Skip Thread Attach')]
+  [FlagName(THREAD_CREATE_FLAGS_HIDE_FROM_DEBUGGER, 'Hide From Debugger')]
+  [FlagName(THREAD_CREATE_FLAGS_HAS_SECURITY_DESCRIPTOR, 'Has Security Descriptor')]
+  [FlagName(THREAD_CREATE_FLAGS_ACCESS_CHECK_IN_TARGET, 'Access Check in Target')]
+  [FlagName(THREAD_CREATE_FLAGS_INITIAL_THREAD, 'Initial Thread')]
+  TThreadCreateFlags = type Cardinal;
 
   TInitialTeb = record
     OldStackBase: Pointer;
@@ -991,10 +1014,15 @@ type
     LowEdgeFilter: Cardinal;
   end;
 
+  [FlagName(JOB_OBJECT_OPERATION_FREEZE, 'Freeze')]
+  [FlagName(JOB_OBJECT_OPERATION_FILTER, 'Filter')]
+  [FlagName(JOB_OBJECT_OPERATION_SWAP, 'Swap')]
+  TJobFreezeFlags = type Cardinal;
+
   // info class 18
   [MinOSVersion(OsWin8)]
   TJobObjectFreezeInformation = record
-    [Hex] Flags: Cardinal; // JOB_OBJECT_OPERATION_*
+    Flags: TJobFreezeFlags;
     Freeze: Boolean;
     Swap: Boolean;
     Reserved0: Word;
@@ -1147,189 +1175,300 @@ type
 
 // Processes
 
-function NtCreateProcess(out ProcessHandle: THandle; DesiredAccess: TAccessMask;
-  ObjectAttributes: PObjectAttributes; ParentProcess: THandle;
-  InheritObjectTable: Boolean; SectionHandle: THandle; DebugPort: THandle;
-  ExceptionPort: THandle): NTSTATUS; stdcall; external ntdll;
+function NtCreateProcess(
+  out ProcessHandle: THandle;
+  DesiredAccess: TProcessAccessMask;
+  ObjectAttributes: PObjectAttributes;
+  ParentProcess: THandle;
+  InheritObjectTable: Boolean;
+  SectionHandle: THandle;
+  DebugPort: THandle;
+  ExceptionPort: THandle
+): NTSTATUS; stdcall; external ntdll;
 
-function NtCreateProcessEx(out ProcessHandle: THandle; DesiredAccess:
-  TAccessMask; ObjectAttributes: PObjectAttributes; ParentProcess: THandle;
-  Flags: Cardinal; SectionHandle: THandle; DebugPort: THandle; ExceptionPort:
-  THandle; JobMemberLevel: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtCreateProcessEx(
+  out ProcessHandle: THandle;
+  DesiredAccess: TProcessAccessMask;
+  ObjectAttributes: PObjectAttributes;
+  ParentProcess: THandle;
+  Flags: TProcessCreateFlags;
+  SectionHandle: THandle;
+  DebugPort: THandle;
+  ExceptionPort: THandle;
+  JobMemberLevel: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
 // ntddk.5875
-function NtOpenProcess(out ProcessHandle: THandle; DesiredAccess: TAccessMask;
-  const ObjectAttributes: TObjectAttributes; const ClientId: TClientId):
-  NTSTATUS; stdcall; external ntdll;
+function NtOpenProcess(
+  out ProcessHandle: THandle;
+  DesiredAccess: TProcessAccessMask;
+  const ObjectAttributes: TObjectAttributes;
+  const ClientId: TClientId
+): NTSTATUS; stdcall; external ntdll;
 
 // ntddk.15688
-function NtTerminateProcess(ProcessHandle: THandle; ExitStatus: NTSTATUS):
-  NTSTATUS; stdcall; external ntdll;
+function NtTerminateProcess(
+  ProcessHandle: THandle;
+  ExitStatus: NTSTATUS
+): NTSTATUS; stdcall; external ntdll;
 
-function NtSuspendProcess(ProcessHandle: THandle): NTSTATUS; stdcall;
-  external ntdll;
+function NtSuspendProcess(
+  ProcessHandle: THandle
+): NTSTATUS; stdcall; external ntdll;
 
-function NtResumeProcess(ProcessHandle: THandle): NTSTATUS; stdcall;
-  external ntdll;
+function NtResumeProcess(
+  ProcessHandle: THandle
+): NTSTATUS; stdcall; external ntdll;
 
 // winternl.626
-function NtQueryInformationProcess(ProcessHandle: THandle;
-  ProcessInformationClass: TProcessInfoClass; ProcessInformation: Pointer;
-  ProcessInformationLength: Cardinal; ReturnLength: PCardinal): NTSTATUS;
-  stdcall; external ntdll;
+function NtQueryInformationProcess(
+  ProcessHandle: THandle;
+  ProcessInformationClass: TProcessInfoClass;
+  ProcessInformation: Pointer;
+  ProcessInformationLength: Cardinal;
+  ReturnLength: PCardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtSetInformationProcess(ProcessHandle: THandle;
-  ProcessInformationClass: TProcessInfoClass; ProcessInformation: Pointer;
-  ProcessInformationLength: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtSetInformationProcess(
+  ProcessHandle: THandle;
+  ProcessInformationClass: TProcessInfoClass;
+  ProcessInformation: Pointer;
+  ProcessInformationLength: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
 // Absent in ReactOS
-function NtGetNextProcess(ProcessHandle: THandle; DesiredAccess: TAccessMask;
-  HandleAttributes: TObjectAttributesFlags; Flags: Cardinal;
-  out NewProcessHandle: THandle): NTSTATUS; stdcall; external ntdll delayed;
+function NtGetNextProcess(
+  ProcessHandle: THandle;
+  DesiredAccess: TProcessAccessMask;
+  HandleAttributes: TObjectAttributesFlags;
+  Flags: TProcessNextFlags;
+  out NewProcessHandle: THandle
+): NTSTATUS; stdcall; external ntdll delayed;
 
 // Absent in ReactOS
-function NtGetNextThread(ProcessHandle: THandle; ThreadHandle: THandle;
-  DesiredAccess: TAccessMask; HandleAttributes: TObjectAttributesFlags;
-  Flags: Cardinal; out NewThreadHandle: THandle): NTSTATUS; stdcall;
-  external ntdll delayed;
+function NtGetNextThread(
+  ProcessHandle: THandle;
+  ThreadHandle: THandle;
+  DesiredAccess: TThreadAccessMask;
+  HandleAttributes: TObjectAttributesFlags;
+  Flags: Cardinal; // reserved
+  out NewThreadHandle: THandle
+): NTSTATUS; stdcall; external ntdll delayed;
 
 // Threads
 
-function NtCreateThread(out ThreadHandle: THandle; DesiredAccess: TAccessMask;
-  ObjectAttributes: PObjectAttributes; ProcessHandle: THandle; out ClientId:
-  TClientId; const ThreadContext: TContext; const InitialTeb: TInitialTeb;
-  CreateSuspended: Boolean): NTSTATUS; stdcall; external ntdll;
+function NtCreateThread(
+  out ThreadHandle: THandle;
+  DesiredAccess: TThreadAccessMask;
+  ObjectAttributes: PObjectAttributes;
+  ProcessHandle: THandle;
+  out ClientId: TClientId;
+  const ThreadContext: TContext;
+  const InitialTeb: TInitialTeb;
+  CreateSuspended: Boolean
+): NTSTATUS; stdcall; external ntdll;
 
-function NtOpenThread(out ThreadHandle: THandle; DesiredAccess: TAccessMask;
-  const ObjectAttributes: TObjectAttributes; const ClientId: TClientId):
-  NTSTATUS; stdcall; external ntdll;
+function NtOpenThread(
+  out ThreadHandle: THandle;
+  DesiredAccess: TThreadAccessMask;
+  const ObjectAttributes: TObjectAttributes;
+  const ClientId: TClientId
+): NTSTATUS; stdcall; external ntdll;
 
-function NtTerminateThread(ThreadHandle: THandle; ExitStatus: NTSTATUS):
-  NTSTATUS; stdcall; external ntdll;
+function NtTerminateThread(
+  ThreadHandle: THandle;
+  ExitStatus: NTSTATUS
+): NTSTATUS; stdcall; external ntdll;
 
-function NtSuspendThread(ThreadHandle: THandle; PreviousSuspendCount:
-  PCardinal = nil): NTSTATUS; stdcall; external ntdll;
+function NtSuspendThread(
+  ThreadHandle: THandle;
+  PreviousSuspendCount: PCardinal = nil
+): NTSTATUS; stdcall; external ntdll;
 
-function NtResumeThread(ThreadHandle: THandle; PreviousSuspendCount:
-  PCardinal = nil): NTSTATUS; stdcall; external ntdll;
+function NtResumeThread(
+  ThreadHandle: THandle;
+  PreviousSuspendCount: PCardinal = nil
+): NTSTATUS; stdcall; external ntdll;
 
 function NtGetCurrentProcessorNumber: Cardinal; stdcall; external ntdll;
 
-function NtGetContextThread(ThreadHandle: THandle; ThreadContext: PContext):
-  NTSTATUS; stdcall; external ntdll;
+function NtGetContextThread(
+  ThreadHandle: THandle;
+  out ThreadContext: TContext
+): NTSTATUS; stdcall; external ntdll;
 
-function NtSetContextThread(ThreadHandle: THandle; ThreadContext: PContext):
-  NTSTATUS; stdcall; external ntdll;
+function NtSetContextThread(
+  ThreadHandle: THandle;
+  const ThreadContext: TContext
+): NTSTATUS; stdcall; external ntdll;
 
 // winternl.640
-function NtQueryInformationThread(ThreadHandle: THandle;
-  ThreadInformationClass: TThreadInfoClass; ThreadInformation: Pointer;
-  ThreadInformationLength: Cardinal; ReturnLength: PCardinal): NTSTATUS;
-  stdcall; external ntdll;
+function NtQueryInformationThread(
+  ThreadHandle: THandle;
+  ThreadInformationClass: TThreadInfoClass;
+  ThreadInformation: Pointer;
+  ThreadInformationLength: Cardinal;
+  ReturnLength: PCardinal
+): NTSTATUS; stdcall; external ntdll;
 
 // ntddk.15553
-function NtSetInformationThread(ThreadHandle: THandle;
-  ThreadInformationClass: TThreadInfoClass; ThreadInformation: Pointer;
-  ThreadInformationLength: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtSetInformationThread(
+  ThreadHandle: THandle;
+  ThreadInformationClass: TThreadInfoClass;
+  ThreadInformation: Pointer;
+  ThreadInformationLength: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtAlertThread(ThreadHandle: THandle): NTSTATUS; stdcall;
-  external ntdll;
+function NtAlertThread(
+  ThreadHandle: THandle
+): NTSTATUS; stdcall; external ntdll;
 
-function NtAlertResumeThread(ThreadHandle: THandle; PreviousSuspendCount:
-  PCardinal): NTSTATUS; stdcall; external ntdll;
+function NtAlertResumeThread(
+  ThreadHandle: THandle;
+  PreviousSuspendCount: PCardinal
+): NTSTATUS; stdcall; external ntdll;
 
 function NtTestAlert: NTSTATUS; stdcall; external ntdll;
 
-function NtImpersonateThread(ServerThreadHandle: THandle;
-  ClientThreadHandle: THandle; const SecurityQos: TSecurityQualityOfService):
-  NTSTATUS; stdcall; external ntdll;
+function NtImpersonateThread(
+  ServerThreadHandle: THandle;
+  ClientThreadHandle: THandle;
+  const SecurityQos: TSecurityQualityOfService
+): NTSTATUS; stdcall; external ntdll;
 
-function NtRegisterThreadTerminatePort(PortHandle: THandle): NTSTATUS; stdcall;
-  external ntdll;
+function NtRegisterThreadTerminatePort(
+  PortHandle: THandle
+): NTSTATUS; stdcall; external ntdll;
 
-function NtQueueApcThread(ThreadHandle: THandle; ApcRoutine: TPsApcRoutine;
-  ApcArgument1, ApcArgument2, ApcArgument3: Pointer): NTSTATUS; stdcall;
-  external ntdll;
+function NtQueueApcThread(
+  ThreadHandle: THandle;
+  ApcRoutine: TPsApcRoutine;
+  ApcArgument1: Pointer;
+  ApcArgument2: Pointer;
+  ApcArgument3: Pointer
+): NTSTATUS; stdcall; external ntdll;
 
 // User processes and threads
 
-function NtCreateUserProcess(out ProcessHandle: THandle; out ThreadHandle:
-  THandle; ProcessDesiredAccess: TAccessMask; ThreadDesiredAccess: TAccessMask;
-  ProcessObjectAttributes: PObjectAttributes; ThreadObjectAttributes:
-  PObjectAttributes; ProcessFlags: Cardinal; ThreadFlags: Cardinal;
-  ProcessParameters: PRtlUserProcessParameters; var CreateInfo: TPsCreateInfo;
-  AttributeList: PPsAttributeList): NTSTATUS; stdcall; external ntdll;
+function NtCreateUserProcess(
+  out ProcessHandle: THandle;
+  out ThreadHandle: THandle;
+  ProcessDesiredAccess: TProcessAccessMask;
+  ThreadDesiredAccess: TThreadAccessMask;
+  ProcessObjectAttributes: PObjectAttributes;
+  ThreadObjectAttributes: PObjectAttributes;
+  ProcessFlags: TProcessCreateFlags;
+  ThreadFlags: TThreadCreateFlags;
+  ProcessParameters: PRtlUserProcessParameters;
+  var CreateInfo: TPsCreateInfo;
+  AttributeList: PPsAttributeList
+): NTSTATUS; stdcall; external ntdll;
 
-function NtCreateThreadEx(out ThreadHandle: THandle; DesiredAccess: TAccessMask;
-  ObjectAttributes: PObjectAttributes; ProcessHandle: THandle; StartRoutine:
-  TUserThreadStartRoutine; Argument: Pointer; CreateFlags: Cardinal; ZeroBits:
-  NativeUInt; StackSize: NativeUInt; MaximumStackSize: NativeUInt;
-  AttributeList: PPsAttributeList): NTSTATUS; stdcall; external ntdll;
+function NtCreateThreadEx(
+  out ThreadHandle: THandle;
+  DesiredAccess: TThreadAccessMask;
+  ObjectAttributes: PObjectAttributes;
+  ProcessHandle: THandle;
+  StartRoutine: TUserThreadStartRoutine;
+  Argument: Pointer;
+  CreateFlags: TThreadCreateFlags;
+  ZeroBits: NativeUInt;
+  StackSize: NativeUInt;
+  MaximumStackSize: NativeUInt;
+  AttributeList: PPsAttributeList
+): NTSTATUS; stdcall; external ntdll;
 
 // Job objects
 
-function NtCreateJobObject(out JobHandle: THandle; DesiredAccess: TAccessMask;
-  ObjectAttributes: PObjectAttributes): NTSTATUS; stdcall; external ntdll;
+function NtCreateJobObject(
+  out JobHandle: THandle;
+  DesiredAccess: TJobObjectAccessMask;
+  ObjectAttributes: PObjectAttributes
+): NTSTATUS; stdcall; external ntdll;
 
-function NtOpenJobObject(out JobHandle: THandle; DesiredAccess: TAccessMask;
-  ObjectAttributes: PObjectAttributes): NTSTATUS; stdcall; external ntdll;
+function NtOpenJobObject(
+  out JobHandle: THandle;
+  DesiredAccess: TJobObjectAccessMask;
+  const ObjectAttributes: TObjectAttributes
+): NTSTATUS; stdcall; external ntdll;
 
-function NtAssignProcessToJobObject(JobHandle: THandle; ProcessHandle: THandle):
-  NTSTATUS; stdcall; external ntdll;
+function NtAssignProcessToJobObject(
+  JobHandle: THandle;
+  ProcessHandle: THandle
+): NTSTATUS; stdcall; external ntdll;
 
-function NtTerminateJobObject(JobHandle: THandle; ExitStatus: NTSTATUS):
-  NTSTATUS; stdcall; external ntdll;
+function NtTerminateJobObject(
+  JobHandle: THandle;
+  ExitStatus: NTSTATUS
+): NTSTATUS; stdcall; external ntdll;
 
-function NtIsProcessInJob(ProcessHandle: THandle;
-  JobHandle: THandle): NTSTATUS; stdcall; external ntdll;
+function NtIsProcessInJob(
+  ProcessHandle: THandle;
+  JobHandle: THandle
+): NTSTATUS; stdcall; external ntdll;
 
-function NtQueryInformationJobObject(JobHandle: THandle;
-  JobObjectInformationClass: TJobObjectInfoClass; JobObjectInformation: Pointer;
-  JobObjectInformationLength: Cardinal; ReturnLength: PCardinal): NTSTATUS;
-  stdcall; external ntdll;
+function NtQueryInformationJobObject(
+  JobHandle: THandle;
+  JobObjectInformationClass: TJobObjectInfoClass;
+  JobObjectInformation: Pointer;
+  JobObjectInformationLength: Cardinal;
+  ReturnLength: PCardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtSetInformationJobObject(JobHandle: THandle;
-  JobObjectInformationClass: TJobObjectInfoClass; JobObjectInformation: Pointer;
-  JobObjectInformationLength: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtSetInformationJobObject(
+  JobHandle: THandle;
+  JobObjectInformationClass: TJobObjectInfoClass;
+  JobObjectInformation: Pointer;
+  JobObjectInformationLength: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
-function NtCreateJobSet(NumJob: Cardinal; UserJobSet: TArray<TJobSetArray>;
-  Flags: Cardinal): NTSTATUS; stdcall; external ntdll;
+function NtCreateJobSet(
+  NumJob: Cardinal;
+  UserJobSet: TArray<TJobSetArray>;
+  Flags: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
 { Expected Access / Privileges }
 
-function ExpectedProcessQueryAccess(InfoClass: TProcessInfoClass):
-  TProcessAccessMask;
+function ExpectedProcessQueryAccess(
+  InfoClass: TProcessInfoClass
+): TProcessAccessMask;
 
-function ExpectedProcessSetPrivilege(InfoClass: TProcessInfoClass):
-  TSeWellKnownPrivilege;
+function ExpectedProcessSetPrivilege(
+  InfoClass: TProcessInfoClass
+): TSeWellKnownPrivilege;
 
-function ExpectedProcessSetAccess(InfoClass: TProcessInfoClass):
-  TProcessAccessMask;
+function ExpectedProcessSetAccess(
+  InfoClass: TProcessInfoClass
+): TProcessAccessMask;
 
-function ExpectedThreadQueryAccess(InfoClass: TThreadInfoClass):
-  TThreadAccessMask;
+function ExpectedThreadQueryAccess(
+  InfoClass: TThreadInfoClass
+): TThreadAccessMask;
 
-function ExpectedThreadSetPrivilege(InfoClass: TThreadInfoClass):
-  TSeWellKnownPrivilege;
+function ExpectedThreadSetPrivilege(
+  InfoClass: TThreadInfoClass
+): TSeWellKnownPrivilege;
 
-function ExpectedThreadSetAccess(InfoClass: TThreadInfoClass):
-  TThreadAccessMask;
+function ExpectedThreadSetAccess(
+  InfoClass: TThreadInfoClass
+):  TThreadAccessMask;
 
 implementation
 
-function NtCurrentProcessId: TProcessId;
+function NtCurrentProcessId;
 begin
   Result := NtCurrentTeb.ClientId.UniqueProcess;
 end;
 
-function NtCurrentThreadId: TThreadId;
+function NtCurrentThreadId;
 begin
   Result := NtCurrentTeb.ClientId.UniqueThread;
 end;
 
 { TProcessHandleTracingEntry }
 
-function TProcessHandleTracingEntry.StackTrace: TArray<Pointer>;
+function TProcessHandleTracingEntry.StackTrace;
 var
   Count: Integer;
 begin
@@ -1345,7 +1484,7 @@ end;
 
 { TProcessTelemetryIdInformation }
 
-function TProcessTelemetryIdInformation.CommandLine: PWideChar;
+function TProcessTelemetryIdInformation.CommandLine;
 begin
   if UIntPtr(@PProcessTelemetryIdInformation(nil).CommandLineOffset) <
     HeaderSize then
@@ -1354,7 +1493,7 @@ begin
     Result := nil;
 end;
 
-function TProcessTelemetryIdInformation.ImagePath: PWideChar;
+function TProcessTelemetryIdInformation.ImagePath;
 begin
   if UIntPtr(@PProcessTelemetryIdInformation(nil).ImagePathOffset) <
     HeaderSize then
@@ -1363,7 +1502,7 @@ begin
     Result := nil;
 end;
 
-function TProcessTelemetryIdInformation.PackageName: PWideChar;
+function TProcessTelemetryIdInformation.PackageName;
 begin
   if UIntPtr(@PProcessTelemetryIdInformation(nil).PackageNameOffset) <
     HeaderSize then
@@ -1372,7 +1511,7 @@ begin
     Result := nil;
 end;
 
-function TProcessTelemetryIdInformation.RelativeAppName: PWideChar;
+function TProcessTelemetryIdInformation.RelativeAppName;
 begin
   if UIntPtr(@PProcessTelemetryIdInformation(nil).RelativeAppNameOffset) <
     HeaderSize then
@@ -1381,7 +1520,7 @@ begin
     Result := nil;
 end;
 
-function TProcessTelemetryIdInformation.UserSid: PSid;
+function TProcessTelemetryIdInformation.UserSid;
 begin
   if UIntPtr(@PProcessTelemetryIdInformation(nil).UserSidOffset) <
     HeaderSize then
@@ -1392,20 +1531,19 @@ end;
 
 { TProcessUptimeInformation }
 
-function TProcessUptimeInformation.GhostCount: Cardinal;
+function TProcessUptimeInformation.GhostCount;
 begin
   Result := (Flags and $F0) shr 4;
 end;
 
-function TProcessUptimeInformation.HangCount: Cardinal;
+function TProcessUptimeInformation.HangCount;
 begin
   Result := Flags and $F;
 end;
 
 { Expected Access }
 
-function ExpectedProcessQueryAccess(InfoClass: TProcessInfoClass):
-  TProcessAccessMask;
+function ExpectedProcessQueryAccess;
 begin
   case InfoClass of
     ProcessBasicInformation, ProcessQuotaLimits, ProcessIoCounters,
@@ -1456,8 +1594,7 @@ begin
   end;
 end;
 
-function ExpectedProcessSetPrivilege(InfoClass: TProcessInfoClass):
-  TSeWellKnownPrivilege;
+function ExpectedProcessSetPrivilege;
 begin
   case InfoClass of
     ProcessQuotaLimits:
@@ -1483,8 +1620,7 @@ begin
   end;
 end;
 
-function ExpectedProcessSetAccess(InfoClass: TProcessInfoClass):
-  TProcessAccessMask;
+function ExpectedProcessSetAccess;
 begin
   case InfoClass of
     ProcessBasePriority, ProcessRaisePriority, ProcessAccessToken,
@@ -1525,8 +1661,7 @@ begin
   end;
 end;
 
-function ExpectedThreadQueryAccess(InfoClass: TThreadInfoClass):
-  TThreadAccessMask;
+function ExpectedThreadQueryAccess;
 begin
   case InfoClass of
     ThreadBasicInformation, ThreadTimes, ThreadAmILastThread,
@@ -1554,8 +1689,7 @@ begin
   end;
 end;
 
-function ExpectedThreadSetPrivilege(InfoClass: TThreadInfoClass):
-  TSeWellKnownPrivilege;
+function ExpectedThreadSetPrivilege;
 begin
   case InfoClass of
     ThreadBreakOnTermination, ThreadExplicitCaseSensitivity:
@@ -1568,8 +1702,7 @@ begin
   end;
 end;
 
-function ExpectedThreadSetAccess(InfoClass: TThreadInfoClass):
-  TThreadAccessMask;
+function ExpectedThreadSetAccess;
 begin
   case InfoClass of
     ThreadPriority, ThreadBasePriority, ThreadAffinityMask, ThreadPriorityBoost,

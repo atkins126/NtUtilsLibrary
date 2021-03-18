@@ -59,37 +59,40 @@ const
   WDA_EXCLUDEFROMCAPTURE = $11; // Win10 20H1+
 
   // 9074
-  MB_OK = $00000000;
-  MB_OKCANCEL = $00000001;
-  MB_ABORTRETRYIGNORE = $00000002;
-  MB_YESNOCANCEL = $00000003;
-  MB_YESNO = $00000004;
-  MB_RETRYCANCEL = $00000005;
+  MB_OK                = $00000000;
+  MB_OKCANCEL          = $00000001;
+  MB_ABORTRETRYIGNORE  = $00000002;
+  MB_YESNOCANCEL       = $00000003;
+  MB_YESNO             = $00000004;
+  MB_RETRYCANCEL       = $00000005;
   MB_CANCELTRYCONTINUE = $00000006;
 
-  MB_ICONHAND = $00000010;
-  MB_ICONQUESTION = $00000020;
-  MB_ICONEXCLAMATION = $00000030;
-  MB_ICONASTERISK = $00000040;
+  MB_ICONERROR       = $00000010;
+  MB_ICONQUESTION    = $00000020;
+  MB_ICONWARNING     = $00000030;
+  MB_ICONINFORMATION = $00000040;
+  MB_USERICON        = $00000080;
 
-  MB_ICONWARNING = MB_ICONEXCLAMATION;
-  MB_ICONERROR = MB_ICONHAND;
-  MB_ICONINFORMATION = MB_ICONASTERISK;
-  MB_ICONSTOP = MB_ICONHAND;
+  MB_DEFBUTTON1 = $00000000;
+  MB_DEFBUTTON2 = $00000100;
+  MB_DEFBUTTON3 = $00000200;
+  MB_DEFBUTTON4 = $00000300;
 
-  // 11108
-  IDOK = 1;
-  IDCANCEL = 2;
-  IDABORT = 3;
-  IDRETRY = 4;
-  IDIGNORE = 5;
-  IDYES = 6;
-  IDNO = 7;
-  IDCLOSE = 8;
-  IDHELP = 9;
-  IDTRYAGAIN = 10;
-  IDCONTINUE = 11;
-  IDTIMEOUT = 32000;
+  MB_APPLMODAL   = $00000000;
+  MB_SYSTEMMODAL = $00001000;
+  MB_TASKMODAL   = $00002000;
+
+  MB_HELP    = $00004000;
+  MB_NOFOCUS = $00008000;
+
+  MB_SETFOREGROUND = $00010000;
+  MB_DEFAULT_DESKTOP_ONLY = $00020000;
+
+  MB_TYPEMASK = $0000000F;
+  MB_ICONMASK = $000000F0;
+  MB_DEFMASK  = $00000F00;
+  MB_MODEMASK = $00003000;
+  MB_MISCMASK = $0000C000;
 
   // 14297
   GUI_CARETBLINKING = $00000001;
@@ -105,9 +108,6 @@ type
   [Hex] HICON = type NativeUInt;
   PHICON = ^HICON;
 
-  HDESK = THandle;
-  HWINSTA = THandle;
-
   WPARAM = NativeUInt;
   LPARAM = NativeInt;
 
@@ -122,6 +122,9 @@ type
   [FlagName(DESKTOP_WRITEOBJECTS, 'Write Objects')]
   [FlagName(DESKTOP_SWITCHDESKTOP, 'Switch Desktop')]
   TDesktopAccessMask = type TAccessMask;
+
+  [FlagName(DF_ALLOWOTHERACCOUNTHOOK, 'Allow Other Account Hooks')]
+  TDesktopOpenOptions = type Cardinal;
 
   [FriendlyName('window station'), ValidMask(WINSTA_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(WINSTA_ENUMDESKTOPS, 'Enumerate Desktops')]
@@ -154,8 +157,10 @@ type
   );
   {$MINENUMSIZE 4}
 
-  TStringEnumProcW = function (Name: PWideChar; var Context: TArray<String>):
-    LongBool; stdcall;
+  TStringEnumProcW = function (
+    Name: PWideChar;
+    var Context
+  ): LongBool; stdcall;
 
   // 1691
   [NamingStyle(nsSnakeCase, 'UOI'), Range(1)]
@@ -186,6 +191,55 @@ type
     Bottom: Integer;
   end;
 
+  [SubEnum(MB_TYPEMASK, MB_OK, 'OK')]
+  [SubEnum(MB_TYPEMASK, MB_OKCANCEL, 'OK & Cancel')]
+  [SubEnum(MB_TYPEMASK, MB_ABORTRETRYIGNORE, 'Abort & Retry & Ignore')]
+  [SubEnum(MB_TYPEMASK, MB_YESNOCANCEL, 'Yes & No & Cancel')]
+  [SubEnum(MB_TYPEMASK, MB_YESNO, 'Yes & No')]
+  [SubEnum(MB_TYPEMASK, MB_RETRYCANCEL, 'Retry & Cancel')]
+  [SubEnum(MB_TYPEMASK, MB_CANCELTRYCONTINUE, 'Cancel & Retry & Continue')]
+  [SubEnum(MB_ICONMASK, MB_ICONERROR, 'Error')]
+  [SubEnum(MB_ICONMASK, MB_ICONQUESTION, 'Question')]
+  [SubEnum(MB_ICONMASK, MB_ICONWARNING, 'Warning')]
+  [SubEnum(MB_ICONMASK, MB_ICONINFORMATION, 'Information')]
+  [SubEnum(MB_ICONMASK, MB_USERICON, 'User Icon')]
+  [SubEnum(MB_DEFMASK, MB_DEFBUTTON1, 'Default Button 1')]
+  [SubEnum(MB_DEFMASK, MB_DEFBUTTON2, 'Default Button 2')]
+  [SubEnum(MB_DEFMASK, MB_DEFBUTTON3, 'Default Button 3')]
+  [SubEnum(MB_DEFMASK, MB_DEFBUTTON4, 'Default Button 4')]
+  [SubEnum(MB_MODEMASK, MB_APPLMODAL, 'App Modal')]
+  [SubEnum(MB_MODEMASK, MB_SYSTEMMODAL, 'System Modal')]
+  [SubEnum(MB_MODEMASK, MB_TASKMODAL, 'Task Modal')]
+  [SubEnum(MB_MISCMASK, MB_HELP, 'Help')]
+  [SubEnum(MB_MISCMASK, MB_NOFOCUS, 'No Focus')]
+  [FlagName(MB_SETFOREGROUND, 'Set Foreground')]
+  [FlagName(MB_DEFAULT_DESKTOP_ONLY, 'Default Desktop Only')]
+  TMessageStyle = type Cardinal;
+
+  // 11108
+  TMessageResponse = (
+    IDOK = 1,
+    IDCANCEL = 2,
+    IDABORT = 3,
+    IDRETRY = 4,
+    IDIGNORE = 5,
+    IDYES = 6,
+    IDNO = 7,
+    IDCLOSE = 8,
+    IDHELP = 9,
+    IDTRYAGAIN = 10,
+    IDCONTINUE = 11,
+    IDTIMEOUT = 32000
+  );
+  PMessageResponse = ^TMessageResponse;
+
+  [FlagName(SMTO_NORMAL, 'SMTO_NORMAL')]
+  [FlagName(SMTO_BLOCK, 'SMTO_BLOCK')]
+  [FlagName(SMTO_ABORTIFHUNG, 'SMTO_ABORTIFHUNG')]
+  [FlagName(SMTO_NOTIMEOUTIFNOTHUNG, 'SMTO_NOTIMEOUTIFNOTHUNG')]
+  [FlagName(SMTO_ERRORONEXIT, 'SMTO_ERRORONEXIT')]
+  TSendMessageOptions = type Cardinal;
+
   [FlagName(GUI_CARETBLINKING, 'Caret Blinking')]
   [FlagName(GUI_INMOVESIZE, 'In Move/Size')]
   [FlagName(GUI_INMENUMODE, 'In Menu Mode')]
@@ -210,113 +264,176 @@ type
 // Desktops
 
 // 1409
-function CreateDesktopW(Desktop: PWideChar; Device: PWideChar; Devmode: Pointer;
-  Flags: Cardinal; DesiredAccess: TAccessMask; SA: PSecurityAttributes): HDESK;
-  stdcall; external user32;
+function CreateDesktopW(
+  Desktop: PWideChar;
+  Device: PWideChar;
+  Devmode: Pointer;
+  Flags: TDesktopOpenOptions;
+  DesiredAccess: TDesktopAccessMask;
+  SA: PSecurityAttributes
+): THandle; stdcall; external user32;
 
 // 1472
-function OpenDesktopW(Desktop: PWideChar; Flags: Cardinal; Inherit: LongBool;
-  DesiredAccess: TAccessMask): HDESK; stdcall; external user32;
+function OpenDesktopW(
+  Desktop: PWideChar;
+  Flags: TDesktopOpenOptions;
+  Inherit: LongBool;
+  DesiredAccess: TDesktopAccessMask
+): THandle; stdcall; external user32;
 
 // 1502
-function EnumDesktopsW(hWinStation: HWINSTA; EnumFunc: TStringEnumProcW;
-  var Context: TArray<String>): LongBool; stdcall; external user32;
+function EnumDesktopsW(
+  hWinStation: THandle;
+  EnumFunc: TStringEnumProcW;
+  var Context
+): LongBool; stdcall; external user32;
 
 // 1524
-function SwitchDesktop(hDesktop: HDESK): LongBool; stdcall; external user32;
+function SwitchDesktop(
+  hDesktop: THandle
+): LongBool; stdcall; external user32;
 
 // rev
-function SwitchDesktopWithFade(hDesktop: HDESK; FadeDuration: Cardinal):
-  LongBool; stdcall; external user32;
+function SwitchDesktopWithFade(
+  hDesktop: THandle;
+  FadeDuration: Cardinal
+): LongBool; stdcall; external user32;
 
 // 1531
-function SetThreadDesktop(hDesktop: HDESK): LongBool; stdcall; external user32;
+function SetThreadDesktop(
+  hDesktop: THandle
+): LongBool; stdcall; external user32;
 
 // 1537
-function CloseDesktop(hDesktop: HDESK): LongBool; stdcall; external user32;
+function CloseDesktop(
+  hDesktop: THandle
+): LongBool; stdcall; external user32;
 
 // 1543
-function GetThreadDesktop(ThreadId: TThreadId32): HDESK; stdcall;
-  external user32;
+function GetThreadDesktop(
+  ThreadId: TThreadId32
+): THandle; stdcall; external user32;
 
 // Window Stations
 
 // 1593
-function CreateWindowStationW(Winsta: PWideChar; Flags: Cardinal; DesiredAccess:
-  TAccessMask; SA: PSecurityAttributes): HWINSTA; stdcall; external user32;
+function CreateWindowStationW(
+  Winsta: PWideChar;
+  Flags: Cardinal;
+  DesiredAccess: TWinstaAccessMask;
+  SA: PSecurityAttributes
+): THandle; stdcall; external user32;
 
 // 1614
-function OpenWindowStationW(WinSta: PWideChar; Inherit: LongBool; DesiredAccess:
-  TAccessMask): HWINSTA; stdcall; external user32;
+function OpenWindowStationW(
+  WinSta: PWideChar;
+  Inherit: LongBool;
+  DesiredAccess: TWinStaAccessMask
+): THandle; stdcall; external user32;
 
 // 1633
-function EnumWindowStationsW(EnumFunc: TStringEnumProcW; var Context:
-  TArray<String>): LongBool; stdcall; external user32;
+function EnumWindowStationsW(
+  EnumFunc: TStringEnumProcW;
+  var Context
+): LongBool; stdcall; external user32;
 
 // 1645
-function CloseWindowStation(hWinStation: HWINSTA): LongBool; stdcall;
-  external user32;
+function CloseWindowStation(
+  hWinStation: THandle
+): LongBool; stdcall; external user32;
 
 // 1651
-function SetProcessWindowStation(hWinSta: HWINSTA): LongBool; stdcall;
-  external user32;
+function SetProcessWindowStation(
+  THandle: THandle
+): LongBool; stdcall; external user32;
 
 // 1657
-function GetProcessWindowStation: HWINSTA; stdcall; external user32;
+function GetProcessWindowStation: THandle; stdcall; external user32;
 
 // rev
-function LockWindowStation(hWinStation: HWINSTA): LongBool; stdcall;
-  external user32;
+function LockWindowStation(
+  hWinStation: THandle
+): LongBool; stdcall; external user32;
 
 // rev
-function UnlockWindowStation(hWinStation: HWINSTA): LongBool; stdcall;
-  external user32;
+function UnlockWindowStation(
+  hWinStation: THandle
+): LongBool; stdcall; external user32;
 
 // rev
-function SetWindowStationUser(hWinStation: HWINSTA; var Luid: TLuid;
-  Sid: PSid; SidLength: Cardinal): LongBool; stdcall; external user32;
+function SetWindowStationUser(
+  hWinStation: THandle;
+  var Luid: TLuid;
+  Sid: PSid;
+  SidLength: Cardinal
+): LongBool; stdcall; external user32;
 
 // User objects
 
 // 1722
-function GetUserObjectInformationW(hObj: THandle; InfoClass:
-  TUserObjectInfoClass; Info: Pointer; Length: Cardinal; LengthNeeded:
-  PCardinal): LongBool; stdcall; external user32;
+function GetUserObjectInformationW(
+  hObj: THandle;
+  InfoClass: TUserObjectInfoClass;
+  Info: Pointer;
+  Length: Cardinal;
+  LengthNeeded: PCardinal
+): LongBool; stdcall; external user32;
 
 // 1775
-function SetUserObjectInformationW(hObj: THandle; InfoClass:
-  TUserObjectInfoClass; pvInfo: Pointer; nLength: Cardinal): LongBool; stdcall;
-  external user32;
+function SetUserObjectInformationW(
+  hObj: THandle;
+  InfoClass: TUserObjectInfoClass;
+  pvInfo: Pointer;
+  nLength: Cardinal
+): LongBool; stdcall; external user32;
 
 // Other
 
 // 3760
-function SendMessageTimeoutW(hWnd: HWND; Msg: Cardinal; wParam: NativeUInt;
-  lParam: NativeInt; fuFlags: Cardinal; uTimeout: Cardinal; out lpdwResult:
-  NativeInt): NativeInt; stdcall; external user32;
+function SendMessageTimeoutW(
+  hWnd: HWND;
+  Msg: Cardinal;
+  wParam: NativeUInt;
+  lParam: NativeInt;
+  Flags: TSendMessageOptions;
+  Timeout: Cardinal;
+  out lpdwResult: NativeInt
+): NativeInt; stdcall; external user32;
 
 // 4122
-function WaitForInputIdle(hProcess: THandle; Milliseconds: Cardinal):
-  Cardinal; stdcall; external user32;
+function WaitForInputIdle(
+  hProcess: THandle;
+  Milliseconds: Cardinal
+): Cardinal; stdcall; external user32;
 
 // 4773
-function GetWindowDisplayAffinity(hWnd: HWND; out dwAffinity: Cardinal):
-  LongBool; stdcall; external user32;
+function GetWindowDisplayAffinity(
+  hWnd: HWND;
+  out Affinity: Cardinal
+): LongBool; stdcall; external user32;
 
 // 4780
-function SetWindowDisplayAffinity(hWnd: UIntPtr; dwAffinity: Cardinal):
-  LongBool; stdcall; external user32;
+function SetWindowDisplayAffinity(
+  hWnd: UIntPtr;
+  Affinity: Cardinal
+): LongBool; stdcall; external user32;
 
 // 10204
-function GetWindowThreadProcessId(hWnd: HWND; out dwProcessId: TProcessId32):
-  TThreadId32; stdcall; external user32;
+function GetWindowThreadProcessId(
+  hWnd: HWND;
+  out dwProcessId: TProcessId32
+): TThreadId32; stdcall; external user32;
 
 // 10719
-function DestroyIcon(Icon: HICON): LongBool stdcall; external user32;
+function DestroyIcon(
+  Icon: HICON
+): LongBool stdcall; external user32;
 
 // 14316
-function GetGUIThreadInfo(ThreadId: TThreadId32; var Gui: TGuiThreadInfo):
-  LongBool; stdcall; external user32;
+function GetGUIThreadInfo(
+  ThreadId: TThreadId32;
+  var Gui: TGuiThreadInfo
+): LongBool; stdcall; external user32;
 
 implementation
 
