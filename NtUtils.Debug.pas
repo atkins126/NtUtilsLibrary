@@ -118,8 +118,12 @@ begin
     Flags := 0;
 
   Result.Location := 'NtCreateDebugObject';
-  Result.Status := NtCreateDebugObject(hDebugObj, DEBUG_ALL_ACCESS,
-    AttributesRefOrNil(ObjectAttributes), Flags);
+  Result.Status := NtCreateDebugObject(
+    hDebugObj,
+    AccessMaskOverride(DEBUG_ALL_ACCESS, ObjectAttributes),
+    AttributesRefOrNil(ObjectAttributes),
+    Flags
+  );
 
   if Result.IsSuccess then
     hxDebugObj := TAutoHandle.Capture(hDebugObj);
@@ -240,7 +244,7 @@ begin
   if Enabled then
   begin
     // Skip if already enabled
-    if Context.Data.EFlags and EFLAGS_TF <> 0 then
+    if BitTest(Context.Data.EFlags and EFLAGS_TF) then
       Exit;
 
     Context.Data.EFlags := Context.Data.EFlags or EFLAGS_TF;
@@ -248,7 +252,7 @@ begin
   else
   begin
     // Skip if already cleared
-    if Context.Data.EFlags and EFLAGS_TF = 0 then
+    if not BitTest(Context.Data.EFlags and EFLAGS_TF) then
       Exit;
 
     Context.Data.EFlags := Context.Data.EFlags and not EFLAGS_TF;

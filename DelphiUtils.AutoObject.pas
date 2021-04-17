@@ -17,6 +17,7 @@ type
   TMemory = record
     Address: Pointer;
     Size: NativeUInt;
+    function Offset(Bytes: NativeUInt): Pointer;
     class function From(Address: Pointer; Size: NativeUInt): TMemory; static;
     class function Reference<T>(const [ref] Buffer: T): TMemory; static;
   end;
@@ -63,6 +64,27 @@ type
     class function RefOrNil<P>(Memory: IMemory<P>): P; static;
   end;
 
+  // A wrapper around an arbitrary reference type that maintains ownership and
+  // frees the undelying object when the last reference goes out of scope.
+  IAutoObject<T : class> = interface (IAutoReleasable)
+    function GetSelf: T;
+    property Self: T read GetSelf;
+
+    // Inheriting a generic interface from a non-generic one confuses Delphi's
+    // autocompletion. Reintroduce inherited entries here to fix it.
+    function GetAutoRelease: Boolean;
+    procedure SetAutoRelease(Value: Boolean);
+    property AutoRelease: Boolean read GetAutoRelease write SetAutoRelease;
+  end;
+
+  // An untyped automatic object
+  IAutoObject = IAutoObject<TObject>;
+
+  Auto = class abstract
+    // Capture a delphi object into IAutoObject
+    class function From<T : class>(Obj: T): IAutoObject<T>; static;
+  end;
+
   { Base classes }
 
   TCustomAutoReleasable = class abstract (TInterfacedObject)
@@ -102,11 +124,11 @@ type
   // You can cast the result to an arbitrary IMemory<P> by using a left-side
   // cast to an untyped IMemory (aka IMemory<Pointer>):
   //
-  //   var
-  //     x: IMemory<PMyRecordType>;
-  //   begin
-  //     IMemory(x) := TAutoMemory.Allocate(SizeOf(TMyRecordType));
-  //   end;
+  //  var
+  //    x: IMemory<PMyRecordType>;
+  //  begin
+  //    IMemory(x) := TAutoMemory.Allocate(SizeOf(TMyRecordType));
+  //  end;
   //
   TAutoMemory = class (TCustomAutoMemory, IMemory)
     constructor Allocate(Size: NativeUInt);
@@ -115,13 +137,38 @@ type
     procedure Release; override;
   end;
 
+  // Automatically releases a delphi object.
+  // You can cast the result to an arbitrary IAutoObject<T> by using a left-side
+  // cast to an untyped IAutoObject. Alternatively, you can use a simplified
+  // syntaxt that Auto helper offers:
+  //
+  //  var
+  //    x: IAutoObject<TStringList>;
+  //  begin
+  //    x := Auto.From(TStringList.Create);
+  //    x.Self.Add('Hi there');
+  //    x.Self.SaveToFile('test.txt');
+  //  end;
+  //
+  TAutoObject = class abstract (TCustomAutoReleasable, IAutoObject)
+  protected
+    FObject: TObject;
+  public
+    constructor Capture(Obj: TObject);
+    function GetSelf: TObject;
+    procedure Release; override;
+  end;
+
   TOperation = reference to procedure;
 
   // Automatically performs an operation when the object goes out of scope
   TDelayedOperation = class (TCustomAutoReleasable, IAutoReleasable)
+  private
     FOperation: TOperation;
     constructor Create(Operation: TOperation);
+  public
     procedure Release; override;
+    class function Delay(Operation: TOperation): IAutoReleasable; static;
   end;
 
 implementation
@@ -132,6 +179,11 @@ class function TMemory.From;
 begin
   Result.Address := Address;
   Result.Size := Size;
+end;
+
+function TMemory.Offset;
+begin
+  Result := PByte(Address) + Bytes;
 end;
 
 class function TMemory.Reference<T>;
@@ -245,12 +297,43 @@ begin
   FSize := AtomicExchange(Instance.FSize, FSize);
 end;
 
+{ TAutoObject }
+
+constructor TAutoObject.Capture;
+begin
+  inherited Create;
+  FObject := Obj;
+end;
+
+function TAutoObject.GetSelf;
+begin
+  Result := FObject;
+end;
+
+procedure TAutoObject.Release;
+begin
+  FObject.Free;
+  inherited;
+end;
+
+{ Auto }
+
+class function Auto.From<T>;
+begin
+  IAutoObject(Result) := TAutoObject.Capture(Obj);
+end;
+
 { TDelayedOperation }
 
 constructor TDelayedOperation.Create;
 begin
   inherited Create;
   FOperation := Operation;
+end;
+
+class function TDelayedOperation.Delay;
+begin
+  Result := TDelayedOperation.Create(Operation);
 end;
 
 procedure TDelayedOperation.Release;

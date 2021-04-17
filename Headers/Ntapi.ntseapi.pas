@@ -405,10 +405,14 @@ type
 
   // WinNt.10932
   TTokenSource = record
+  private
+    procedure SetName(const Value: String);
+    function GetName: String;
+  public
     SourceName: TTokenSourceName;
     SourceIdentifier: TLuid;
-    procedure FromString(Name: String);
-    function ToString: String;
+    property Name: String read GetName write SetName;
+    class function New(Name: String = 'NtUtils'): TTokenSource; static;
   end;
   PTokenSource = ^TTokenSource;
 
@@ -788,23 +792,32 @@ function ExpectedTokenSetAccess(
 
 implementation
 
+uses
+  Ntapi.ntexapi;
+
 { TTokenSource }
 
-procedure TTokenSource.FromString;
+class function TTokenSource.New;
+begin
+  Result.SetName(Name);
+  NtAllocateLocallyUniqueId(Result.SourceIdentifier);
+end;
+
+procedure TTokenSource.SetName;
 var
   i, Count: integer;
 begin
   FillChar(sourcename, SizeOf(sourcename), 0);
 
-  Count := Length(Name);
+  Count := Length(Value);
   if Count > 8 then
     Count := 8;
 
   for i := 1 to Count do
-    sourcename[i] := AnsiChar(Name[Low(String) + i - 1]);
+    sourcename[i] := AnsiChar(Value[Low(String) + i - 1]);
 end;
 
-function TTokenSource.ToString;
+function TTokenSource.GetName;
 begin
   // sourcename field may or may not contain a zero-termination byte
   Result := String(PAnsiChar(AnsiString(sourcename)));

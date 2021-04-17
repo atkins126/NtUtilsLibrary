@@ -14,9 +14,13 @@ type
     Control: TSecurityDescriptorControl;
     Owner, Group: ISid;
     Dacl, Sacl: IAcl;
-    class function Create(Control: TSecurityDescriptorControl = 0;
-      Dacl: IAcl = nil; Sacl: IAcl = nil; Owner: ISid = nil; Group: ISid = nil):
-      TNtsecDescriptor; static;
+    class function Create(
+      Control: TSecurityDescriptorControl = 0;
+      Dacl: IAcl = nil;
+      Sacl: IAcl = nil;
+      Owner: ISid = nil;
+      Group: ISid = nil
+    ): TNtsecDescriptor; static;
   end;
 
   TSecurityQueryFunction = function (
@@ -160,7 +164,7 @@ begin
   // Owner
   Result.Location := 'RtlSetOwnerSecurityDescriptor';
   Result.Status := RtlSetOwnerSecurityDescriptor(SecDesc, IMem.RefOrNil<PSid>(
-    SD.Owner), SD.Control and SE_OWNER_DEFAULTED <> 0);
+    SD.Owner), BitTest(SD.Control and SE_OWNER_DEFAULTED));
 
   if not Result.IsSuccess then
      Exit;
@@ -168,7 +172,7 @@ begin
   // Primary group
   Result.Location := 'RtlSetGroupSecurityDescriptor';
   Result.Status := RtlSetGroupSecurityDescriptor(SecDesc, IMem.RefOrNil<PSid>(
-    SD.Group), SD.Control and SE_GROUP_DEFAULTED <> 0);
+    SD.Group), BitTest(SD.Control and SE_GROUP_DEFAULTED));
 
   if not Result.IsSuccess then
      Exit;
@@ -176,8 +180,8 @@ begin
   // DACL
   Result.Location := 'RtlSetDaclSecurityDescriptor';
   Result.Status := RtlSetDaclSecurityDescriptor(SecDesc,
-    SD.Control and SE_DACL_PRESENT <> 0, IMem.RefOrNil<PAcl>(SD.Dacl),
-    SD.Control and SE_DACL_DEFAULTED <> 0);
+    BitTest(SD.Control and SE_DACL_PRESENT), IMem.RefOrNil<PAcl>(SD.Dacl),
+    BitTest(SD.Control and SE_DACL_DEFAULTED));
 
   if not Result.IsSuccess then
      Exit;
@@ -185,8 +189,8 @@ begin
   // SACL
   Result.Location := 'RtlSetSaclSecurityDescriptor';
   Result.Status := RtlSetSaclSecurityDescriptor(SecDesc,
-    SD.Control and SE_SACL_PRESENT <> 0, IMem.RefOrNil<PAcl>(SD.Sacl),
-    SD.Control and SE_SACL_DEFAULTED <> 0);
+    BitTest(SD.Control and SE_SACL_PRESENT), IMem.RefOrNil<PAcl>(SD.Sacl),
+    BitTest(SD.Control and SE_SACL_DEFAULTED));
 
   if not Result.IsSuccess then
      Exit;

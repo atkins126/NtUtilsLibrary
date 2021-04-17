@@ -31,8 +31,7 @@ implementation
 
 uses
   Winapi.WinNt, Ntapi.ntstatus, Ntapi.ntseapi, Winapi.WinBase,
-  Winapi.ProcessThreadsApi, NtUtils.Objects, DelphiUtils.AutoObject,
-  NtUtils.Files, NtUtils.SysUtils;
+  Winapi.ProcessThreadsApi, NtUtils.Objects, DelphiUtils.AutoObject;
 
  { Process-thread attributes }
 
@@ -276,15 +275,15 @@ begin
   SI.Desktop := RefStrOrNil(Options.Desktop);
 
   // Suspended state
-  if Options.Flags and PROCESS_OPTION_SUSPENDED <> 0 then
+  if poSuspended in Options.Flags then
     CreationFlags := CreationFlags or CREATE_SUSPENDED;
 
   // Job escaping
-  if Options.Flags and PROCESS_OPTION_BREAKAWAY_FROM_JOB <> 0 then
+  if poBreakawayFromJob in Options.Flags then
     CreationFlags := CreationFlags or CREATE_BREAKAWAY_FROM_JOB;
 
   // Console
-  if Options.Flags and PROCESS_OPTION_NEW_CONSOLE <> 0 then
+  if poNewConsole in Options.Flags then
     CreationFlags := CreationFlags or CREATE_NEW_CONSOLE;
 
   // Environment
@@ -292,26 +291,11 @@ begin
     CreationFlags := CreationFlags or CREATE_UNICODE_ENVIRONMENT;
 
   // Window show mode
-  if Options.Flags and PROCESS_OPTION_USE_WINDOW_MODE <> 0 then
+  if poUseWindowMode in Options.Flags then
   begin
     SI.ShowWindow := Options.WindowMode;
     SI.Flags := SI.Flags or STARTF_USESHOWWINDOW;
   end;
-end;
-
-procedure PrepareCommandLine(
-  out Application: String;
-  out CommandLine: String;
-  const Options: TCreateProcessOptions);
-begin
-  if Options.Flags and PROCESS_OPTION_NATIVE_PATH <> 0 then
-    Application := RtlxNtPathToDosPath(Options.Application);
-
-  // Either construct the command line or use the supplied one
-  if Options.Flags and PROCESS_OPTION_FORCE_COMMAND_LINE <> 0 then
-    CommandLine := Options.Parameters
-  else
-    CommandLine := '"' + Options.Application + '" ' + Options.Parameters;
 end;
 
 function CaptureResult(ProcessInfo: TProcessInformation): TProcessInfo;
@@ -371,7 +355,7 @@ begin
     RefStrOrNil(CommandLine),
     RefSA(ProcessSA, Options.ProcessSecurity),
     RefSA(ThreadSA, Options.ThreadSecurity),
-    Options.Flags and PROCESS_OPTION_INHERIT_HANDLES <> 0,
+    poInheritHandles in Options.Flags,
     CreationFlags,
     IMem.RefOrNil<PEnvironment>(Options.Environment),
     RefStrOrNil(Options.CurrentDirectory),

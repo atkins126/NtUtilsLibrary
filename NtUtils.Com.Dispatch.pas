@@ -8,9 +8,10 @@ unit NtUtils.Com.Dispatch;
 interface
 
 uses
-  Winapi.ObjBase, NtUtils;
+  Winapi.ObjBase, Winapi.ObjIdl, NtUtils;
 
 // Variant creation helpers
+function VarEmpty: TVarData;
 function VarFromWord(const Value: Word): TVarData;
 function VarFromCardinal(const Value: Cardinal): TVarData;
 function VarFromIntegerRef(const [ref] Value: Integer): TVarData;
@@ -51,12 +52,25 @@ function ComxInitialize(
   PreferredMode: TCoInitMode = COINIT_MULTITHREADED
 ): TNtxStatus;
 
+// Create a COM object from a CLSID
+function ComxCreateInstance(
+  const clsid: TCLSID;
+  const iid: TIID;
+  out pv;
+  ClsContext: TClsCtx = CLSCTX_ALL
+): TNtxStatus;
+
 implementation
 
 uses
-  Winapi.ObjIdl, Winapi.WinError, DelphiUtils.Arrays;
+  Winapi.WinError, DelphiUtils.Arrays;
 
 { Variant helpers }
+
+function VarEmpty;
+begin
+  VariantInit(Result);
+end;
 
 function VarFromWord;
 begin
@@ -87,8 +101,11 @@ end;
 function VarFromWideString;
 begin
   VariantInit(Result);
-  Result.VType := varOleStr;
-  Result.VOleStr := PWideChar(Value);
+  if Value <> '' then
+  begin
+    Result.VType := varOleStr;
+    Result.VOleStr := PWideChar(Value);
+  end;
 end;
 
 function VarFromIDispatch;
@@ -119,7 +136,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  Result.Location := 'Moniker.BindToObject("' + ObjectName + '")';
+  Result.Location := 'IMoniker::BindToObject("' + ObjectName + '")';
   Result.HResult := Moniker.BindToObject(BindCtx, nil, IDispatch, Dispatch);
 end;
 
@@ -135,7 +152,7 @@ var
 begin
   WideName := Name;
 
-  Result.Location := 'IDispatch.GetIDsOfNames("' + Name + '")';
+  Result.Location := 'IDispatch::GetIDsOfNames("' + Name + '")';
   Result.HResult := Dispatch.GetIDsOfNames(GUID_NULL, @WideName, 1, 0, @DispID);
 end;
 
@@ -162,7 +179,7 @@ begin
   end
   else
   begin
-    Result.Location := 'IDispatch.Invoke';
+    Result.Location := 'IDispatch::Invoke';
     Result.HResult := Code;
   end;
 end;
@@ -236,21 +253,31 @@ function ComxInitialize;
 begin
   // Try the preferred mode first
   Result.Location := 'CoInitializeEx';
-  Result.HResult := CoInitializeEx(nil, PreferredMode);
+  Result.HResultAllowFalse := CoInitializeEx(nil, PreferredMode);
 
-  // If somone already initialized COM using a different mode, use it, since
+  // S_FALSE indicates that COM is already initialized. Make sure we return
+  // success and provide the caller with uninitializer that will decrement the
+  // reference we just added.
+
+  // If someone already initialized COM using a different mode, use it, since
   // we still need to add a reference.
   if Result.HResult = RPC_E_CHANGED_MODE then
-    Result.HResult := CoInitializeEx(nil, PreferredMode xor
+    Result.HResultAllowFalse := CoInitializeEx(nil, PreferredMode xor
       COINIT_APARTMENTTHREADED);
 
   if Result.IsSuccess then
-    Uninitializer := TDelayedOperation.Create(
+    Uninitializer := TDelayedOperation.Delay(
       procedure
       begin
         CoUninitialize;
       end
     );
+end;
+
+function ComxCreateInstance;
+begin
+  Result.Location := 'CoCreateInstance';
+  Result.HResult := CoCreateInstance(clsid, nil, ClsContext, iid, pv);
 end;
 
 end.

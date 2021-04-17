@@ -52,6 +52,14 @@ type
     ): TRepresentation; override;
   end;
 
+  // HRESULT
+  THResultRepresenter = class abstract (TRepresenter)
+    class function GetType: Pointer; override;
+    class function Represent(
+      const Instance; Attributes: TArray<TCustomAttribute>
+    ): TRepresentation; override;
+  end;
+
   // TWin32Error
   TWin32ErrorRepresenter = class abstract (TRepresenter)
     class function GetType: Pointer; override;
@@ -132,9 +140,6 @@ type
     ): TRepresentation; override;
   end;
 
-// Make sure all types from this module are accessible through reflection
-procedure CompileTimeIncludeAllNtTypes;
-
 // A worker function that represents SIDs and attributes
 function RepresentSidWorker(
   Sid: PSid;
@@ -150,15 +155,13 @@ uses
   DelphiUiLib.Reflection.Strings, DelphiUiLib.Reflection.Numeric,
   System.SysUtils, NtUtils.Lsa.Sid, NtUtils.Lsa.Logon, NtUtils.WinStation,
   Winapi.WinUser, NtUtils.Security.Sid, NtUtils.Processes.Query,
-  DelphiUiLib.Strings;
+  DelphiUiLib.Strings, NtUtils.Errors;
 
 function RepresentSidWorker;
 var
-  Sections: TArray<THintSection>;
-  Success, KnownSidType: Boolean;
+  HintSections: TArray<THintSection>;
   Lookup: TTranslatedName;
-  State: TGroupAttributes;
-  NoState: IgnoreSubEnumsAttribute;
+  Success: Boolean;
   i: Integer;
 begin
   if not Assigned(Sid) then
@@ -167,81 +170,48 @@ begin
     Exit;
   end;
 
-  i := 0;
-  SetLength(Sections, 5);
-
   Success := LsaxLookupSid(Sid, Lookup).IsSuccess;
-  KnownSidType := Success and not
-    (Lookup.SidType in [SidTypeUndefined, SidTypeInvalid, SidTypeUnknown]);
 
-  if KnownSidType then
+  // Choose the best option for the main view
+  if Success and Lookup.IsValid then
     Result.Text := Lookup.FullName
   else
     Result.Text := RtlxSidToString(Sid);
 
-  if KnownSidType then
+  // Build the hint with what we have
+  i := 0;
+  SetLength(HintSections, 5);
+
+  if Success and Lookup.IsValid then
   begin
-    Sections[i].Title := 'Friendly Name';
-    Sections[i].Content := Lookup.FullName;
+    HintSections[i] := THintSection.New('Friendly Name', Result.Text);
     Inc(i);
   end;
 
-  Sections[i].Title := 'SID';
-  Sections[i].Content := RtlxSidToString(Sid);
+  HintSections[i] := THintSection.New('SID', RtlxSidToString(Sid));
   Inc(i);
 
   if Success then
   begin
-    Sections[i].Title := 'Type';
-    Sections[i].Content := TNumeric.Represent(Lookup.SidType).Text;
+    HintSections[i] := THintSection.New('Type', TNumeric.Represent(
+      Lookup.SidType).Text);
     Inc(i);
   end;
 
   if AttributesPresent then
   begin
-    // Separate state and flags
-    State := Attributes and SE_GROUP_STATE_MASK;
-    Attributes := Attributes and not SE_GROUP_STATE_MASK;
-
-    Sections[i].Title := 'State';
-    Sections[i].Content := TNumeric.Represent(State).Text;
+    HintSections[i] := THintSection.New('State', TNumeric.Represent
+      <TGroupAttributes>(Attributes and SE_GROUP_STATE_MASK).Text);
     Inc(i);
 
-    if Attributes <> 0 then
-    begin
-      NoState := IgnoreSubEnumsAttribute.Create;
-
-      try
-        Sections[i].Title := 'Flags';
-        Sections[i].Content := TNumeric.Represent(Attributes, [NoState]).Text;
-        Inc(i);
-      finally
-        NoState.Free;
-      end;
-    end;
+    HintSections[i] := THintSection.New('Flags', TNumeric.Represent
+      <TGroupAttributes>(Attributes and not SE_GROUP_STATE_MASK,
+      [Auto.From(IgnoreSubEnumsAttribute.Create).Self]).Text);
+    Inc(i);
   end;
 
-  SetLength(Sections, i);
-  Result.Hint := BuildHint(Sections);
-end;
-
-procedure CompileTimeIncludeAllNtTypes;
-begin
-  CompileTimeInclude(TNtUnicodeStringRepresenter);
-  CompileTimeInclude(TClientIdRepresenter);
-  CompileTimeInclude(TProcessIdRepresenter);
-  CompileTimeInclude(TProcessId32Representer);
-  CompileTimeInclude(TNtStatusRepresenter);
-  CompileTimeInclude(TWin32ErrorRepresenter);
-  CompileTimeInclude(TLargeIntegerRepresenter);
-  CompileTimeInclude(TULargeIntegerRepresenter);
-  CompileTimeInclude(TSidRepresenter);
-  CompileTimeInclude(TSidAndAttributesRepresenter);
-  CompileTimeInclude(TISidRepresenter);
-  CompileTimeInclude(TGroupRepresenter);
-  CompileTimeInclude(TLogonIdRepresenter);
-  CompileTimeInclude(TSessionIdRepresenter);
-  CompileTimeInclude(TRectRepresenter);
+  SetLength(HintSections, i);
+  Result.Hint := BuildHint(HintSections);
 end;
 
 { TNtUnicodeStringRepresenter }
@@ -327,11 +297,25 @@ end;
 class function TNtStatusRepresenter.Represent;
 var
   Status: NTSTATUS absolute Instance;
-  xStatus: TNtxStatus;
 begin
-  xStatus.Status := Status;
-  Result.Text := RtlxNtStatusName(xStatus);
-  Result.Hint := RtlxNtStatusMessage(xStatus);
+  Result.Text := RtlxNtStatusName(Status);
+  Result.Hint := RtlxNtStatusMessage(Status);
+end;
+
+{ THResultRepresenter }
+
+class function THResultRepresenter.GetType: Pointer;
+begin
+  Result := TypeInfo(HResult);
+end;
+
+class function THResultRepresenter.Represent(const Instance;
+  Attributes: TArray<TCustomAttribute>): TRepresentation;
+var
+  Value: HResult absolute Instance;
+begin
+  Result.Text := RtlxNtStatusName(Value.ToNtStatus);
+  Result.Hint := RtlxNtStatusMessage(Value.ToNtStatus);
 end;
 
 { TWin32ErrorRepresenter }
@@ -344,11 +328,9 @@ end;
 class function TWin32ErrorRepresenter.Represent;
 var
   Error: TWin32Error absolute Instance;
-  xStatus: TNtxStatus;
 begin
-  xStatus.WinError := Error;
-  Result.Text := RtlxNtStatusName(xStatus);
-  Result.Hint := RtlxNtStatusMessage(xStatus);
+  Result.Text := RtlxNtStatusName(Error.ToNtStatus);
+  Result.Hint := RtlxNtStatusMessage(Error.ToNtStatus);
 end;
 
 { TLargeIntegerRepresenter }
@@ -514,6 +496,26 @@ begin
   Result.Text := Format('[(%d, %d), (%d, %d)]', [Rect.Left, Rect.Top,
     Rect.Right, Rect.Bottom]);
 end;
+
+initialization
+  // Make all representers available at runtime for RTTI
+  CompileTimeInclude(TNtUnicodeStringRepresenter);
+  CompileTimeInclude(TClientIdRepresenter);
+  CompileTimeInclude(TProcessIdRepresenter);
+  CompileTimeInclude(TProcessId32Representer);
+  CompileTimeInclude(TNtStatusRepresenter);
+  CompileTimeInclude(THResultRepresenter);
+  CompileTimeInclude(TWin32ErrorRepresenter);
+  CompileTimeInclude(TLargeIntegerRepresenter);
+  CompileTimeInclude(TULargeIntegerRepresenter);
+  CompileTimeInclude(TSidRepresenter);
+  CompileTimeInclude(TSidAndAttributesRepresenter);
+  CompileTimeInclude(TISidRepresenter);
+  CompileTimeInclude(TGroupRepresenter);
+  CompileTimeInclude(TLogonIdRepresenter);
+  CompileTimeInclude(TSessionIdRepresenter);
+  CompileTimeInclude(TRectRepresenter);
+finalization
 
 end.
 

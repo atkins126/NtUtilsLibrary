@@ -1,5 +1,9 @@
 unit NtUiLib.Exceptions.Dialog;
 
+{
+  This module shows a detailed error dialog for a given TNtxStatus error.
+}
+
 interface
 
 uses
@@ -7,15 +11,15 @@ uses
 
 var
   BUG_TITLE: String = 'This is definitely a bug...';
-  BUG_MESSAGE: String = 'If you known how to reproduce this error please ' +
+  BUG_MESSAGE: String = 'If you known how to reproduce this error, please ' +
     'help us by opening an issue on our project''s page.';
 
 type
   // A callback function that might suggest solutions for specific problems
-  TSuggestor = function (const NtxStatus: TNtxStatus): String;
+  TSuggester = function (const NtxStatus: TNtxStatus): String;
 
 // Register a suggestion callback
-procedure RegisterSuggestions(Callback: TSuggestor);
+procedure RegisterSuggestions(Callback: TSuggester);
 
 // Show a modal error message to a user
 procedure ShowNtxStatus(ParentWnd: HWND; const NtxStatus: TNtxStatus);
@@ -28,22 +32,22 @@ uses
   NtUiLib.Exceptions, NtUiLib.Reflection.Exceptions;
 
 var
-  Suggestors: array of TSuggestor;
+  Suggesters: TArray<TSuggester>;
 
-procedure RegisterSuggestions(Callback: TSuggestor);
+procedure RegisterSuggestions;
 begin
-  SetLength(Suggestors, Length(Suggestors) + 1);
-  Suggestors[High(Suggestors)] := Callback;
+  SetLength(Suggesters, Length(Suggesters) + 1);
+  Suggesters[High(Suggesters)] := Callback;
 end;
 
 function CollectSuggestions(const NtxStatus: TNtxStatus): String;
 var
-  Suggestions: array of String;
+  Suggestions: TArray<String>;
   i: Integer;
 begin
-  for i := 0 to High(Suggestors) do
+  for i := 0 to High(Suggesters) do
   begin
-    Result := Suggestors[i](NtxStatus);
+    Result := Suggesters[i](NtxStatus);
 
     if Result <> '' then    
     begin
@@ -80,17 +84,17 @@ begin
       MB_OK or MB_ICONERROR);
 end;
 
-procedure ShowNtxStatus(ParentWnd: HWND; const NtxStatus: TNtxStatus);
+procedure ShowNtxStatus;
 var
   Dlg: TASKDIALOGCONFIG;
 begin
   InitDlg(Dlg, ParentWnd);
 
-  if not NT_ERROR(NtxStatus.Status) then
+  if not NT_ERROR(NtxStatus.Status) and not NtxStatus.IsHResult then
     Dlg.pszMainIcon := TD_WARNING_ICON;
 
   // Make a pretty header
-  Dlg.pszMainInstruction := PWideChar(RtlxNtStatusSummary(NtxStatus));
+  Dlg.pszMainInstruction := PWideChar(RtlxNtStatusSummary(NtxStatus.Status));
 
   if Dlg.pszMainInstruction = '' then
     Dlg.pszMainInstruction := 'System error';
@@ -102,7 +106,7 @@ begin
   ShowDlg(Dlg);
 end;
 
-procedure ShowNtxException(ParentWnd: HWND; E: Exception);
+procedure ShowNtxException;
 var
   Dlg: TASKDIALOGCONFIG;
 begin

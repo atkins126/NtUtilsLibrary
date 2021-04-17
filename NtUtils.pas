@@ -11,42 +11,74 @@ uses
   DelphiUtils.AutoObject;
 
 const
-  BUFFER_LIMIT = 1024 * 1024 * 256; // 256 MB
-
-  // For NTSTATUS, indicates that the underlying error is comes from an HRESULT;
-  // For HRESULT, indicates that the underlying error is comes from an NTSTATUS.
-  FACILITY_SWAP_BIT = Winapi.WinError.FACILITY_NT_BIT;
+  BUFFER_LIMIT = 1024 * 1024 * 512; // 512 MB
 
   // From ntapi.ntstatus
   STATUS_SUCCESS = NTSTATUS(0);
 
+var
+  // Controls whether TNtxStatus should capture stack traces on failure.
+  // When enabled, you should also configure generation of debug symbols via
+  // Project -> Options -> Building -> Delphi Compiler -> Linking -> Map File.
+  // This switch controls creation of .map files which you can later convert
+  // into .dbg using the map2dbg tool. See the link for more details:
+  // https://stackoverflow.com/questions/9422703
+  CaptureStackTraces: Boolean = False;
+
 type
+  // A few macros/aliases for checking bit flags and better expressing intent.
+  // Note: do not use with 64-bit or native integers!
+  BitTest = LongBool;
+  HasAny = LongBool;
+
+  // Forward the types for automatic lifetime management
   TMemory = DelphiUtils.AutoObject.TMemory;
   IMemory = DelphiUtils.AutoObject.IMemory;
+  IMem = DelphiUtils.AutoObject.IMem;
+  Auto = DelphiUtils.AutoObject.Auto;
   TAutoMemory = DelphiUtils.AutoObject.TAutoMemory;
   IAutoReleasable = DelphiUtils.AutoObject.IAutoReleasable;
   TDelayedOperation = DelphiUtils.AutoObject.TDelayedOperation;
   IHandle = DelphiUtils.AutoObject.IHandle;
 
+  // Define commonly used IMemory aliases
   IEnvironment = IMemory<PEnvironment>;
   ISecDesc = IMemory<PSecurityDescriptor>;
   IAcl = IMemory<PAcl>;
   ISid = IMemory<PSid>;
 
+  // A Delphi wrapper for a commonly used OBJECT_ATTRIBUTES type that allows
+  // building it with a simplified (fluent) syntaxt.
   IObjectAttributes = interface
+    // Fluent builder
     function UseRoot(const RootDirectory: IHandle): IObjectAttributes;
     function UseName(const ObjectName: String): IObjectAttributes;
     function UseAttributes(const Attributes: TObjectAttributesFlags): IObjectAttributes;
     function UseSecurity(const SecurityDescriptor: ISecDesc): IObjectAttributes;
     function UseImpersonation(const Level: TSecurityImpersonationLevel = SecurityImpersonation): IObjectAttributes;
     function UseEffectiveOnly(const Enabled: Boolean = True): IObjectAttributes;
+    function UseDesiredAccess(const AccessMask: TAccessMask): IObjectAttributes;
+
+    // Accessors
+    function Root: IHandle;
+    function Name: String;
+    function Attributes: TObjectAttributesFlags;
+    function Security: ISecDesc;
+    function Impersonation: TSecurityImpersonationLevel;
+    function EffectiveOnly: Boolean;
+    function DesiredAccess: TAccessMask;
+
+    // Integration
     function ToNative: PObjectAttributes;
+    function Duplicate: IObjectAttributes;
   end;
 
   TGroup = record
     Sid: ISid;
     Attributes: TGroupAttributes;
   end;
+
+  { Error Handling }
 
   TLastCallType = (lcOtherCall, lcOpenCall, lcQuerySetCall);
 
@@ -56,8 +88,11 @@ type
   end;
 
   TLastCallInfo = record
+    Location: String;
+    StackTrace: TArray<Pointer>;
     ExpectedPrivilege: TSeWellKnownPrivilege;
     ExpectedAccess: array of TExpectedAccess;
+    procedure CaptureStackTrace;
     procedure Expects<T>(AccessMask: T);
     procedure AttachInfoClass<T>(InfoClassEnum: T);
     procedure AttachAccess<T>(Mask: T);
@@ -68,40 +103,51 @@ type
       (InfoClass: Cardinal; InfoClassType: Pointer);
   end;
 
-  /// <summary>
-  ///  An enhanced NTSTATUS that stores the location of the failure.
-  /// </summary>
+  // An enhanced NTSTATUS that stores additional information about the last
+  // operation and the location of failure.
   TNtxStatus = record
   private
-    FLocation: String;
-    function GetWinError: TWin32Error;
-    procedure SetWinError(const Value: TWin32Error);
-    procedure FromLastWin32(RetValue: Boolean);
-    procedure SetLocation(Value: String); inline;
-    function GetHResult: HRESULT;
-    procedure SetHResult(const Value: HRESULT);
-    function GetCanonicalStatus: NTSTATUS;
+    FStatus: NTSTATUS;
+
+    function GetWin32Error: TWin32Error;
+    function GetHResult: HResult;
+    function GetLocation: String;
+
+    procedure FromWin32Error(const Value: TWin32Error);
+    procedure FromLastWin32Error(const RetValue: Boolean);
+    procedure FromHResult(const Value: HResult);
+    procedure FromHResultAllowFalse(const Value: HResult);
+    procedure FromStatus(const Value: NTSTATUS);
+
+    procedure SetLocation(const Value: String); inline;
   public
-    Status: NTSTATUS;
     LastCall: TLastCallInfo;
+
+    // Validation
     function IsSuccess: Boolean; inline;
-    function IsWin32: Boolean; inline;
-    function IsHResult: Boolean; inline;
-    property WinError: TWin32Error read GetWinError write SetWinError;
-    property HResult: HRESULT read GetHResult write SetHResult;
-    property Win32Result: Boolean write FromLastWin32;
-    property CanonicalStatus: NTSTATUS read GetCanonicalStatus;
-    property Location: String read FLocation write SetLocation;
+    function IsWin32: Boolean;
+    function IsHResult: Boolean;
+
+    // Integration
+    property Status: NTSTATUS read FStatus write FromStatus;
+    property Win32Error: TWin32Error read GetWin32Error write FromWin32Error;
+    property HResult: HResult read GetHResult write FromHResult;
+    property HResultAllowFalse: HResult write FromHResultAllowFalse;
+    property Win32Result: Boolean write FromLastWin32Error;
+
+    property Location: String read GetLocation write SetLocation;
     function Matches(Status: NTSTATUS; Location: String): Boolean; inline;
+
+    // Support for inline assignment and iterators
+    function Save(var Target: TNtxStatus): Boolean;
   end;
+
+  { Buffer Expansion }
 
   TBufferGrowthMethod = function (
     Memory: IMemory;
     Required: NativeUInt
   ): NativeUInt;
-
-// RtlGetLastNtStatus with extra checks to ensure the result is correct
-function RtlxGetLastNtStatus: NTSTATUS;
 
 // Slightly adjust required size with + 12% to mitigate fluctuations
 function Grow12Percent(Memory: IMemory; Required: NativeUInt): NativeUInt;
@@ -113,8 +159,15 @@ function NtxExpandBufferEx(
   GrowthMetod: TBufferGrowthMethod
 ): Boolean;
 
+{ Object Attributes }
+
 // Use an existing or create a new instance of an object attribute builder.
 function AttributeBuilder(
+  const ObjAttributes: IObjectAttributes = nil
+): IObjectAttributes;
+
+// Make a copy of an object attribute builder or create a new instance
+function AttributeBuilderCopy(
   const ObjAttributes: IObjectAttributes = nil
 ): IObjectAttributes;
 
@@ -123,99 +176,34 @@ function AttributesRefOrNil(
   const ObjAttributes: IObjectAttributes
 ): PObjectAttributes;
 
+// Let the caller override a default access mask via Object Attributes when
+// creating kernel objects.
+function AccessMaskOverride(
+  DefaultAccess: TAccessMask;
+  const ObjAttributes: IObjectAttributes
+): TAccessMask;
+
 implementation
 
 uses
-  Ntapi.ntrtl, Ntapi.ntstatus;
+  Ntapi.ntrtl, Ntapi.ntstatus, NtUtils.ObjAttr, NtUtils.Errors;
 
-type
-  TNtxObjectAttributes = class (TInterfacedObject, IObjectAttributes)
-  private
-    ObjAttr: TObjectAttributes;
-    hxRootDirectory: IHandle;
-    Name: String;
-    NameStr: TNtUnicodeString;
-    Security: ISecDesc;
-    QoS: TSecurityQualityOfService;
-  public
-    function UseRoot(const RootDirectory: IHandle): IObjectAttributes;
-    function UseName(const ObjectName: String): IObjectAttributes;
-    function UseAttributes(const Attributes: TObjectAttributesFlags): IObjectAttributes;
-    function UseSecurity(const SecurityDescriptor: ISecDesc): IObjectAttributes;
-    function UseImpersonation(const Level: TSecurityImpersonationLevel): IObjectAttributes;
-    function UseEffectiveOnly(const Enabled: Boolean): IObjectAttributes;
-    function ToNative: PObjectAttributes;
-    constructor Create;
-  end;
-
-{ TNtxObjectAttributes }
-
-constructor TNtxObjectAttributes.Create;
-begin
-  inherited;
-  ObjAttr.Length := SizeOf(TObjectAttributes);
-  QoS.Length := SizeOf(TSecurityQualityOfService);
-end;
-
-function TNtxObjectAttributes.ToNative;
-begin
-  Result := @ObjAttr;
-end;
-
-function TNtxObjectAttributes.UseAttributes;
-begin
-  ObjAttr.Attributes := Attributes;
-  Result := Self;
-end;
-
-function TNtxObjectAttributes.UseEffectiveOnly;
-begin
-  QoS.EffectiveOnly := Enabled;
-  ObjAttr.SecurityQualityOfService := @QoS;
-  Result := Self;
-end;
-
-function TNtxObjectAttributes.UseImpersonation;
-begin
-  QoS.ImpersonationLevel := Level;
-  ObjAttr.SecurityQualityOfService := @QoS;
-  Result := Self;
-end;
-
-function TNtxObjectAttributes.UseName;
-begin
-  Name := ObjectName;
-  NameStr := TNtUnicodeString.From(Name);
-  ObjAttr.ObjectName := @NameStr;
-  Result := Self;
-end;
-
-function TNtxObjectAttributes.UseRoot;
-begin
-  hxRootDirectory := RootDirectory;
-
-  if Assigned(hxRootDirectory) then
-    ObjAttr.RootDirectory := hxRootDirectory.Handle;
-
-  Result := Self;
-end;
-
-function TNtxObjectAttributes.UseSecurity;
-begin
-  Security := SecurityDescriptor;
-
-  if Assigned(Security) then
-    ObjAttr.SecurityDescriptor := Security.Data;
-
-  Result := Self;
-end;
+{ Object Attributes }
 
 function AttributeBuilder;
 begin
   if Assigned(ObjAttributes) then
     Result := ObjAttributes
   else
-    Result := TNtxObjectAttributes.Create;
+    Result := NewAttributeBuilder;
+end;
+
+function AttributeBuilderCopy;
+begin
+  if Assigned(ObjAttributes) then
+    Result := ObjAttributes.Duplicate
+  else
+    Result := NewAttributeBuilder;
 end;
 
 function AttributesRefOrNil;
@@ -224,6 +212,14 @@ begin
     Result := ObjAttributes.ToNative
   else
     Result := nil;
+end;
+
+function AccessMaskOverride;
+begin
+  if Assigned(ObjAttributes) and (ObjAttributes.DesiredAccess <> 0) then
+    Result := ObjAttributes.DesiredAccess
+  else
+    Result := DefaultAccess;
 end;
 
 { TLastCallInfo }
@@ -253,6 +249,14 @@ begin
   end;
 end;
 
+procedure TLastCallInfo.CaptureStackTrace;
+const
+  MAX_DEPTH = 32;
+begin
+  SetLength(StackTrace, MAX_DEPTH);
+  SetLength(StackTrace, RtlCaptureStackBackTrace(2, MAX_DEPTH, StackTrace, nil))
+end;
+
 procedure TLastCallInfo.Expects<T>;
 var
   Mask: TAccessMask absolute AccessMask;
@@ -268,78 +272,65 @@ end;
 
 { TNtxStatus }
 
-procedure TNtxStatus.FromLastWin32;
+procedure TNtxStatus.FromHResult;
+begin
+  // S_FALSE is a controversial value that is successful, but indicates a
+  // failure. Its precise meaning depends on the context, so whenever we expect
+  // it as a result we should adjust the logic correspondingly. By default,
+  // consider it unsuccessful. For the opposite behavior, use HResultAllowFalse.
+
+  if Value = S_FALSE then
+    Status := STATUS_UNSUCCESSFUL
+  else
+    Status := Value.ToNtStatus;
+end;
+
+procedure TNtxStatus.FromHResultAllowFalse(const Value: HResult);
+begin
+  // Note: if you want S_FALSE to be unsuccessful, see comments in FromHResult.
+
+  Status := Value.ToNtStatus;
+end;
+
+procedure TNtxStatus.FromLastWin32Error;
 begin
   if RetValue then
     Status := STATUS_SUCCESS
   else
-  begin
-    Status := RtlxGetLastNtStatus;
-
-    // Make sure that we do not end up with a successful code
-    if IsSuccess then
-      SetWinError(RtlGetLastWin32Error);
-  end;
+    Status := RtlxGetLastNtStatus(True);
 end;
 
-function TNtxStatus.GetCanonicalStatus;
+procedure TNtxStatus.FromStatus;
 begin
-  // Win32 Error can appear embedded into HRESULts or NTSTATUSes.
-  // The canonical representation we chose is inside an HRESULT which we store
-  // as an NTSTATUS.
+  FStatus := Value;
 
-  if IsWin32 then
-    Result := WIN32_HRESULT_BITS or FACILITY_SWAP_BIT or
-      (WinError and WIN32_CODE_MASK)
-  else
-    Result := Status;
+  if not IsSuccess and CaptureStackTraces then
+    LastCall.CaptureStackTrace;
+end;
+
+procedure TNtxStatus.FromWin32Error;
+begin
+  Status := Win32Error.ToNtStatus;
 end;
 
 function TNtxStatus.GetHResult;
 begin
-  // If the status has the Win32 Facility, then it was derived from a Win32
-  // error. The HRESULT should be 0x8007xxxx in this case.
-
-  // Statuses with a FACILITY_SWAP_BIT were derived from HRESULTs.
-  // To get the original HRESULT back by removing this bit.
-
-  // Statuses without the FACILITY_SWAP_BIT are native NTSTATUS codes.
-  // Setting this bit (which, in case of HRESULTs, is called the NT Facility
-  // bit) yeilds a valid HRESULT derived from an NTSTATUS.
-
-  if IsWin32 then
-    Cardinal(Result) := WIN32_HRESULT_BITS or (Status and WIN32_CODE_MASK)
-  else
-    Cardinal(Result) := Status xor FACILITY_SWAP_BIT;
+  Result := Status.ToHResult;
 end;
 
-function TNtxStatus.GetWinError;
+function TNtxStatus.GetLocation;
 begin
-  // If the status comes from a Win32 error, reconstruct it
-  if IsWin32 then
-    Result := Status and WIN32_CODE_MASK
+  Result := LastCall.Location;
+end;
 
-  // The status is a native NTSTATUS, ask ntdll to map it.
-  else if not IsHResult then
-    Result := RtlNtStatusToDosErrorNoTeb(Status)
-
-  // A successful code that we do not know how to convert
-  else if IsSuccess then
-    Result := ERROR_SUCCESS
-
-  // The original code comes from an HRESULT; even though it's not a Win32
-  // error, they are reasonably compatible, so we can use them interchangeably
-  // when formatting error messages.
-  else
-    Result := TWin32Error(HResult)
+function TNtxStatus.GetWin32Error;
+begin
+  Result := Status.ToWin32Error;
 end;
 
 function TNtxStatus.IsHResult;
 begin
-  // Just like HRESULTs can store NTSTATUSes using the NT Facility bit, we make
-  // NTSTATUSes store HRESULTs using the same bit. We call it a swap bit.
-
-  Result := Status and FACILITY_SWAP_BIT <> 0;
+  Result := Status.IsHResult;
 end;
 
 function TNtxStatus.IsSuccess;
@@ -349,10 +340,7 @@ end;
 
 function TNtxStatus.IsWin32;
 begin
-  // Regardles of whether the status is a native NTSTATUS or a converted HRESULT,
-  // Win32 Facility indicates that the error originally comes from Win32.
-
-  Result := Status and HRESULT_FACILITY_MASK = FACILITY_WIN32_BITS;
+  Result := Status.IsWin32Error;
 end;
 
 function TNtxStatus.Matches;
@@ -360,34 +348,20 @@ begin
   Result := (Self.Status = Status) and (Self.Location = Location);
 end;
 
-procedure TNtxStatus.SetHResult;
+function TNtxStatus.Save;
 begin
-  // If the HRESULT does not have the NT Facility bit (which we also call a
-  // swap bit), set it to indicate that our NTSTATUS comes from an HRESULT.
+  Result := IsSuccess;
+  Target := Self;
 
-  // If the HRESULT does include this bit, then it was derived from an NTSTATUS.
-  // Clear it to get the status back.
-
-  Status := Cardinal(Value) xor FACILITY_SWAP_BIT;
+  // Stop iterating without forwarding the error code
+  if Status = STATUS_NO_MORE_ENTRIES then
+    Target.Status := STATUS_SUCCESS;
 end;
 
 procedure TNtxStatus.SetLocation;
 begin
-  FLocation := Value;
   LastCall := Default(TLastCallInfo);
-end;
-
-procedure TNtxStatus.SetWinError;
-begin
-  // Although Win32 errors are supposed to positive be 16-bit values, if we
-  // encounter a negative error, it is clearly an HRESULT.
-  if Integer(Value) < 0 then
-    Status := FACILITY_SWAP_BIT or Value
-  else
-    // We have two options: we can embed the error into an NTSTATUS or an
-    // HRESULT. Prefer the latter as a general rule.
-    Status := WIN32_HRESULT_BITS or FACILITY_SWAP_BIT or
-      (Value and WIN32_CODE_MASK);
+  LastCall.Location := Value;
 end;
 
 { Functions }
@@ -426,37 +400,6 @@ begin
       Memory := TAutoMemory.Allocate(Required);
       Result := True;
     end;
-  end;
-end;
-
-function RtlxGetLastNtStatus;
-begin
-  // If the last Win32 error was set using RtlNtStatusToDosError call followed
-  // by RtlSetLastWin32Error call (aka SetLastError), the LastStatusValue in TEB
-  // should contain the correct NTSTATUS value. The way to check whether it is
-  // correct is to convert it to Win32 error and compare with LastErrorValue
-  // from TEB. If, for some reason, they don't match, return a fake NTSTATUS
-  // with a Win32 facility.
-
-  if RtlNtStatusToDosErrorNoTeb(RtlGetLastNtStatus) = RtlGetLastWin32Error then
-    Result := RtlGetLastNtStatus
-  else
-  case RtlGetLastWin32Error of
-
-    // Explicitly convert buffer-related errors
-    ERROR_INSUFFICIENT_BUFFER: Result := STATUS_BUFFER_TOO_SMALL;
-    ERROR_MORE_DATA:           Result := STATUS_BUFFER_OVERFLOW;
-    ERROR_BAD_LENGTH:          Result := STATUS_INFO_LENGTH_MISMATCH;
-
-    // After converting, ERROR_SUCCESS becomes unsuccessful, fix it
-    ERROR_SUCCESS:             Result := STATUS_SUCCESS;
-
-    // Common errors which we might want to compare
-    ERROR_ACCESS_DENIED:       Result := STATUS_ACCESS_DENIED;
-    ERROR_PRIVILEGE_NOT_HELD:  Result := STATUS_PRIVILEGE_NOT_HELD;
-  else
-    Result := WIN32_HRESULT_BITS or FACILITY_SWAP_BIT or
-      (RtlGetLastWin32Error and WIN32_CODE_MASK);
   end;
 end;
 

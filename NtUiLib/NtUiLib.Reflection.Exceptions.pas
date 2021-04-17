@@ -39,7 +39,7 @@ begin
     if a is FriendlyNameAttribute then
       Exit(FriendlyNameAttribute(a).Name);
 
-  Result := '';
+  Result := 'object';
 end;
 
 function NtxVerboseStatusMessage;
@@ -55,7 +55,7 @@ begin
       Result := Result + #$D#$A + 'Desired ' +
         GetFriendlyName(Status.LastCall.AccessMaskType) + ' access: ' +
         FormatAccess(Status.LastCall.AccessMask,
-        Status.LastCall.AccessMaskType);
+          Status.LastCall.AccessMaskType);
 
     lcQuerySetCall:
       // Information class: <name>
@@ -72,10 +72,10 @@ begin
           FormatAccess(AccessMask, AccessMaskType);
 
   // Result: <STATUS_*/ERROR_*>
-  Result := Result + #$D#$A + 'Result: ' + RtlxNtStatusName(Status);
+  Result := Result + #$D#$A + 'Result: ' + RtlxNtStatusName(Status.Status);
 
   // <textual description>
-  Result := Result + #$D#$A#$D#$A + RtlxNtStatusMessage(Status);
+  Result := Result + #$D#$A#$D#$A + RtlxNtStatusMessage(Status.Status);
 
   // <privilege name>
   if (Status.Status = STATUS_PRIVILEGE_NOT_HELD) and

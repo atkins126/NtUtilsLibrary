@@ -27,6 +27,18 @@ type
 
 { User profiles }
 
+// Load a profile using a token
+function UnvxLoadProfile(
+  out hxKey: IHandle;
+  hToken: THandle
+): TNtxStatus;
+
+// Unload a profile using a token
+function UnvxUnloadProfile(
+  hToken: THandle;
+  hProfile: THandle
+): TNtxStatus;
+
 // Enumerate existing profiles on the system
 function UnvxEnumerateProfiles(
   out Profiles: TArray<ISid>
@@ -49,7 +61,7 @@ function UnvxQueryProfile(
 function UnvxCreateAppContainer(
   out Sid: ISid;
   AppContainerName: String;
-  DisplayName: String;
+  DisplayName: String = '';
   Description: String = '';
   Capabilities: TArray<TGroup> = nil
 ): TNtxStatus;
@@ -58,7 +70,7 @@ function UnvxCreateAppContainer(
 function UnvxCreateDeriveAppContainer(
   out Sid: ISid;
   AppContainerName: String;
-  DisplayName: String;
+  DisplayName: String = '';
   Description: String = '';
   Capabilities: TArray<TGroup> = nil
 ): TNtxStatus;
@@ -103,10 +115,10 @@ function UnvxEnumerateChildrenAppContainer(
 implementation
 
 uses
-  Ntapi.ntrtl, Ntapi.ntseapi, Ntapi.ntdef, Winapi.UserEnv, Ntapi.ntstatus,
-  Ntapi.ntregapi, Winapi.WinError, NtUtils.Registry, NtUtils.Ldr,
+  Ntapi.ntregapi, Ntapi.ntseapi, Ntapi.ntdef, Winapi.UserEnv, Ntapi.ntstatus,
+  Ntapi.ntrtl, Winapi.WinError, NtUtils.Registry, NtUtils.Errors, NtUtils.Ldr,
   NtUtils.Security.AppContainer, DelphiUtils.Arrays, NtUtils.Security.Sid,
-  NtUtils.Registry.HKCU;
+  NtUtils.Registry.HKCU, NtUtils.Objects, NtUtils.Tokens.Query, NtUtils.Lsa.Sid;
 
 const
   PROFILE_PATH = REG_PATH_MACHINE + '\SOFTWARE\Microsoft\Windows NT\' +
@@ -120,6 +132,40 @@ const
   APPCONTAINER_CHILDREN = '\Children';
 
 { User profiles }
+
+function UnvxLoadProfile;
+var
+  Sid: ISid;
+  UserName: String;
+  Profile: TProfileInfoW;
+begin
+  // Determine the SID
+  Result := NtxQuerySidToken(hToken, TokenUser, Sid);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  UserName := LsaxSidToString(Sid.Data);
+
+  FillChar(Profile, SizeOf(Profile), 0);
+  Profile.Size := SizeOf(Profile);
+  Profile.UserName := PWideChar(UserName);
+
+  Result.Location := 'LoadUserProfileW';
+  Result.LastCall.Expects<TTokenAccessMask>(TOKEN_QUERY or TOKEN_IMPERSONATE or
+    TOKEN_DUPLICATE);
+
+  Result.Win32Result := LoadUserProfileW(hToken, Profile);
+
+  if Result.IsSuccess then
+     hxKey := TAutoHandle.Capture(Profile.hProfile);
+end;
+
+function UnvxUnloadProfile;
+begin
+  Result.Location := 'UnloadUserProfile';
+  Result.Win32Result := UnloadUserProfile(hToken, hProfile);
+end;
 
 function UnvxEnumerateProfiles;
 var
@@ -167,8 +213,6 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  FillChar(Result, SizeOf(Result), 0);
-
   // The only necessary value
   Result := NtxQueryValueKeyString(hxKey.Handle, 'ProfileImagePath',
     Info.ProfilePath);
@@ -202,6 +246,13 @@ begin
     CapArray[i].Attributes := Capabilities[i].Attributes;
   end;
 
+  // The function does not like empty strings
+  if DisplayName = '' then
+    DisplayName := AppContainerName;
+
+  if Description = '' then
+    Description := DisplayName;
+
   Result.Location := 'CreateAppContainerProfile';
   Result.HResult := CreateAppContainerProfile(PWideChar(AppContainerName),
     PWideChar(DisplayName), PWideChar(Description), CapArray, Length(CapArray),
@@ -219,7 +270,7 @@ begin
   Result := UnvxCreateAppContainer(Sid, AppContainerName, DisplayName,
     Description, Capabilities);
 
-  if Result.Matches(NTSTATUS_FROM_WIN32(ERROR_ALREADY_EXISTS),
+  if Result.Matches(TWin32Error(ERROR_ALREADY_EXISTS).ToNtStatus,
     'CreateAppContainerProfile') then
     Result := RtlxAppContainerNameToSid(AppContainerName, Sid);
 end;

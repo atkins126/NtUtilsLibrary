@@ -11,6 +11,14 @@ uses
   DelphiUtils.AutoObject, DelphiUtils.Async;
 
 type
+  TKeyCreationBehavior = set of (
+    // Create missing parent keys if necessary
+    kcRecursive,
+
+    // Apply the supplied security descriptor when creating missing parent keys
+    kcUseSecurityWithRecursion
+  );
+
   TKeyBasicInfo = record
     LastWriteTime: TLargeInteger;
     TitleIndex: Cardinal;
@@ -18,8 +26,14 @@ type
   end;
 
   TRegValueEntry = record
-    ValueType: TRegValueType;
     ValueName: String;
+    ValueType: TRegValueType;
+  end;
+
+  TRegValueDataEntry = record
+    ValueName: String;
+    ValueType: TRegValueType;
+    ValueData: IMemory;
   end;
 
   TSubKeyEntry = record
@@ -55,6 +69,7 @@ function NtxCreateKey(
   DesiredAccess: TRegKeyAccessMask;
   CreateOptions: TRegOpenOptions = 0;
   ObjectAttributes: IObjectAttributes = nil;
+  CreationBehavior: TKeyCreationBehavior = [kcRecursive];
   Disposition: PRegDisposition = nil
 ): TNtxStatus;
 
@@ -66,6 +81,7 @@ function NtxCreateKeyTransacted(
   DesiredAccess: TRegKeyAccessMask;
   CreateOptions: TRegOpenOptions = 0;
   ObjectAttributes: IObjectAttributes = nil;
+  CreationBehavior: TKeyCreationBehavior = [kcRecursive];
   Disposition: PRegDisposition = nil
 ): TNtxStatus;
 
@@ -135,7 +151,8 @@ function NtxCreateSymlinkKey(
   Source: String;
   Target: String;
   Options: TRegOpenOptions = 0;
-  ObjectAttributes: IObjectAttributes = nil
+  ObjectAttributes: IObjectAttributes = nil;
+  CreationBehavior: TKeyCreationBehavior = [kcRecursive]
 ): TNtxStatus;
 
 // Delete a symbolic link key
@@ -147,8 +164,8 @@ function NtxDeleteSymlinkKey(
 
 { Values }
 
-// Enumerate values using an information class
-function NtxEnumerateValueKey(
+// Enumerate one value at a time using an information class
+function NtxEnumerateValueKeyEx(
   hKey: THandle;
   Index: Integer;
   InfoClass: TKeyValueInformationClass;
@@ -157,10 +174,24 @@ function NtxEnumerateValueKey(
   GrowthMethod: TBufferGrowthMethod = nil
 ): TNtxStatus;
 
-// Enumerate values of a key
+// Enumerate all values using an information class
+function NtxEnumerateValuesKeyEx(
+  hKey: THandle;
+  InfoClass: TKeyValueInformationClass;
+  out Values: TArray<IMemory>;
+  InitialBuffer: Cardinal = 0
+): TNtxStatus;
+
+// Enumerate names and types of all values within a key
 function NtxEnumerateValuesKey(
   hKey: THandle;
-  out ValueNames: TArray<TRegValueEntry>
+  out Values: TArray<TRegValueEntry>
+): TNtxStatus;
+
+// Enumerate and retrieve data for all values within a key
+function NtxEnumerateValuesDataKey(
+  hKey: THandle;
+  out Values: TArray<TRegValueDataEntry>
 ): TNtxStatus;
 
 // Query variable-length value information
@@ -300,7 +331,7 @@ implementation
 
 uses
   Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntseapi, Ntapi.ntioapi, Ntapi.nttmapi,
-  DelphiUtils.Arrays;
+  NtUtils.SysUtils, DelphiUtils.Arrays;
 
 { Keys }
 
@@ -311,8 +342,12 @@ begin
   Result.Location := 'NtOpenKeyEx';
   Result.LastCall.AttachAccess(DesiredAccess);
 
-  Result.Status := NtOpenKeyEx(hKey, DesiredAccess,
-    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative^, OpenOptions);
+  Result.Status := NtOpenKeyEx(
+    hKey,
+    DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative^,
+    OpenOptions
+  );
 
   if Result.IsSuccess then
     hxKey := TAutoHandle.Capture(hKey);
@@ -326,9 +361,13 @@ begin
   Result.LastCall.AttachAccess(DesiredAccess);
   Result.LastCall.Expects<TTmTxAccessMask>(TRANSACTION_ENLIST);
 
-  Result.Status := NtOpenKeyTransactedEx(hKey, DesiredAccess,
-    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative^, OpenOptions,
-    hTransaction);
+  Result.Status := NtOpenKeyTransactedEx(
+    hKey,
+    DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative^,
+    OpenOptions,
+    hTransaction
+  );
 
   if Result.IsSuccess then
     hxKey := TAutoHandle.Capture(hKey);
@@ -337,32 +376,117 @@ end;
 function NtxCreateKey;
 var
   hKey: THandle;
+  hxParentKey: IHandle;
+  ParentObjAttr: IObjectAttributes;
 begin
   Result.Location := 'NtCreateKey';
   Result.LastCall.AttachAccess(DesiredAccess);
 
-  Result.Status := NtCreateKey(hKey, DesiredAccess,
-    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative^, 0, nil,
-    CreateOptions, Disposition);
+  Result.Status := NtCreateKey(
+    hKey,
+    DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative^,
+    0,
+    nil,
+    CreateOptions,
+    Disposition
+  );
 
   if Result.IsSuccess then
-    hxKey := TAutoHandle.Capture(hKey);
+    hxKey := TAutoHandle.Capture(hKey)
+
+  else if (Result.Status = STATUS_OBJECT_NAME_NOT_FOUND) and
+    (kcRecursive in CreationBehavior) and (Name <> '') then
+  begin
+    ParentObjAttr := AttributeBuilderCopy(ObjectAttributes);
+
+    // Do not overwrite paren't security unless explisitly told to
+    if not (kcUseSecurityWithRecursion in CreationBehavior) then
+      ParentObjAttr.UseSecurity(nil);
+
+    // The parent is missing and we need to create it (recursively)
+    // Note that we don't want the parent to become a symlink
+    Result := NtxCreateKey(
+      hxParentKey,
+      RtlxExtractPath(Name),
+      KEY_CREATE_SUB_KEY,
+      CreateOptions and not REG_OPTION_CREATE_LINK,
+      ParentObjAttr,
+      CreationBehavior
+    );
+
+    if not Result.IsSuccess then
+      Exit;
+
+    // The parent is here now; retry using it as a root
+    Result := NtxCreateKey(
+      hxKey,
+      RtlxExtractName(Name),
+      DesiredAccess,
+      CreateOptions,
+      AttributeBuilder(ObjectAttributes).UseRoot(hxParentKey)
+    );
+  end;
 end;
 
 function NtxCreateKeyTransacted;
 var
   hKey: THandle;
+  hxParentKey: IHandle;
+  ParentObjAttr: IObjectAttributes;
 begin
   Result.Location := 'NtCreateKeyTransacted';
   Result.LastCall.AttachAccess(DesiredAccess);
   Result.LastCall.Expects<TTmTxAccessMask>(TRANSACTION_ENLIST);
 
-  Result.Status := NtCreateKeyTransacted(hKey, DesiredAccess,
-    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative^, 0, nil,
-    CreateOptions, hTransaction, Disposition);
+  Result.Status := NtCreateKeyTransacted(
+    hKey,
+    DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(Name).ToNative^,
+    0,
+    nil,
+    CreateOptions,
+    hTransaction,
+    Disposition
+  );
 
   if Result.IsSuccess then
-    hxKey := TAutoHandle.Capture(hKey);
+    hxKey := TAutoHandle.Capture(hKey)
+
+  else if (Result.Status = STATUS_OBJECT_NAME_NOT_FOUND) and
+    (kcRecursive in CreationBehavior) and (Name <> '') then
+  begin
+    ParentObjAttr := AttributeBuilderCopy(ObjectAttributes);
+
+    // Do not overwrite paren't security unless explisitly told to
+    if not (kcUseSecurityWithRecursion in CreationBehavior) then
+      ParentObjAttr.UseSecurity(nil);
+
+    // The parent is missing and we need to create it (recursively)
+    // Note that we don't want the parent to become a symlink
+    Result := NtxCreateKeyTransacted(
+      hxParentKey,
+      hTransaction,
+      RtlxExtractPath(Name),
+      KEY_CREATE_SUB_KEY,
+      CreateOptions and not REG_OPTION_CREATE_LINK,
+      ParentObjAttr,
+      CreationBehavior
+    );
+
+    if not Result.IsSuccess then
+      Exit;
+
+    // The parent is here now; retry using it as a root
+    Result := NtxCreateKeyTransacted(
+      hxKey,
+      hTransaction,
+      RtlxExtractName(Name),
+      DesiredAccess,
+      CreateOptions,
+      AttributeBuilder(ObjectAttributes).UseRoot(hxParentKey)
+    );
+  end;
 end;
 
 function NtxDeleteKey;
@@ -498,7 +622,7 @@ var
 begin
   // Create a key
   Result := NtxCreateKey(hxKey, Source, KEY_SET_VALUE or KEY_CREATE_LINK,
-    Options or REG_OPTION_CREATE_LINK, ObjectAttributes);
+    Options or REG_OPTION_CREATE_LINK, ObjectAttributes, CreationBehavior);
 
   if Result.IsSuccess then
   begin
@@ -525,7 +649,7 @@ end;
 
 { Values }
 
-function NtxEnumerateValueKey;
+function NtxEnumerateValueKeyEx;
 var
   Required: Cardinal;
 begin
@@ -541,31 +665,88 @@ begin
   until not NtxExpandBufferEx(Result, xMemory, Required, GrowthMethod);
 end;
 
-function NtxEnumerateValuesKey;
+function NtxEnumerateValuesKeyEx;
 var
-  Index: Integer;
-  xMemory: IMemory<PKeyValueBasicInformation>;
+  KeyInfo: TKeyCachedInformation;
+  i: Integer;
 begin
-  SetLength(ValueNames, 0);
+  // Determine the number of keys
+  Result := NtxKey.Query(hKey, KeyCachedInformation, KeyInfo);
 
-  Index := 0;
-  repeat
-    Result := NtxEnumerateValueKey(hKey, Index, KeyValueBasicInformation,
-      IMemory(xMemory));
+  if not Result.IsSuccess then
+    Exit;
 
-    if Result.IsSuccess then
+  SetLength(Values, KeyInfo.Values);
+
+  for i := 0 to High(Values) do
+  begin
+    Result := NtxEnumerateValueKeyEx(hKey, i, InfoClass, Values[i],
+      InitialBuffer);
+
+    if not Result.IsSuccess then
     begin
-      SetLength(ValueNames, Length(ValueNames) + 1);
-      ValueNames[High(ValueNames)].ValueType := xMemory.Data.ValueType;
-      SetString(ValueNames[High(ValueNames)].ValueName, PWideChar(
-        @xMemory.Data.Name), xMemory.Data.NameLength div SizeOf(WideChar));
+      // Truncate on what we got
+      SetLength(Values, i);
+      Break;
     end;
-
-    Inc(Index);
-  until not Result.IsSuccess;
+  end;
 
   if Result.Status = STATUS_NO_MORE_ENTRIES then
     Result.Status := STATUS_SUCCESS;
+end;
+
+function NtxEnumerateValuesKey;
+const
+  INITIAL_SIZE = SizeOf(TKeyValueBasicInformation) + $40;
+var
+  RawValues: TArray<IMemory>;
+  i: Integer;
+begin
+  Result := NtxEnumerateValuesKeyEx(hKey, KeyValueBasicInformation, RawValues,
+    INITIAL_SIZE);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  SetLength(Values, Length(RawValues));
+
+  for i := 0 to High(RawValues) do
+    with PKeyValueBasicInformation(RawValues[i].Data)^ do
+    begin
+      Values[i].ValueType := ValueType;
+      RtlxSetStringW(Values[i].ValueName, PWideChar(@Name),
+        NameLength div SizeOf(WideChar));
+    end;
+end;
+
+function NtxEnumerateValuesDataKey;
+const
+  INITIAL_SIZE = SizeOf(TKeyValueBasicInformation) + $A0;
+var
+  RawValues: TArray<IMemory>;
+  Info: PKeyValueFullInformation;
+  i: Integer;
+begin
+  Result := NtxEnumerateValuesKeyEx(hKey, KeyValueFullInformation, RawValues,
+    INITIAL_SIZE);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  SetLength(Values, Length(RawValues));
+
+  for i := 0 to High(RawValues) do
+  begin
+    Info := RawValues[i].Data;
+    Values[i].ValueType := Info.ValueType;
+    Values[i].ValueData := TAutoMemory.Allocate(Info.DataLength);
+
+    Move(RawValues[i].Offset(Info.DataOffset)^, Values[i].ValueData.Data^,
+      Info.DataLength);
+
+    RtlxSetStringW(Values[i].ValueName, PWideChar(@Info.Name),
+      Info.NameLength div SizeOf(WideChar));
+  end;
 end;
 
 function NtxQueryValueKey;
@@ -649,8 +830,8 @@ begin
   if Result.IsSuccess then
     case xMemory.Data.ValueType of
       REG_SZ, REG_EXPAND_SZ, REG_LINK, REG_MULTI_SZ:
-        SetString(Value, PWideChar(@xMemory.Data.Data),
-          xMemory.Data.DataLength div SizeOf(WideChar) - 1);
+        RtlxSetStringW(Value, PWideChar(@xMemory.Data.Data),
+          xMemory.Data.DataLength div SizeOf(WideChar));
     else
       Result.Location := 'NtxQueryValueKeyString';
       Result.Status := STATUS_OBJECT_TYPE_MISMATCH;
@@ -749,15 +930,22 @@ begin
   // TODO: use NtLoadKey3 when possible
 
   // Make sure we always get a handle
-  if not LongBool(Flags and REG_APP_HIVE) then
+  if not BitTest(Flags and REG_APP_HIVE) then
     Flags := Flags or REG_LOAD_HIVE_OPEN_HANDLE;
 
   Result.Location := 'NtLoadKeyEx';
   Result.LastCall.ExpectedPrivilege := SE_RESTORE_PRIVILEGE;
 
-  Result.Status := NtLoadKeyEx(AttributeBuilder(KeyObjAttr).UseName(KeyPath)
-    .ToNative^, AttributeBuilder(FileObjAttr).UseName(FileName).ToNative^,
-    Flags, TrustClassKey, 0, KEY_ALL_ACCESS, hKey, nil);
+  Result.Status := NtLoadKeyEx(
+    AttributeBuilder(KeyObjAttr).UseName(KeyPath).ToNative^,
+    AttributeBuilder(FileObjAttr).UseName(FileName).ToNative^,
+    Flags,
+    TrustClassKey,
+    0,
+    AccessMaskOverride(KEY_ALL_ACCESS, KeyObjAttr),
+    hKey,
+    nil
+  );
 
   if Result.IsSuccess then
     hxKey := TAutoHandle.Capture(hKey);
@@ -774,8 +962,11 @@ begin
 
   Result.Location := 'NtUnloadKey2';
   Result.LastCall.ExpectedPrivilege := SE_RESTORE_PRIVILEGE;
-  Result.Status := NtUnloadKey2(AttributeBuilder(ObjectAttributes)
-    .UseName(KeyName).ToNative^, Flags);
+
+  Result.Status := NtUnloadKey2(
+    AttributeBuilder(ObjectAttributes).UseName(KeyName).ToNative^,
+    Flags
+  );
 end;
 
 function NtxSaveKey;

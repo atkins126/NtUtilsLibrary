@@ -52,23 +52,7 @@ function RtlxRemoteExecute(
 
 { Export location }
 
-// Locate export in a known native dll
-function RtlxFindKnownDllExportsNative(
-  DllName: String;
-  Names: TArray<AnsiString>;
-  out Addresses: TArray<Pointer>
-): TNtxStatus;
-
-{$IFDEF Win64}
-// Locate export in known WoW64 dll
-function RtlxFindKnownDllExportsWoW64(
-  DllName: String;
-  Names: TArray<AnsiString>;
-  out Addresses: TArray<Pointer>
-): TNtxStatus;
-{$ENDIF}
-
-// Locate export in a known dll
+// Locate multiple exports in a known dll
 function RtlxFindKnownDllExports(
   DllName: String;
   TargetIsWoW64: Boolean;
@@ -76,11 +60,20 @@ function RtlxFindKnownDllExports(
   out Addresses: TArray<Pointer>
 ): TNtxStatus;
 
+// Locate a single export in a known dll
+function RtlxFindKnownDllExport(
+  DllName: String;
+  TargetIsWoW64: Boolean;
+  Name: AnsiString;
+  out Address: Pointer
+): TNtxStatus;
+
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntstatus, NtUtils.Processes.Memory, NtUtils.Threads,
-  NtUtils.Ldr, NtUtils.ImageHlp, NtUtils.Sections, NtUtils.Objects;
+  Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntmmapi, NtUtils.Processes.Memory,
+  NtUtils.Threads, NtUtils.Ldr, NtUtils.ImageHlp, NtUtils.Sections,
+  NtUtils.Synchronization, NtUtils.Processes;
 
 function RtlxAllocWriteDataCodeProcess;
 begin
@@ -159,43 +152,69 @@ begin
   Result := RtlxSyncThread(hxThread.Handle, StatusLocation, Timeout);
 end;
 
-function RtlxFindKnownDllExportsNative;
+function RtlxInferOriginalBaseImage(
+  hSection: THandle;
+  const MappedMemory: TMemory;
+  out Address: Pointer
+): TNtxStatus;
 var
-  i: Integer;
-  DllHandle: HMODULE;
+  Info: TSectionImageInformation;
+  NtHeaders: PImageNtHeaders;
 begin
-  Result := LdrxGetDllHandle(DllName, DllHandle);
+  // Determine the intended entrypoint address of the known DLL
+  Result := NtxSection.Query(hSection, SectionImageInformation, Info);
 
   if not Result.IsSuccess then
     Exit;
 
-  SetLength(Addresses, Length(Names));
+  // Find the image header where we can lookup the etrypoint offset
+  Result := RtlxGetNtHeaderImage(MappedMemory.Address, MappedMemory.Size,
+    NtHeaders);
 
-  for i := 0 to High(Names) do
-  begin
-    Addresses[i] := LdrxGetProcedureAddress(DllHandle, Names[i], Result);
+  if not Result.IsSuccess then
+    Exit;
 
-    if not Result.IsSuccess then
-      Exit;
-  end;
+  // Calculate the original base address
+  Address := PByte(Info.TransferAddress) -
+    NtHeaders.OptionalHeader.AddressOfEntryPoint;
 end;
 
-{$IFDEF Win64}
-function RtlxFindKnownDllExportsWoW64;
+function RtlxFindKnownDllExports;
 var
   hxSection: IHandle;
   MappedMemory: IMemory;
+  BaseAddress: Pointer;
   AllEntries: TArray<TExportEntry>;
   pEntry: PExportEntry;
   i: Integer;
 begin
-  // Map 32-bit dll
-  Result := RtlxMapKnownDll(hxSection, DllName, True, MappedMemory);
+  if TargetIsWoW64 then
+    DllName := '\KnownDlls32\' + DllName
+  else
+    DllName := '\KnownDlls\' + DllName;
+
+  // Open a known dll
+  Result := NtxOpenSection(hxSection, SECTION_MAP_READ or SECTION_QUERY,
+    DllName);
 
   if not Result.IsSuccess then
     Exit;
 
-  // Parse its export table
+  // Map it
+  Result := NtxMapViewOfSection(MappedMemory, hxSection.Handle,
+    NtxCurrentProcess, PAGE_READONLY);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Infer the base address of the DLL that other processes will use
+  Result := RtlxInferOriginalBaseImage(hxSection.Handle,
+    MappedMemory.Region, BaseAddress);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Parse the export table
   Result := RtlxEnumerateExportImage(MappedMemory.Data,
     Cardinal(MappedMemory.Size), True, AllEntries);
 
@@ -210,29 +229,23 @@ begin
 
     if not Assigned(pEntry) or pEntry.Forwards then
     begin
-      Result.Location := 'RtlxpFindKnownDll32Export';
+      Result.Location := 'RtlxFindKnownDllExports';
       Result.Status := STATUS_PROCEDURE_NOT_FOUND;
       Exit;
     end;
 
-    Addresses[i] := PByte(MappedMemory.Data) + pEntry.VirtualAddress;
+    Addresses[i] := PByte(BaseAddress) + pEntry.VirtualAddress;
   end;
 end;
-{$ENDIF}
 
-function RtlxFindKnownDllExports;
+function RtlxFindKnownDllExport;
+var
+  Addresses: TArray<Pointer>;
 begin
-{$IFDEF Win64}
-  if TargetIsWoW64 then
-  begin
-    // Native -> WoW64
-    Result := RtlxFindKnownDllExportsWoW64(DllName, Names, Addresses);
-    Exit;
-  end;
-{$ENDIF}
+  Result := RtlxFindKnownDllExports(DllName, TargetIsWoW64, [Name], Addresses);
 
-  // Native -> Native / WoW64 -> WoW64
-  Result := RtlxFindKnownDllExportsNative(DllName, Names, Addresses);
+  if Result.IsSuccess then
+    Address := Addresses[0];
 end;
 
 end.

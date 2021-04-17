@@ -35,15 +35,15 @@ uses
 constructor ENtError.CreateNtx;
 begin
   xStatus := Status;
-  ErrorCode := Cardinal(Status.WinError);
-  Message := Status.Location + ' returned ' + RtlxNtStatusName(Status);
+  ErrorCode := Cardinal(Status.Win32Error);
+  Message := Status.Location + ' returned ' + RtlxNtStatusName(Status.Status);
 end;
 
 { TNtxStatusHelper }
 
 function TNtxStatusHelper.Description;
 begin
-  Result := RtlxNtStatusMessage(Self);
+  Result := RtlxNtStatusMessage(Self.Status);
 end;
 
 procedure TNtxStatusHelper.RaiseOnError;
@@ -54,12 +54,12 @@ end;
 
 function TNtxStatusHelper.Summary;
 begin
-  Result := RtlxNtStatusSummary(Self)
+  Result := RtlxNtStatusSummary(Self.Status)
 end;
 
 function TNtxStatusHelper.ToString;
 begin
-  Result := Location + ': ' + RtlxNtStatusName(Self);
+  Result := Location + ': ' + RtlxNtStatusName(Self.Status);
 end;
 
 end.

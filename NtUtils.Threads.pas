@@ -8,7 +8,7 @@ interface
 
 uses
   Winapi.WinNt, Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntrtl, NtUtils,
-  NtUtils.Objects, DelphiUtils.AutoObject;
+  DelphiUtils.AutoObject;
 
 const
   // Ntapi.ntpsapi
@@ -18,6 +18,8 @@ const
 
 type
   IContext = IMemory<PContext>;
+
+{ Opening }
 
 // Get a pseudo-handle to the current thread
 function NtxCurrentThread: IHandle;
@@ -36,6 +38,24 @@ function NtxOpenCurrentThread(
   DesiredAccess: TThreadAccessMask;
   HandleAttributes: TObjectAttributesFlags = 0
 ): TNtxStatus;
+
+// Iterate through accessible threads in a process
+function NtxGetNextThread(
+  hProcess: THandle;
+  var hxThread: IHandle; // use nil to start
+  DesiredAccess: TThreadAccessMask;
+  HandleAttributes: TObjectAttributesFlags = 0
+): TNtxStatus;
+
+// Open a process containing a thread
+function NtxOpenProcessByThreadId(
+  out hxProcess: IHandle;
+  TID: TThreadId;
+  DesiredAccess: TProcessAccessMask;
+  HandleAttributes: TObjectAttributesFlags = 0
+): TNtxStatus;
+
+{ Querying/Setting }
 
 // Query variable-size information
 function NtxQueryThread(
@@ -97,6 +117,8 @@ function NtxQueryExitStatusThread(
   out ExitStatus: NTSTATUS
 ): TNtxStatus;
 
+{ Manipulation }
+
 // Queue user APC to a thread
 function NtxQueueApcThread(
   hThread: THandle;
@@ -133,11 +155,7 @@ function NtxDelayedTerminateThread(
   ExitStatus: NTSTATUS
 ): IAutoReleasable;
 
-// Delay current thread's execution
-function NtxDelayExecution(
-  Timeout: Int64;
-  Alertable: Boolean = False
-): TNtxStatus;
+{ Creation }
 
 // Create a thread in a process
 function NtxCreateThread(
@@ -164,8 +182,8 @@ function RtlxCreateThread(
 implementation
 
 uses
-  Ntapi.ntstatus, Ntapi.ntobapi, Ntapi.ntseapi, Ntapi.ntexapi, Ntapi.ntmmapi,
-  NtUtils.Version;
+  Ntapi.ntobapi, Ntapi.ntseapi, Ntapi.ntmmapi, NtUtils.Version, NtUtils.Objects,
+  NtUtils.Processes;
 
 var
   NtxpCurrentThread: IHandle;
@@ -215,7 +233,8 @@ var
 begin
   // Duplicating the pseudo-handle is more reliable then opening thread by TID
 
-  if DesiredAccess and MAXIMUM_ALLOWED <> 0 then
+  if BitTest(DesiredAccess and MAXIMUM_ALLOWED) and
+    not BitTest(DesiredAccess and ACCESS_SYSTEM_SECURITY) then
   begin
     Flags := DUPLICATE_SAME_ACCESS;
     DesiredAccess := 0;
@@ -230,6 +249,44 @@ begin
 
   if Result.IsSuccess then
     hxThread := TAutoHandle.Capture(hThread);
+end;
+
+function NtxGetNextThread;
+var
+  hThread, hNewThread: THandle;
+begin
+  if Assigned(hxThread) then
+    hThread := hxThread.Handle
+  else
+    hThread := 0;
+
+  Result.Location := 'NtGetNextThread';
+  Result.LastCall.AttachAccess(DesiredAccess);
+
+  Result.Status := NtGetNextThread(hProcess, hThread, DesiredAccess,
+    HandleAttributes, 0, hNewThread);
+
+  if Result.IsSuccess then
+    hxThread := TAutoHandle.Capture(hNewThread);
+end;
+
+function NtxOpenProcessByThreadId;
+var
+  hxThread: IHandle;
+  Info: TThreadBasicInformation;
+begin
+  Result := NtxOpenThread(hxThread, TID, THREAD_QUERY_LIMITED_INFORMATION);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := NtxThread.Query(hxThread.Handle, ThreadBasicInformation, Info);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := NtxOpenProcess(hxProcess, Info.ClientId.UniqueProcess,
+    DesiredAccess, HandleAttributes);
 end;
 
 function NtxQueryThread;
@@ -391,7 +448,7 @@ end;
 
 function NtxDelayedResumeThread;
 begin
-  Result := TDelayedOperation.Create(
+  Result := TDelayedOperation.Delay(
     procedure
     begin
       NtxResumeThread(hxThread.Handle);
@@ -401,18 +458,12 @@ end;
 
 function NtxDelayedTerminateThread;
 begin
-  Result := TDelayedOperation.Create(
+  Result := TDelayedOperation.Delay(
     procedure
     begin
       NtxTerminateThread(hxThread.Handle, ExitStatus);
     end
   );
-end;
-
-function NtxDelayExecution;
-begin
-  Result.Location := 'NtDelayExecution';
-  Result.Status := NtDelayExecution(Alertable, PLargeInteger(@Timeout));
 end;
 
 function NtxCreateThread;
@@ -422,9 +473,19 @@ begin
   Result.Location := 'NtCreateThreadEx';
   Result.LastCall.Expects<TProcessAccessMask>(PROCESS_CREATE_THREAD);
 
-  Result.Status := NtCreateThreadEx(hThread, THREAD_ALL_ACCESS,
-    AttributesRefOrNil(ObjectAttributes), hProcess, StartRoutine, Argument,
-    CreateFlags, ZeroBits, StackSize, MaxStackSize, nil);
+  Result.Status := NtCreateThreadEx(
+    hThread,
+    AccessMaskOverride(THREAD_ALL_ACCESS, ObjectAttributes),
+    AttributesRefOrNil(ObjectAttributes),
+    hProcess,
+    StartRoutine,
+    Argument,
+    CreateFlags,
+    ZeroBits,
+    StackSize,
+    MaxStackSize,
+    nil
+  );
 
   if Result.IsSuccess then
     hxThread := TAutoHandle.Capture(hThread);

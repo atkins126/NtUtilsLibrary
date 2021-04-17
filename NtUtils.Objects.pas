@@ -120,22 +120,6 @@ function NtxSetFlagsHandle(
   ProtectFromClose: Boolean
 ): TNtxStatus;
 
-// --------------------------------- Waits --------------------------------- //
-
-// Wait for an object to enter signaled state
-function NtxWaitForSingleObject(
-  hObject: THandle;
-  Timeout: Int64 = NT_INFINITE;
-  Alertable: Boolean = False
-): TNtxStatus;
-
-// Wait for any/all objects to enter a signaled state
-function NtxWaitForMultipleObjects(
-  Objects: TArray<THandle>;
-  WaitType: TWaitType;
-  Timeout: Int64 = NT_INFINITE;
-  Alertable: Boolean = False): TNtxStatus;
-
 // ------------------------------- Security -------------------------------- //
 
 // Query security descriptor of a kernel object
@@ -210,8 +194,8 @@ begin
   Result.Location := 'NtDuplicateObject';
   Result.LastCall.Expects<TProcessAccessMask>(PROCESS_DUP_HANDLE);
 
-  if (DesiredAccess and MAXIMUM_ALLOWED <> 0) and
-    (Options and DUPLICATE_SAME_ACCESS = 0) then
+  if BitTest(DesiredAccess and MAXIMUM_ALLOWED) and not
+    BitTest(Options and DUPLICATE_SAME_ACCESS) then
   begin
     // To prevent race conditions we duplicate the handle to the current process
     // with the same access and attributes to perform all further probing on it.
@@ -273,8 +257,8 @@ begin
 
     // Try each one standard or specific access right that is not granted yet
     for bit := 0 to 31 do
-      if (1 shl bit) and objTypeInfo.Other.ValidAccessMask and not
-        DesiredAccess <> 0 then
+      if BitTest((1 shl bit) and objTypeInfo.Other.ValidAccessMask
+        and not DesiredAccess) then
         if NT_SUCCESS(NtDuplicateObject(NtCurrentProcess, hSameAccess,
           NtCurrentProcess, hTemp, 1 shl bit, 0, 0)) then
         begin
@@ -294,8 +278,8 @@ begin
   Cleanup:
 
     // Make sure our copy is closable by clearing protection
-    if (Options and DUPLICATE_SAME_ATTRIBUTES <> 0) or
-      (HandleAttributes and OBJ_PROTECT_CLOSE <> 0) then
+    if BitTest(Options and DUPLICATE_SAME_ATTRIBUTES) or
+      BitTest(HandleAttributes and OBJ_PROTECT_CLOSE) then
     begin
       handleInfo.Inherit := False;
       handleInfo.ProtectFromClose := False;
@@ -456,22 +440,6 @@ begin
 
   Result.Status := NtSetInformationObject(hObject, ObjectHandleFlagInformation,
     @Info, SizeOf(Info));
-end;
-
-function NtxWaitForSingleObject;
-begin
-  Result.Location := 'NtWaitForSingleObject';
-  Result.LastCall.Expects<TAccessMask>(SYNCHRONIZE);
-  Result.Status := NtWaitForSingleObject(hObject, Alertable,
-    TimeoutToLargeInteger(Timeout));
-end;
-
-function NtxWaitForMultipleObjects;
-begin
-  Result.Location := 'NtWaitForMultipleObjects';
-  Result.LastCall.Expects<TAccessMask>(SYNCHRONIZE);
-  Result.Status := NtWaitForMultipleObjects(Length(Objects), Objects,
-    WaitType, Alertable, TimeoutToLargeInteger(Timeout));
 end;
 
 function NtxQuerySecurityObject;
