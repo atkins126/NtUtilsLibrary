@@ -25,7 +25,7 @@ function SafexQueryLevel(
   InfoClass: TSaferObjectInfoClass;
   out xMemory: IMemory;
   InitialBuffer: Cardinal = 0;
-  GrowthMethod: TBufferGrowthMethod = nil
+  [opt] GrowthMethod: TBufferGrowthMethod = nil
 ): TNtxStatus;
 
 // Query Safer level name
@@ -143,7 +143,7 @@ begin
   Result.LastCall.Expects<TTokenAccessMask>(TOKEN_DUPLICATE or TOKEN_QUERY);
 
   Result.Win32Result := SaferComputeTokenFromLevel(hLevel, hExistingToken,
-    hNewToken, Flags, nil);
+    hNewToken, Flags);
 
   if Result.IsSuccess then
     hxNewToken := TAutoHandle.Capture(hNewToken);
