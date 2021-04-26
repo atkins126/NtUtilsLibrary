@@ -6,7 +6,7 @@ unit Ntapi.ntseapi;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntrtl, NtUtils.Version, DelphiApi.Reflection;
+  Winapi.WinNt, Ntapi.ntdef, NtUtils.Version, DelphiApi.Reflection;
 
 const
   TOKEN_ASSIGN_PRIMARY = $0001;
@@ -41,6 +41,7 @@ const
     SE_GROUP_INTEGRITY_ENABLED;
 
   // WinNt.10398
+  SE_PRIVILEGE_DISABLED = $00000000;
   SE_PRIVILEGE_ENABLED_BY_DEFAULT = $00000001;
   SE_PRIVILEGE_ENABLED = $00000002;
   SE_PRIVILEGE_REMOVED = $00000004;
@@ -127,7 +128,6 @@ type
   TTokenFilterFlags = type Cardinal;
 
   // wdm.5340
-  {$MINENUMSIZE 1}
   [NamingStyle(nsSnakeCase, 'SE'), Range(2)]
   TSeWellKnownPrivilege = (
     SE_RESERVED_LUID_0 = 0,
@@ -168,11 +168,10 @@ type
     SE_CREATE_SYMBOLIC_LINK_PRIVILEGE = 35,
     SE_DELEGATE_SESSION_USER_IMPERSONATE_PRIVILEGE = 36
   );
-  {$MINENUMSIZE 4}
 
   [FlagName(SE_PRIVILEGE_REMOVED, 'Removed')]
   [FlagName(SE_PRIVILEGE_USED_FOR_ACCESS, 'Used For Access')]
-  [SubEnum(SE_PRIVILEGE_STATE_MASK, 0, 'Disabled')]
+  [SubEnum(SE_PRIVILEGE_STATE_MASK, SE_PRIVILEGE_DISABLED, 'Disabled')]
   [SubEnum(SE_PRIVILEGE_STATE_MASK, SE_PRIVILEGE_ENABLED_BY_DEFAULT, 'Disabled (modified)')]
   [SubEnum(SE_PRIVILEGE_STATE_MASK, SE_PRIVILEGE_ENABLED, 'Enabled (modified)')]
   [SubEnum(SE_PRIVILEGE_STATE_MASK, SE_PRIVILEGE_STATE_MASK, 'Enabled')]

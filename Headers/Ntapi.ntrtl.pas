@@ -6,7 +6,7 @@ unit Ntapi.ntrtl;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntmmapi, NtUtils.Version,
+  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntmmapi, Ntapi.ntseapi, NtUtils.Version,
   DelphiApi.Reflection;
 
 const
@@ -950,6 +950,15 @@ function RtlAddMandatoryAce(
   AccessMask: TAccessMask
 ): NTSTATUS; stdcall; external ntdll;
 
+// Misc security
+
+function RtlAdjustPrivilege(
+  Privilege: TSeWellKnownPrivilege;
+  Enable: Boolean;
+  Client: Boolean;
+  out WasEnabled: Boolean
+): NTSTATUS; stdcall; external ntdll;
+
 // System information
 
 function RtlGetNtGlobalFlags: Cardinal; stdcall; external ntdll;
@@ -989,64 +998,6 @@ function RtlGetAppContainerSidType(
   [allocates] out AppContainerSidType: TAppContainerSidType
 ): NTSTATUS; stdcall; external ntdll delayed;
 
-// C Runtime
-
-function memcmp(
-  [in] buffer1: Pointer;
-  [in] buffer2: Pointer;
-  count: NativeUInt
-): Integer; cdecl; external ntdll;
-
-function memmove(
-  [in] dest: Pointer;
-  [in] src: Pointer;
-  count: NativeUInt
-): Pointer; cdecl; external ntdll;
-
-function memset(
-  [in] dest: Pointer;
-  c: Cardinal;
-  count: NativeUInt
-): Pointer; cdecl; external ntdll;
-
-function wcscmp(
-  [in] string1: PWideChar;
-  [in] string2: PWideChar
-): Integer; cdecl; external ntdll;
-
-function wcschr(
-  [in] str: PWideChar;
-  c: WideChar
-): PWideChar; cdecl; external ntdll;
-
-function wcsrchr(
-  [in] str: PWideChar;
-  c: WideChar
-): PWideChar; cdecl; external ntdll;
-
-// Local debugging
-
-// wdm.21907
-procedure DbgBreakPoint; stdcall; external ntdll;
-
-// wdm.12963
-function DbgPrint(
-  [in] Format: PAnsiChar
-): NTSTATUS; cdecl; varargs; external ntdll;
-
-procedure DbgBreakOnFailure(
-  Status: NTSTATUS
-);
-
 implementation
-
-uses
-  Ntapi.ntpebteb;
-
-procedure DbgBreakOnFailure;
-begin
-  if not NT_SUCCESS(Status) and RtlGetCurrentPeb.BeingDebugged then
-    DbgBreakPoint;
-end;
 
 end.
