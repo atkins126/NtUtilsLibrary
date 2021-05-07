@@ -59,6 +59,13 @@ const
 type
   PPEnvironment = ^PEnvironment;
 
+  // Strings
+  [NamingStyle(nsSnakeCase, 'HASH_STRING_ALGORITHM')]
+  THashStringAlgorithm = (
+    HASH_STRING_ALGORITHM_DEFAULT = 0,
+    HASH_STRING_ALGORITHM_X65599 = 1
+  );
+
   // Processes
 
   TCurDir = record
@@ -144,6 +151,18 @@ type
     [MinOSVersion(OsWin1019H1)] DefaultThreadPoolCPUSetMaskCount: Cardinal;
   end;
   PRtlUserProcessParameters = ^TRtlUserProcessParameters;
+
+  TRtlExtendedProcessParameters = record
+    [Reserved(1)] Unknown1: Word;
+    PreferredNode: Word;
+    ProcessSecurityDescriptor: PSecurityDescriptor;
+    ThreadSecurityDescriptor: PSecurityDescriptor;
+    ParentProcess: THandle;
+    DebugPort: THandle;
+    TokenHandle: THandle;
+    JobList: Pointer;
+  end;
+  PRtlExtendedProcessParameters = ^TRtlExtendedProcessParameters;
 
   TRtlUserProcessInformation = record
     [Bytes, Unlisted] Length: Cardinal;
@@ -279,11 +298,24 @@ procedure RtlFreeUnicodeString(
   var UnicodeString: TNtUnicodeString
 ); stdcall; external ntdll;
 
+function RtlCompareString(
+  const String1: TNtAnsiString;
+  const String2: TNtAnsiString;
+  CaseInSensitive: Boolean
+): Integer; stdcall; external ntdll;
+
 function RtlCompareUnicodeString(
   const String1: TNtUnicodeString;
   const String2: TNtUnicodeString;
   CaseInSensitive: Boolean
 ): Integer; stdcall; external ntdll;
+
+function RtlHashUnicodeString(
+  const Str: TNtUnicodeString;
+  CaseInSensitive: Boolean;
+  HashAlgorithm: THashStringAlgorithm;
+  out HashValue: Cardinal
+): NTSTATUS; stdcall; external ntdll;
 
 function RtlPrefixUnicodeString(
   const String1: TNtUnicodeString;
@@ -353,6 +385,14 @@ function RtlCreateUserProcess(
   InheritHandles: Boolean;
   [opt] DebugPort: THandle;
   [opt] TokenHandle: THandle;
+  out ProcessInformation: TRtlUserProcessInformation
+): NTSTATUS; stdcall; external ntdll;
+
+function RtlCreateUserProcessEx(
+  const NtImagePathName: TNtUnicodeString;
+  [in] ProcessParameters: PRtlUserProcessParameters;
+  InheritHandles: Boolean;
+  [in, opt] ExtendedParameters: PRtlExtendedProcessParameters;
   out ProcessInformation: TRtlUserProcessInformation
 ): NTSTATUS; stdcall; external ntdll;
 
@@ -962,6 +1002,17 @@ function RtlAdjustPrivilege(
 // System information
 
 function RtlGetNtGlobalFlags: Cardinal; stdcall; external ntdll;
+
+// User threads
+
+procedure RtlUserThreadStart(
+  [in] Func: TUserThreadStartRoutine;
+  [in, opt] Parameter: Pointer
+); stdcall; external ntdll;
+
+procedure RtlExitUserThread(
+  ExitStatus: NTSTATUS
+); stdcall; external ntdll;
 
 // Stack support
 

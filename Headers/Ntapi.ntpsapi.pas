@@ -50,6 +50,34 @@ const
   PROCESS_UPTIME_CRASHED = $100;
   PROCESS_UPTIME_TERMINATED = $200;
 
+  // Process attributes
+  PS_ATTRIBUTE_PARENT_PROCESS = $60000;
+  PS_ATTRIBUTE_DEBUG_PORT = $60001;
+  PS_ATTRIBUTE_TOKEN = $60002;
+  PS_ATTRIBUTE_CLIENT_ID = $10003;
+  PS_ATTRIBUTE_TEB_ADDRESS = $10004;
+  PS_ATTRIBUTE_IMAGE_NAME = $20005;
+  PS_ATTRIBUTE_IMAGE_INFO = $6;
+  PS_ATTRIBUTE_MEMORY_RESERVE = $20007;
+  PS_ATTRIBUTE_PRIORITY_CLASS = $20008;
+  PS_ATTRIBUTE_ERROR_MODE = $20009;
+  PS_ATTRIBUTE_STD_HANDLE_INFO = $2000A;
+  PS_ATTRIBUTE_HANDLE_LIST = $2000B;
+  PS_ATTRIBUTE_GROUP_AFFINITY = $3000C;
+  PS_ATTRIBUTE_PREFERRED_NODE = $2000D;
+  PS_ATTRIBUTE_IDEAL_PROCESSOR = $3000E;
+  PS_ATTRIBUTE_UMS_THREAD = $3000F;
+  PS_ATTRIBUTE_MITIGATION_OPTIONS = $60010;
+  PS_ATTRIBUTE_PROTECTION_LEVEL = $60011;
+  PS_ATTRIBUTE_SECURE_PROCESS = $20012;
+  PS_ATTRIBUTE_JOB_LIST = $20013;
+  PS_ATTRIBUTE_CHILD_PROCESS_POLICY = $20014;
+  PS_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY = $20015;
+  PS_ATTRIBUTE_WIN32K_FILTER = $20016;
+  PS_ATTRIBUTE_SAFE_OPEN_PROMPT_ORIGIN_CLAIM = $20017;
+  PS_ATTRIBUTE_BNO_ISOLATION = $20018;
+  PS_ATTRIBUTE_DESKTOP_APP_POLICY = $20019;
+
   // Flags for NtCreateProcessEx and NtCreateUserProcess
   PROCESS_CREATE_FLAGS_BREAKAWAY = $00000001;
   PROCESS_CREATE_FLAGS_NO_DEBUG_INHERIT = $00000002;
@@ -63,6 +91,22 @@ const
   PROCESS_CREATE_FLAGS_CREATE_SESSION = $00000080;
   PROCESS_CREATE_FLAGS_INHERIT_FROM_PARENT = $00000100;
   PROCESS_CREATE_FLAGS_SUSPENDED = $00000200;
+
+  // PsCreateInitialState flags
+  PS_CREATE_INTIAL_STATE_WRITE_OUTPUT_ON_EXIT = $0001;
+  PS_CREATE_INTIAL_STATE_DETECT_MANIFEST = $0002;
+  PS_CREATE_INTIAL_STATE_IFEO_SKIP_DEBUGGER = $0004;
+  PS_CREATE_INTIAL_STATE_IFEO_DONT_PROPAGATE_KEY_STATE = $0008;
+
+  PS_CREATE_INTIAL_STATE_PROHIBITED_IMAGE_CHARACTERISTICS_SHIFT = 16;
+  PS_CREATE_INTIAL_STATE_PROHIBITED_IMAGE_CHARACTERISTICS_MASK = $FFFF0000;
+
+  // PsCreateSuccess flags
+  PS_CREATE_SUCCESS_PROTECTED_PROCESS = $0001;
+  PS_CREATE_SUCCESS_ADDRESS_SPACE_OVERRIDE = $0002;
+  PS_CREATE_SUCCESS_IFEO_DEV_OVERRIDE_ENABLED = $0004;
+  PS_CREATE_SUCCESS_MANIFEST_DETECTED = $0008;
+  PS_CREATE_SUCCESS_PROTECTED_PROCESS_LIGHT = $0010;
 
   // ntddk.5333
   PROCESS_HANDLE_TRACING_MAX_STACKS = 16;
@@ -263,7 +307,7 @@ type
     ProcessImageInformation = 37,        // q: TSectionImageInformation
     ProcessCycleTime = 38,               // q: TProcessCycleTimeInformation
     ProcessPagePriority = 39,            // q, s: TMemoryPriority
-    ProcessInstrumentationCallback = 40, // s:
+    ProcessInstrumentationCallback = 40, // s: Pointer or TProcessInstrumentationCallback
     ProcessThreadStackAllocation = 41,   // s: (self only)
     ProcessWorkingSetWatchEx = 42,       // q, s:
     ProcessImageFileNameWin32 = 43,      // q: UNICODE_STRING
@@ -325,7 +369,7 @@ type
     ProcessFreeFiberShadowStackAllocation = 99  // s: (self only)
   );
 
-  // ntddk.5244
+  // ntddk.5244, info class 0
   TProcessBasicInformation = record
     ExitStatus: NTSTATUS;
     [DontFollow] PebBaseAddress: PPeb;
@@ -334,9 +378,8 @@ type
     UniqueProcessID: TProcessId;
     InheritedFromUniqueProcessID: TProcessId;
   end;
-  PProcessBasicInformation = ^TProcessBasicInformation;
 
-  // ntddk.5420
+  // ntddk.5420, info class 3
   TVmCounters = record
     [Bytes] PeakVirtualSize: NativeUInt;
     [Bytes] VirtualSize: NativeUInt;
@@ -350,25 +393,22 @@ type
     [Bytes] PagefileUsage: NativeUInt;
     [Bytes] PeakPagefileUsage: NativeUInt;
   end;
-  PVmCounters = ^TVmCounters;
 
-  // ntddk.5819
+  // ntddk.5819, info class 4
   TKernelUserTimes = record
     CreateTime: TLargeInteger;
     ExitTime: TLargeInteger;
     KernelTime: TULargeInteger;
     UserTime: TULargeInteger;
   end;
-  PKernelUserTimes = ^TKernelUserTimes;
 
-  // ntddk.5765
+  // ntddk.5765, info class 9
   TProcessAccessToken = record
     Token: THandle;  // needs TOKEN_ASSIGN_PRIMARY
     Thread: THandle; // currently unused, was THREAD_QUERY_INFORMATION
   end;
-  PProcessAccessToken = ^TProcessAccessToken;
 
-  // ntddk.5745
+  // ntddk.5745, info class 14
   TPooledUsageAndLimits = record
     [Bytes] PeakPagedPoolUsage: NativeUInt;
     [Bytes] PagedPoolUsage: NativeUInt;
@@ -380,7 +420,6 @@ type
     [Bytes] PagefileUsage: NativeUInt;
     [Bytes] PagefileLimit: NativeUInt;
   end;
-  PPooledUsageAndLimits = ^TPooledUsageAndLimits;
 
   {$MINENUMSIZE 1}
   [NamingStyle(nsCamelCase, 'ProcessPriorityClass')]
@@ -395,26 +434,27 @@ type
   );
   {$MINENUMSIZE 4}
 
+  // info class 18
   TProcessPriorityClass = record
     Foreground: Boolean;
     PriorityClass: TProcessPriorityClassValue;
   end;
 
+  // info class 20
   TProcessHandleInformation = record
     HandleCount: Cardinal;
     HandleCountHighWatermark: Cardinal;
   end;
-  PProcessHandleInformation = ^TProcessHandleInformation;
 
   [NamingStyle(nsSnakeCase, 'PROCESS_DEBUG')]
   TProcessDebugFlags = (
     PROCESS_DEBUG_INHERIT = 1
   );
 
-  // ntddk.5323
+  // ntddk.5323, info class 32 (set)
   // To enable, use this structure; to disable use zero input length
   TProcessHandleTracingEnableEx = record
-    Flags: Cardinal; // always zero
+    [Reserved(0)] Flags: Cardinal;
     TotalSlots: Integer;
   end;
 
@@ -435,7 +475,7 @@ type
     function StackTrace: TArray<Pointer>;
   end;
 
-  // ntddk.5342
+  // ntddk.5342, info class 32 (query)
   TProcessHandleTracingQuery = record
     Handle: THandle;
     [Counter] TotalTraces: Integer; // Max PROCESS_HANDLE_TRACING_MAX_SLOTS
@@ -443,12 +483,20 @@ type
   end;
   PProcessHandleTracingQuery = ^TProcessHandleTracingQuery;
 
+  // info class 38
   TProcessCycleTimeInformation = record
     AccumulatedCycles: UInt64;
     CurrentCycleCount: UInt64;
   end;
-  PProcessCycleTimeInformation = TProcessCycleTimeInformation;
 
+  // info class 40
+  TProcessInstrumentationCallback = record
+    [Reserved(0)] Version: Cardinal;
+    [Reserved(0)] Reserved: Cardinal;
+    Callback: Pointer;
+  end;
+
+  // info class 50
   TProcessWindowInformation = record
     WindowFlags: Cardinal; // TStarupFlags
     [Counter(ctBytes)] WindowTitleLength: Word;
@@ -467,6 +515,7 @@ type
   end;
   PProcessHandleTableEntryInfo = ^TProcessHandleTableEntryInfo;
 
+  // info class 51
   [MinOSVersion(OsWin8)]
   TProcessHandleSnapshotInformation = record
     [Counter] NumberOfHandles: NativeUInt;
@@ -496,13 +545,14 @@ type
     ProcessSideChannelIsolationPolicy = 14  // Win 10 RS4+
   );
 
+  // info class 52
   [MinOSVersion(OsWin8)]
   TProcessMitigationPolicyInformation = record
     Policy: TProcessMitigationPolicy;
     [Hex] Flags: Cardinal;
   end;
-  PProcessMitigationPolicyInformation = ^TProcessMitigationPolicyInformation;
 
+  // info class 64
   [MinOSVersion(OsWin10TH1)]
   TProcessTelemetryIdInformation = record
     [Unlisted, Bytes] HeaderSize: Cardinal;
@@ -530,6 +580,7 @@ type
   end;
   PProcessTelemetryIdInformation = ^TProcessTelemetryIdInformation;
 
+  // info class 69
   [MinOSVersion(OsWin10TH1)]
   TProcessJobMemoryInfo = record
     [Bytes] SharedCommitUsage: UInt64;
@@ -538,16 +589,16 @@ type
     [Bytes] PrivateCommitLimit: UInt64;
     [Bytes] TotalCommitLimit: UInt64;
   end;
-  PProcessJobMemoryInfo = ^TProcessJobMemoryInfo;
 
+  // info class 73
   [MinOSVersion(OsWin10TH2)]
   TProcessChildProcessInformation = record
     ProhibitChildProcesses: Boolean;
     AlwaysAllowSecureChildProcess: Boolean;
     AuditProhibitChildProcesses: Boolean;
   end;
-  PTProcessChildProcessInformation = ^TProcessChildProcessInformation;
 
+  // info class 88
   [MinOSVersion(OsWin10RS3)]
   TProcessUptimeInformation = record
     QueryInterruptTime: TULargeInteger;
@@ -560,7 +611,6 @@ type
     function HangCount: Cardinal;
     function GhostCount: Cardinal;
   end;
-  PProcessUptimeInformation = ^TProcessUptimeInformation;
 
   [NamingStyle(nsCamelCase, 'ProcessStateChange')]
   TProcessStateChangeType = (
@@ -743,11 +793,25 @@ type
     PsCreateSuccess = 6
   );
 
+  [FlagName(PS_CREATE_INTIAL_STATE_WRITE_OUTPUT_ON_EXIT, 'Write Output On Exit')]
+  [FlagName(PS_CREATE_INTIAL_STATE_DETECT_MANIFEST, 'Detect Manifest')]
+  [FlagName(PS_CREATE_INTIAL_STATE_IFEO_SKIP_DEBUGGER, 'Skip IFEO Debugger')]
+  [FlagName(PS_CREATE_INTIAL_STATE_IFEO_DONT_PROPAGATE_KEY_STATE, 'Don''t Propagate IFEO Key State')]
+  [SubEnum(PS_CREATE_INTIAL_STATE_PROHIBITED_IMAGE_CHARACTERISTICS_MASK, 0, 'Allow Any Image Characteristics')]
+  TPsCreateInitialFlags = type Cardinal;
+
+  [FlagName(PS_CREATE_SUCCESS_PROTECTED_PROCESS, 'Protected Process')]
+  [FlagName(PS_CREATE_SUCCESS_ADDRESS_SPACE_OVERRIDE, 'Address Space Override')]
+  [FlagName(PS_CREATE_SUCCESS_IFEO_DEV_OVERRIDE_ENABLED, 'IFEO Dev Override Enabled')]
+  [FlagName(PS_CREATE_SUCCESS_MANIFEST_DETECTED, 'Manifest Detected')]
+  [FlagName(PS_CREATE_SUCCESS_PROTECTED_PROCESS_LIGHT, 'PPL')]
+  TPsCreateSuccessFlags = type Cardinal;
+
   TPsCreateInfo = record
     [Bytes] Size: NativeUInt;
   case State: TPsCreateState of
     PsCreateInitialState: (
-      InitFlags: Cardinal;
+      InitFlags: TPsCreateInitialFlags;
       AdditionalFileAccess: TAccessMask;
     );
 
@@ -764,7 +828,7 @@ type
     );
 
     PsCreateSuccess: (
-      OutputFlags: Cardinal;
+      OutputFlags: TPsCreateSuccessFlags;
       FileHandleSuccess: THandle;
       SectionHandle: THandle;
       UserProcessParametersNative: UInt64;
@@ -1298,7 +1362,7 @@ function NtChangeProcessState(
   Action: TProcessStateChangeType;
   [in, opt] ExtendedInformation: Pointer;
   ExtendedInformationLength: Cardinal;
-  [Reserved] Reserved: Pointer
+  [Reserved] Reserved: Cardinal
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 // Threads
@@ -1328,12 +1392,12 @@ function NtTerminateThread(
 
 function NtSuspendThread(
   ThreadHandle: THandle;
-  PreviousSuspendCount: PCardinal = nil
+  PreviousSuspendCount: PCardinal
 ): NTSTATUS; stdcall; external ntdll;
 
 function NtResumeThread(
   ThreadHandle: THandle;
-  PreviousSuspendCount: PCardinal = nil
+  PreviousSuspendCount: PCardinal
 ): NTSTATUS; stdcall; external ntdll;
 
 function NtGetCurrentProcessorNumber: Cardinal; stdcall; external ntdll;
@@ -1412,7 +1476,7 @@ function NtChangeThreadState(
   Action: TThreadStateChangeType;
   [in, opt] ExtendedInformation: Pointer;
   ExtendedInformationLength: Cardinal;
-  [Reserved] Reserved: Pointer
+  [Reserved] Reserved: Cardinal
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 // User processes and threads

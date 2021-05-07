@@ -12,6 +12,7 @@ uses
 
 const
   // Ntapi.ntpsapi
+  NtCurrentProcess = THandle(-1);
   NtCurrentThread = THandle(-2);
 
   THREAD_READ_TEB = THREAD_GET_CONTEXT or THREAD_SET_CONTEXT;
@@ -39,7 +40,7 @@ function NtxOpenThread(
 // Reopen a handle to the current thread with the specific access
 function NtxOpenCurrentThread(
   out hxThread: IHandle;
-  DesiredAccess: TThreadAccessMask;
+  DesiredAccess: TThreadAccessMask = MAXIMUM_ALLOWED;
   HandleAttributes: TObjectAttributesFlags = 0
 ): TNtxStatus;
 
@@ -146,9 +147,20 @@ function NtxSetContextThread(
 ): TNtxStatus;
 
 // Suspend/resume/terminate a thread
-function NtxSuspendThread(hThread: THandle): TNtxStatus;
-function NtxResumeThread(hThread: THandle): TNtxStatus;
-function NtxTerminateThread(hThread: THandle; ExitStatus: NTSTATUS): TNtxStatus;
+function NtxSuspendThread(
+  hThread: THandle;
+  [out, opt] PreviousSuspendCount: PCardinal = nil
+): TNtxStatus;
+
+function NtxResumeThread(
+  hThread: THandle;
+  [out, opt] PreviousSuspendCount: PCardinal = nil
+): TNtxStatus;
+
+function NtxTerminateThread(
+  hThread: THandle;
+  ExitStatus: NTSTATUS
+): TNtxStatus;
 
 // Resume a thread when the object goes out of scope
 function NtxDelayedResumeThread(
@@ -449,14 +461,14 @@ function NtxSuspendThread;
 begin
   Result.Location := 'NtSuspendThread';
   Result.LastCall.Expects<TThreadAccessMask>(THREAD_SUSPEND_RESUME);
-  Result.Status := NtSuspendThread(hThread);
+  Result.Status := NtSuspendThread(hThread, PreviousSuspendCount);
 end;
 
 function NtxResumeThread;
 begin
   Result.Location := 'NtResumeThread';
   Result.LastCall.Expects<TThreadAccessMask>(THREAD_SUSPEND_RESUME);
-  Result.Status := NtResumeThread(hThread);
+  Result.Status := NtResumeThread(hThread, PreviousSuspendCount);
 end;
 
 function NtxTerminateThread;
@@ -523,7 +535,7 @@ begin
   Result.LastCall.Expects<TThreadAccessMask>(THREAD_SUSPEND_RESUME);
 
   Result.Status := NtChangeThreadState(hThreadState, hThread, Action, nil,
-    0, nil);
+    0, 0);
 end;
 
 function NtxCreateThread;
