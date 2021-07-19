@@ -85,7 +85,7 @@ type
   PRtlDriveLetterCurDir = ^TRtlDriveLetterCurDir;
 
   TCurrentDirectories = array [0..RTL_MAX_DRIVE_LETTERS - 1] of
-      TRtlDriveLetterCurDir;
+    TRtlDriveLetterCurDir;
 
   [FlagName(RTL_USER_PROC_PARAMS_NORMALIZED, 'Normalized')]
   [FlagName(RTL_USER_PROC_PROFILE_USER, 'Profile User')]
@@ -162,7 +162,7 @@ type
     ParentProcess: THandle;
     DebugPort: THandle;
     TokenHandle: THandle;
-    JobHandle: Pointer;
+    JobHandle: THandle;
   end;
   PRtlUserProcessExtendedParameters = ^TRtlUserProcessExtendedParameters;
 
@@ -377,6 +377,14 @@ function RtlDestroyProcessParameters(
   [in] ProcessParameters: PRtlUserProcessParameters
 ): NTSTATUS; stdcall; external ntdll;
 
+function RtlNormalizeProcessParams(
+  [in] ProcessParameters: PRtlUserProcessParameters
+): PRtlUserProcessParameters; stdcall; external ntdll;
+
+function RtlDeNormalizeProcessParams(
+  [in] ProcessParameters: PRtlUserProcessParameters
+): PRtlUserProcessParameters; stdcall; external ntdll;
+
 function RtlCreateUserProcess(
   const NtImagePathName: TNtUnicodeString;
   AttributesDeprecated: Cardinal;
@@ -390,13 +398,14 @@ function RtlCreateUserProcess(
   out ProcessInformation: TRtlUserProcessInformation
 ): NTSTATUS; stdcall; external ntdll;
 
+[MinOSVersion(OsWin10RS2)]
 function RtlCreateUserProcessEx(
   const NtImagePathName: TNtUnicodeString;
   [in] ProcessParameters: PRtlUserProcessParameters;
   InheritHandles: Boolean;
   [in, opt] ExtendedParameters: PRtlUserProcessExtendedParameters;
   out ProcessInformation: TRtlUserProcessInformation
-): NTSTATUS; stdcall; external ntdll;
+): NTSTATUS; stdcall; external ntdll delayed;
 
 procedure RtlExitUserProcess(
   ExitStatus: NTSTATUS
@@ -807,7 +816,7 @@ function RtlSidIsHigherLevel(
   out HigherLevel: Boolean
 ): NTSTATUS; stdcall; external ntdll;
 
-// Win 10 RS2+
+[MinOSVersion(OsWin10RS2)]
 function RtlDeriveCapabilitySidsFromName(
   const CapabilityName: TNtUnicodeString;
   [out] CapabilityGroupSid: PSid;
@@ -1032,20 +1041,22 @@ procedure RtlGetCallersAddress(
 
 // Appcontainer
 
-// Win 8+, free with RtlFreeUnicodeString
+// free with RtlFreeUnicodeString
+[MinOSVersion(OsWin8)]
 function RtlGetTokenNamedObjectPath(
   Token: THandle;
   [in, opt] Sid: PSid;
   [allocates] var ObjectPath: TNtUnicodeString
 ): NTSTATUS; stdcall; external ntdll delayed;
 
-// Win 8+, free with RtlFreeSid
+// free with RtlFreeSid
+[MinOSVersion(OsWin8)]
 function RtlGetAppContainerParent(
   [in] AppContainerSid: PSid;
   [allocates] out AppContainerSidParent: PSid
 ): NTSTATUS; stdcall; external ntdll delayed;
 
-// Win 8+
+[MinOSVersion(OsWin8)]
 function RtlGetAppContainerSidType(
   [in] AppContainerSid: PSid;
   [allocates] out AppContainerSidType: TAppContainerSidType

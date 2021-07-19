@@ -7,10 +7,32 @@ unit NtUtils.Processes.Create.Native;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntrtl, NtUtils, NtUtils.Processes.Create;
+  Winapi.WinNt, Ntapi.ntrtl, NtUtils, NtUtils.Processes.Create,
+  DelphiUtils.AutoObjects;
+
+type
+  IRtlUserProcessParamers = IMemory<PRtlUserProcessParameters>;
+
+// Allocate user process parameters
+function RtlxCreateProcessParameters(
+  const Options: TCreateProcessOptions;
+  out xMemory: IRtlUserProcessParamers
+): TNtxStatus;
 
 // Create a new process via RtlCreateUserProcess
 function RtlxCreateUserProcess(
+  const Options: TCreateProcessOptions;
+  out Info: TProcessInfo
+): TNtxStatus;
+
+// Create a new process via RtlCreateUserProcessEx
+function RtlxCreateUserProcessEx(
+  const Options: TCreateProcessOptions;
+  out Info: TProcessInfo
+): TNtxStatus;
+
+// Create a new process via NtCreateUserProcess
+function NtxCreateUserProcess(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
 ): TNtxStatus;
@@ -28,111 +50,53 @@ function RtlxCloneCurrentProcess(
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntseapi, Ntapi.ntstatus, Winapi.ProcessThreadsApi,
-  NtUtils.Files, DelphiUtils.AutoObject, NtUtils.Objects, NtUtils.Threads;
+  Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntseapi, Ntapi.ntstatus, NtUtils.Threads,
+  Winapi.ProcessThreadsApi, NtUtils.Files, NtUtils.Objects, NtUtils.Ldr;
 
-{ Process Parameters }
+{ Process Parameters & Attributes }
 
 type
-  IProcessParams = IMemory<PRtlUserProcessParameters>;
-
-  TProcessParamAutoMemory = class (TCustomAutoMemory, IMemory)
-    ImageName, CommandLine, CurrentDir, Desktop: String;
-    ImageNameStr, CommandLineStr, CurrentDirStr, DesktopStr: TNtUnicodeString;
-    Environment: IEnvironment;
-    Initialized: Boolean;
+  TAutoUserProcessParams = class (TCustomAutoMemory, IMemory)
     procedure Release; override;
   end;
 
-procedure TProcessParamAutoMemory.Release;
+procedure TAutoUserProcessParams.Release;
 begin
-  // The external function allocates and initializes memory.
-  // Free it only if it succeeded.
-  if Initialized then
-    RtlDestroyProcessParameters(FAddress);
-
+  RtlDestroyProcessParameters(FData);
   inherited;
 end;
 
-function RefStrOrNil(const [ref] S: TNtUnicodeString): PNtUnicodeString;
-begin
-  if S.Length <> 0 then
-    Result := @S
-  else
-    Result := nil;
-end;
-
-function PrepareImageName(
-  const Options: TCreateProcessOptions;
-  out ImageName: String;
-  out ImageNameStr: TNtUnicodeString
-): TNtxStatus;
-begin
-  ImageName := Options.Application;
-
-  // TODO: reconstruct application name in case of forced command line
-
-  if not (poNativePath in Options.Flags) then
-  begin
-    Result := RtlxDosPathToNtPathVar(ImageName);
-
-    if not Result.IsSuccess then
-      Exit;
-  end
-  else
-    Result.Status := STATUS_SUCCESS;
-
-  ImageNameStr := TNtUnicodeString.From(ImageName);
-end;
-
-function RtlxpCreateProcessParams(
-  out xMemory: IProcessParams;
-  const Options: TCreateProcessOptions
-): TNtxStatus;
+function RtlxCreateProcessParameters;
 var
-  Params: TProcessParamAutoMemory;
+  Buffer: PRtlUserProcessParameters;
+  ApplicationStr, CommandLineStr, CurrentDirStr, DesktopStr: TNtUnicodeString;
 begin
-  Params := TProcessParamAutoMemory.Create;
-  IMemory(xMemory) := Params;
+  // Note: do not inline these since the compiler reuses hidden variables
+  ApplicationStr := TNtUnicodeString.From(Options.ApplicationNative);
+  CommandLineStr := TNtUnicodeString.From(Options.CommandLine);
+  CurrentDirStr := TNtUnicodeString.From(Options.CurrentDirectory);
+  DesktopStr := TNtUnicodeString.From(Options.Desktop);
 
-  // Application
-  Result := PrepareImageName(Options, Params.ImageName, Params.ImageNameStr);
+  Result.Location := 'RtlCreateProcessParametersEx';
+  Result.Status := RtlCreateProcessParametersEx(
+    Buffer,
+    ApplicationStr,
+    nil, // DllPath
+    RefNtStrOrNil(CurrentDirStr),
+    @CommandLineStr,
+    Auto.RefOrNil<PEnvironment>(Options.Environment),
+    nil, // WindowTitile
+    RefNtStrOrNil(DesktopStr),
+    nil, // ShellInfo
+    nil, // RuntimeData
+    RTL_USER_PROC_PARAMS_NORMALIZED
+  );
 
   if not Result.IsSuccess then
     Exit;
 
-  // Command line
-  if poForceCommandLine in Options.Flags then
-    Params.CommandLine := Options.Parameters
-  else
-    Params.CommandLine := '"' + Options.Application + '" ' + Options.Parameters;
-
-  // Other strings
-  Params.CommandLine := Options.Parameters;
-  Params.CommandLineStr := TNtUnicodeString.From(Params.CommandLine);
-  Params.CurrentDir := Options.CurrentDirectory;
-  Params.CurrentDirStr := TNtUnicodeString.From(Params.CurrentDir);
-  Params.Desktop := Options.Desktop;
-  Params.DesktopStr := TNtUnicodeString.From(Params.Desktop);
-
-  // Allocate and prepare parameters
-  Result.Location := 'RtlCreateProcessParametersEx';
-  Result.Status := RtlCreateProcessParametersEx(
-    PRtlUserProcessParameters(Params.FAddress),
-    Params.ImageNameStr,
-    nil, // DllPath
-    RefStrOrNil(Params.CurrentDirStr),
-    RefStrOrNil(Params.CommandLineStr),
-    IMem.RefOrNil<PEnvironment>(Params.Environment),
-    nil, // WindowTitile
-    RefStrOrNil(Params.DesktopStr),
-    nil, // ShellInfo
-    nil, // RuntimeData
-    0
-  );
-
-  if Result.IsSuccess then
-    Params.Initialized := True;
+  IMemory(xMemory) := TAutoUserProcessParams.Capture(Buffer,
+    Buffer.MaximumLength + Buffer.EnvironmentSize);
 
   // Adjust window mode flags
   if poUseWindowMode in Options.Flags then
@@ -142,34 +106,113 @@ begin
   end;
 end;
 
-function GetHandleOrZero(const hxObject: IHandle): THandle;
+type
+  TPsAttributesRecord = record
+  private
+    Source: TPtAttributes;
+    FImageName: String;
+    FClientId: TClientId;
+    FHandleList: TArray<THandle>;
+    hJob: THandle;
+    Buffer: IMemory<PPsAttributeList>;
+    function GetData: PPsAttributeList;
+  public
+    constructor Create(const Options: TCreateProcessOptions);
+    property ClientId: TClientId read FClientId;
+    property Data: PPsAttributeList read GetData;
+    property ImageName: String read FImageName;
+  end;
+
+{ TPsAttributesRecord }
+
+constructor TPsAttributesRecord.Create;
+var
+  Count, i, j: Integer;
+  TotalSize: Cardinal;
 begin
-  if Assigned(hxObject) then
-    Result := hxObject.Handle
-  else
-    Result := 0;
+  // Always use Image Name & Client ID
+  Count := 2;
+
+  if Assigned(Options.hxToken) then
+    Inc(Count);
+
+  if Assigned(Options.Attributes.hxParentProcess) then
+    Inc(Count);
+
+  if Length(Options.Attributes.HandleList) > 0 then
+    Inc(Count);
+
+  if Assigned(Options.Attributes.hxJob) then
+    Inc(Count);
+
+  Source := Options.Attributes;
+  TotalSize := SizeOf(TPsAttributeList) + Pred(Count) * SizeOf(TPsAttribute);
+
+  IMemory(Buffer) := Auto.AllocateDynamic(TotalSize);
+  Data.TotalLength := TotalSize;
+
+  FImageName := Options.ApplicationNative;
+  Data.Attributes[0].Attribute := PS_ATTRIBUTE_IMAGE_NAME;
+  Data.Attributes[0].Size := SizeOf(WideChar) * Length(FImageName);
+  Pointer(Data.Attributes[0].Value) := PWideChar(FImageName);
+
+  i := 1;
+  Data.Attributes{$R-}[i]{$R+}.Attribute := PS_ATTRIBUTE_CLIENT_ID;
+  Data.Attributes{$R-}[i]{$R+}.Size := SizeOf(TClientId);
+  Pointer(Data.Attributes{$R-}[i]{$R+}.Value) := @FClientId;
+  Inc(i);
+
+  if Assigned(Options.hxToken) then
+  begin
+    Data.Attributes{$R-}[i]{$R+}.Attribute := PS_ATTRIBUTE_TOKEN;
+    Data.Attributes{$R-}[i]{$R+}.Size := SizeOf(THandle);
+    Data.Attributes{$R-}[i]{$R+}.Value := Options.hxToken.Handle;
+    Inc(i);
+  end;
+
+  if Assigned(Source.hxParentProcess) then
+  begin
+    Data.Attributes{$R-}[i]{$R+}.Attribute := PS_ATTRIBUTE_PARENT_PROCESS;
+    Data.Attributes{$R-}[i]{$R+}.Size := SizeOf(THandle);
+    Data.Attributes{$R-}[i]{$R+}.Value := Source.hxParentProcess.Handle;
+    Inc(i);
+  end;
+
+  if Length(Source.HandleList) > 0 then
+  begin
+    SetLength(FHandleList, Length(Source.HandleList));
+
+    for j := 0 to High(FHandleList) do
+      FHandleList[j] := Source.HandleList[j].Handle;
+
+    Data.Attributes{$R-}[i]{$R+}.Attribute := PS_ATTRIBUTE_HANDLE_LIST;
+    Data.Attributes{$R-}[i]{$R+}.Size := SizeOf(THandle) * Length(FHandleList);
+    Pointer(Data.Attributes{$R-}[i]{$R+}.Value) := Pointer(FHandleList);
+    Inc(i);
+  end;
+
+  if Assigned(Source.hxJob) then
+  begin
+    hJob := Source.hxJob.Handle;
+    Data.Attributes{$R-}[i]{$R+}.Attribute := PS_ATTRIBUTE_JOB_LIST;
+    Data.Attributes{$R-}[i]{$R+}.Size := SizeOf(THandle);
+    Pointer(Data.Attributes{$R-}[i]{$R+}.Value) := @hJob;
+  end;
+end;
+
+function TPsAttributesRecord.GetData;
+begin
+  Result := Buffer.Data;
 end;
 
 { Process Creation }
 
 function RtlxCreateUserProcess;
 var
-  Application: String;
-  ProcessParams: IProcessParams;
+  ProcessParams: IRtlUserProcessParamers;
   ProcessInfo: TRtlUserProcessInformation;
 begin
-  Application := Options.Application;
-
-  // Convert Win32 paths of necessary
-  if not (poNativePath in Options.Flags) then
-  begin
-    Result := RtlxDosPathToNtPathVar(Application);
-
-    if not Result.IsSuccess then
-      Exit;
-  end;
-
-  Result := RtlxpCreateProcessParams(ProcessParams, Options);
+  Result := RtlxCreateProcessParameters(Options, ProcessParams);
 
   if not Result.IsSuccess then
     Exit;
@@ -177,15 +220,15 @@ begin
   Result.Location := 'RtlCreateUserProcess';
   Result.LastCall.ExpectedPrivilege := SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE;
   Result.Status := RtlCreateUserProcess(
-    TNtUnicodeString.From(Application),
+    TNtUnicodeString.From(Options.ApplicationNative),
     OBJ_CASE_INSENSITIVE,
     ProcessParams.Data,
-    IMem.RefOrNil<PSecurityDescriptor>(Options.ProcessSecurity),
-    IMem.RefOrNil<PSecurityDescriptor>(Options.ThreadSecurity),
-    GetHandleOrZero(Options.Attributes.hxParentProcess),
+    Auto.RefOrNil<PSecurityDescriptor>(Options.ProcessSecurity),
+    Auto.RefOrNil<PSecurityDescriptor>(Options.ThreadSecurity),
+    HandleOrDefault(Options.Attributes.hxParentProcess),
     poInheritHandles in Options.Flags,
     0,
-    GetHandleOrZero(Options.hxToken),
+    HandleOrDefault(Options.hxToken),
     ProcessInfo
   );
 
@@ -194,12 +237,128 @@ begin
 
   // Capture the information about the new process
   Info.ClientId := ProcessInfo.ClientId;
-  Info.hxProcess := TAutoHandle.Capture(ProcessInfo.Process);
-  Info.hxThread := TAutoHandle.Capture(ProcessInfo.Thread);
+  Info.hxProcess := NtxObject.Capture(ProcessInfo.Process);
+  Info.hxThread := NtxObject.Capture(ProcessInfo.Thread);
 
   // Resume the process if necessary
   if not (poSuspended in Options.Flags) then
     NtxResumeThread(ProcessInfo.Thread);
+end;
+
+function RtlxCreateUserProcessEx;
+var
+  ProcessParams: IRtlUserProcessParamers;
+  ProcessInfo: TRtlUserProcessInformation;
+  ParamsEx: TRtlUserProcessExtendedParameters;
+begin
+  Result := LdrxCheckNtDelayedImport('RtlCreateUserProcessEx');
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxCreateProcessParameters(Options, ProcessParams);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  ParamsEx := Default(TRtlUserProcessExtendedParameters);
+  ParamsEx.Version := RTL_USER_PROCESS_EXTENDED_PARAMETERS_VERSION;
+  ParamsEx.ProcessSecurityDescriptor :=
+    Auto.RefOrNil<PSecurityDescriptor>(Options.ProcessSecurity);
+  ParamsEx.ThreadSecurityDescriptor :=
+    Auto.RefOrNil<PSecurityDescriptor>(Options.ThreadSecurity);
+  ParamsEx.ParentProcess := HandleOrDefault(Options.Attributes.hxParentProcess);
+  ParamsEx.TokenHandle := HandleOrDefault(Options.hxToken);
+  ParamsEx.JobHandle := HandleOrDefault(Options.Attributes.hxJob);
+
+  Result.Location := 'RtlCreateUserProcessEx';
+  Result.Status := RtlCreateUserProcessEx(
+    TNtUnicodeString.From(Options.ApplicationNative),
+    ProcessParams.Data,
+    poInheritHandles in Options.Flags,
+    @ParamsEx,
+    ProcessInfo
+  );
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Capture the information about the new process
+  Info.ClientId := ProcessInfo.ClientId;
+  Info.hxProcess := NtxObject.Capture(ProcessInfo.Process);
+  Info.hxThread := NtxObject.Capture(ProcessInfo.Thread);
+
+  // Resume the process if necessary
+  if not (poSuspended in Options.Flags) then
+    NtxResumeThread(ProcessInfo.Thread);
+end;
+
+function NtxCreateUserProcess;
+var
+  hProcess, hThread: THandle;
+  ProcessObjectAttributes, ThreadObjectAttributes: IObjectAttributes;
+  ProcessFlags: TProcessCreateFlags;
+  ThreadFlags: TThreadCreateFlags;
+  ProcessParams: IRtlUserProcessParamers;
+  CreateInfo: TPsCreateInfo;
+  Attributes: TPsAttributesRecord;
+begin
+  Result := RtlxCreateProcessParameters(Options, ProcessParams);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Prepare attributes
+  Attributes := TPsAttributesRecord.Create(Options);
+
+  if Assigned(Options.ProcessSecurity) then
+    ProcessObjectAttributes := AttributeBuilder.UseSecurity(Options.ProcessSecurity)
+  else
+    ProcessObjectAttributes := nil;
+
+  if Assigned(Options.ThreadSecurity) then
+    ThreadObjectAttributes := AttributeBuilder.UseSecurity(Options.ThreadSecurity)
+  else
+    ThreadObjectAttributes := nil;
+
+  // Preapare flags
+  ProcessFlags := 0;
+
+  if poBreakawayFromJob in Options.Flags then
+    ProcessFlags := ProcessFlags or PROCESS_CREATE_FLAGS_BREAKAWAY;
+
+  if poInheritHandles in Options.Flags then
+    ProcessFlags := ProcessFlags or PROCESS_CREATE_FLAGS_INHERIT_HANDLES;
+
+  ThreadFlags := 0;
+
+  if poSuspended in Options.Flags then
+    ThreadFlags := ThreadFlags or THREAD_CREATE_FLAGS_CREATE_SUSPENDED;
+
+  CreateInfo := Default(TPsCreateInfo);
+  CreateInfo.Size := SizeOf(TPsCreateInfo);
+
+  Result.Location := 'NtCreateUserProcess';
+  Result.Status := NtCreateUserProcess(
+    hProcess,
+    hThread,
+    MAXIMUM_ALLOWED,
+    MAXIMUM_ALLOWED,
+    AttributesRefOrNil(ProcessObjectAttributes),
+    AttributesRefOrNil(ThreadObjectAttributes),
+    ProcessFlags,
+    ThreadFlags,
+    ProcessParams.Data,
+    CreateInfo,
+    Attributes.Data
+  );
+
+  if Result.IsSuccess then
+  begin
+    Info.ClientId := Attributes.ClientId;
+    Info.hxProcess := NtxObject.Capture(hProcess);
+    Info.hxThread := NtxObject.Capture(hThread);
+  end;
 end;
 
 function RtlxCloneCurrentProcess;
@@ -207,14 +366,14 @@ var
   RtlProcessInfo: TRtlUserProcessInformation;
 begin
   Result.Location := 'RtlCloneUserProcess';
-  Result.Status := RtlCloneUserProcess(RTL_CLONE_PROCESS_FLAGS_INHERIT_HANDLES,
-    ProcessSecurity, ThreadSecurity, DebugPort, RtlProcessInfo);
+  Result.Status := RtlCloneUserProcess(ProcessFlags, ProcessSecurity,
+    ThreadSecurity, DebugPort, RtlProcessInfo);
 
   if Result.IsSuccess and (Result.Status <> STATUS_PROCESS_CLONED) then
   begin
     Info.ClientId := RtlProcessInfo.ClientId;
-    Info.hxProcess := TAutoHandle.Capture(RtlProcessInfo.Process);
-    Info.hxThread := TAutoHandle.Capture(RtlProcessInfo.Thread);
+    Info.hxProcess := NtxObject.Capture(RtlProcessInfo.Process);
+    Info.hxThread := NtxObject.Capture(RtlProcessInfo.Thread);
   end;
 end;
 

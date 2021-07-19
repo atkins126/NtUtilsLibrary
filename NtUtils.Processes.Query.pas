@@ -115,10 +115,10 @@ function NtxQueryCommandLineProcess(
 // Enalble/disable handle tracing for a process. Set slot count to 0 to disable.
 function NtxSetHandleTraceProcess(
   hProcess: THandle;
-  TotalSlots: Integer
+  TotalSlots: Cardinal
 ): TNtxStatus;
 
-// Query handle trasing for a process
+// Query most recent handle traces for a process
 function NtxQueryHandleTraceProcess(
   hProcess: THandle;
   out Traces: TArray<TProcessHandleTracingEntry>
@@ -159,7 +159,7 @@ uses
   {$IFDEF Win32} Ntapi.ntpebteb, {$ENDIF}
   Ntapi.ntdef, Ntapi.ntexapi, Ntapi.ntrtl, Ntapi.ntstatus, Ntapi.ntseapi,
   Ntapi.ntobapi, Ntapi.ntioapi, NtUtils.Processes.Memory, NtUtils.Security.Sid,
-  NtUtils.System, DelphiUtils.AutoObject;
+  NtUtils.System, DelphiUtils.AutoObjects;
 
 function NtxQueryProcess;
 var
@@ -175,7 +175,7 @@ begin
       Result.LastCall.Expects<TIoFileAccessMask>(FILE_EXECUTE or SYNCHRONIZE);
   end;
 
-  xMemory := TAutoMemory.Allocate(InitialBuffer);
+  xMemory := Auto.AllocateDynamic(InitialBuffer);
   repeat
     Required := 0;
     Result.Status := NtQueryInformationProcess(hProcess, InfoClass,
@@ -230,7 +230,7 @@ end;
 
 function NtxQueryImageNameProcess;
 var
-  xMemory: IMemory<PNtUnicodeString>;
+  xMemory: INtUnicodeString;
   InfoClass: TProcessInfoClass;
 begin
   if Win32Format then
@@ -256,7 +256,7 @@ begin
   Data.ImageName.MaximumLength := $100;
 
   repeat
-    xMemory := TAutoMemory.Allocate(Data.ImageName.MaximumLength);
+    xMemory := Auto.AllocateDynamic(Data.ImageName.MaximumLength);
     Data.ImageName.Buffer := xMemory.Data;
 
     Result := NtxSystem.Query(SystemProcessIdInformation, Data);
@@ -302,7 +302,7 @@ var
   ProcessParams: PRtlUserProcessParameters;
   Address: Pointer;
   StringData: TNtUnicodeString;
-  xMemory: IMemory<PWideChar>;
+  xMemory: IWideChar;
 {$IFDEF Win64}
   WowPointer: Wow64Pointer;
   ProcessParams32: PRtlUserProcessParameters32;
@@ -364,8 +364,7 @@ begin
 
     if StringData32.Length > 0 then
     begin
-      // Allocate a buffer
-      IMemory(xMemory) := TAutoMemory(StringData32.Length);
+      IMemory(xMemory) := Auto.AllocateDynamic(StringData32.Length);
 
       // Read the string content
       Result := NtxReadMemoryProcess(hProcess, Pointer(StringData32.Buffer),
@@ -434,7 +433,7 @@ begin
     if StringData.Length > 0 then
     begin
       // Allocate a buffer
-      IMemory(xMemory) := TAutoMemory.Allocate(StringData.Length);
+      IMemory(xMemory) := Auto.AllocateDynamic(StringData.Length);
 
       // Read the string content
       Result := NtxReadMemoryProcess(hProcess, StringData.Buffer,
@@ -450,7 +449,7 @@ end;
 
 function NtxQueryCommandLineProcess;
 var
-  xMemory: IMemory<PNtUnicodeString>;
+  xMemory: INtUnicodeString;
 begin
   if RtlOsVersionAtLeast(OsWin81) then
   begin
@@ -476,6 +475,8 @@ begin
     Result := NtxSetProcess(hProcess, ProcessHandleTracing, nil, 0)
   else
   begin
+    // Note that the number of slots will be rounded up to a power of two
+    // between 128 and 131072. This will also clear the buffer.
     Data.Flags := 0;
     Data.TotalSlots := TotalSlots;
 

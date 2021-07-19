@@ -19,7 +19,7 @@ implementation
 
 uses
   Winapi.WinNt, Ntapi.ntdef, Ntapi.ntldr, Winapi.WinUser, NtUtils.Ldr,
-  NtUtils.Processes.Snapshots, NtUtils.Processes.Query, DelphiUtils.AutoObject;
+  NtUtils.Processes.Snapshots, NtUtils.Processes.Query;
 
 // User32.dll has a pair of functions called LockWindowStation and
 // UnlockWindowStation. Although any application can call them, only calls
@@ -84,20 +84,20 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  Data.GetProcessWindowStation := LdrxGetProcedureAddress(hUser32,
-    'GetProcessWindowStation', Result);
+  Result := LdrxGetProcedureAddress(hUser32, 'GetProcessWindowStation',
+    Pointer(@Data.GetProcessWindowStation));
 
   if not Result.IsSuccess then
     Exit;
 
-  Data.LockWindowStation := LdrxGetProcedureAddress(hUser32,
-    AnsiString(GetLockerFunctionName(Lock)), Result);
+  Result := LdrxGetProcedureAddress(hUser32,
+    AnsiString(GetLockerFunctionName(Lock)), Pointer(@Data.LockWindowStation));
 
   if not Result.IsSuccess then
     Exit;
 
-  Data.RtlGetLastWin32Error := LdrxGetProcedureAddress(hNtdll,
-    'RtlGetLastWin32Error', Result);
+  Result := LdrxGetProcedureAddress(hNtdll, 'RtlGetLastWin32Error',
+    Pointer(@Data.RtlGetLastWin32Error));
 end;
 
 function UsrxLockWindowStation;

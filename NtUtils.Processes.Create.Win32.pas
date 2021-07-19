@@ -31,7 +31,7 @@ implementation
 
 uses
   Winapi.WinNt, Ntapi.ntstatus, Ntapi.ntseapi, Winapi.WinBase,
-  Winapi.ProcessThreadsApi, NtUtils.Objects, DelphiUtils.AutoObject;
+  Winapi.ProcessThreadsApi, NtUtils.Objects, DelphiUtils.AutoObjects;
 
  { Process-thread attributes }
 
@@ -39,12 +39,13 @@ type
   IPtAttributes = IMemory<PProcThreadAttributeList>;
 
   TPtAutoMemory = class (TAutoMemory, IMemory)
-    Data: TPtAttributes;
+    Source: TPtAttributes;
     hParent: THandle;
     HandleList: TArray<THandle>;
     Capabilities: TArray<TSidAndAttributes>;
     Security: TSecurityCapabilities;
     AllAppPackages: Cardinal;
+    hJob: THandle;
     Initilalized: Boolean;
     procedure Release; override;
   end;
@@ -52,10 +53,22 @@ type
 procedure TPtAutoMemory.Release;
 begin
   if Initilalized then
-    DeleteProcThreadAttributeList(FAddress);
+    DeleteProcThreadAttributeList(FData);
 
   // Call inherited memory deallocation
   inherited;
+end;
+
+function RtlxpUpdateProcThreadAttribute(
+  [in, out] AttributeList: PProcThreadAttributeList;
+  Attribute: NativeUInt;
+  const Value;
+  Size: NativeUInt
+): TNtxStatus;
+begin
+  Result.Location := 'UpdateProcThreadAttribute';
+  Result.Win32Result := UpdateProcThreadAttribute(AttributeList, 0, Attribute,
+    @Value, Size, nil, nil);
 end;
 
 function AllocPtAttributes(
@@ -89,6 +102,9 @@ begin
   if Attributes.LPAC then
     Inc(Count);
 
+  if Assigned(Attributes.hxJob) then
+    Inc(Count);
+
   if Count = 0 then
   begin
     Result.Status := STATUS_SUCCESS;
@@ -109,25 +125,23 @@ begin
   Result.Win32Result := InitializeProcThreadAttributeList(xMemory.Data, Count,
     0, Required);
 
-  if Result.IsSuccess then
-  begin
-    // NOTE: Since ProcThreadAttributeList stores pointers istead of the actual
-    // data, we need to make sure it does not go anywhere. Attach the attribute
-    // data to prolong its lifetime.
+  // NOTE: Since ProcThreadAttributeList stores pointers istead of the actual
+  // data, we need to make sure it does not go anywhere.
 
-    PtAttributes.Data := Attributes;
-    PtAttributes.Initilalized := True;
-  end
+  if Result.IsSuccess then
+    PtAttributes.Initilalized := True
   else
     Exit;
+
+  // Attach the attribute
+  PtAttributes.Source := Attributes;
 
   // Parent process
   if Assigned(Attributes.hxParentProcess) then
   begin
     PtAttributes.hParent := Attributes.hxParentProcess.Handle;
 
-    Result.Location := 'UpdateProcThreadAttribute';
-    Result.Win32Result := UpdateProcThreadAttribute(xMemory.Data, 0,
+    Result := RtlxpUpdateProcThreadAttribute(xMemory.Data,
       PROC_THREAD_ATTRIBUTE_PARENT_PROCESS, PtAttributes.hParent,
       SizeOf(THandle));
 
@@ -149,10 +163,9 @@ begin
     else
       Required := 2 * SizeOf(UInt64);
 
-    Result.Location := 'UpdateProcThreadAttribute';
-    Result.Win32Result := UpdateProcThreadAttribute(xMemory.Data, 0,
-      PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY, PtAttributes.Data.Mitigations,
-      Required);
+    Result := RtlxpUpdateProcThreadAttribute(xMemory.Data,
+      PROC_THREAD_ATTRIBUTE_MITIGATION_POLICY,
+      PtAttributes.Source.Mitigations, Required);
 
     if not Result.IsSuccess then
       Exit;
@@ -161,10 +174,9 @@ begin
   // Child process policy
   if Attributes.ChildPolicy <> 0 then
   begin
-    Result.Location := 'UpdateProcThreadAttribute';
-    Result.Win32Result := UpdateProcThreadAttribute(xMemory.Data, 0,
-      PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY, PtAttributes.Data.ChildPolicy,
-      SizeOf(Cardinal));
+    Result := RtlxpUpdateProcThreadAttribute(xMemory.Data,
+      PROC_THREAD_ATTRIBUTE_CHILD_PROCESS_POLICY,
+      PtAttributes.Source.ChildPolicy, SizeOf(Cardinal));
 
     if not Result.IsSuccess then
       Exit;
@@ -178,8 +190,7 @@ begin
     for i := 0 to High(Attributes.HandleList) do
       PtAttributes.HandleList[i] := Attributes.HandleList[i].Handle;
 
-    Result.Location := 'UpdateProcThreadAttribute';
-    Result.Win32Result := UpdateProcThreadAttribute(xMemory.Data, 0,
+    Result := RtlxpUpdateProcThreadAttribute(xMemory.Data,
       PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PtAttributes.HandleList,
       SizeOf(THandle) * Length(Attributes.HandleList));
 
@@ -206,8 +217,7 @@ begin
       Capabilities := Pointer(@PtAttributes.Capabilities);
     end;
 
-    Result.Location := 'UpdateProcThreadAttribute';
-    Result.Win32Result := UpdateProcThreadAttribute(xMemory.Data, 0,
+    Result := RtlxpUpdateProcThreadAttribute(xMemory.Data,
       PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES, PtAttributes.Security,
       SizeOf(TSecurityCapabilities));
 
@@ -221,10 +231,21 @@ begin
     PtAttributes.AllAppPackages :=
       PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
 
-    Result.Location := 'UpdateProcThreadAttribute';
-    Result.Win32Result := UpdateProcThreadAttribute(xMemory.Data, 0,
+    Result := RtlxpUpdateProcThreadAttribute(xMemory.Data,
       PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY,
       PtAttributes.AllAppPackages, SizeOf(Cardinal));
+
+    if not Result.IsSuccess then
+      Exit;
+  end;
+
+  // Job list
+  if Assigned(Attributes.hxJob) then
+  begin
+    PtAttributes.hJob := Attributes.hxJob.Handle;
+
+    Result := RtlxpUpdateProcThreadAttribute(xMemory.Data,
+      PROC_THREAD_ATTRIBUTE_JOB_LIST, PtAttributes.hJob, SizeOf(THandle));
 
     if not Result.IsSuccess then
       Exit;
@@ -232,14 +253,6 @@ begin
 end;
 
 { Startup info preparation and supplimentary routines }
-
-function RefStrOrNil(const S: String): PWideChar;
-begin
-  if S <> '' then
-    Result := PWideChar(S)
-  else
-    Result := nil;
-end;
 
 function RefSA(
   out SA: TSecurityAttributes;
@@ -255,14 +268,6 @@ begin
   end
   else
     Result := nil;
-end;
-
-function GetHandleOrZero(const hxObject: IHandle): THandle;
-begin
-  if Assigned(hxObject) then
-    Result := hxObject.Handle
-  else
-    Result := 0;
 end;
 
 procedure PrepareStartupInfo(
@@ -305,8 +310,8 @@ function CaptureResult(ProcessInfo: TProcessInformation): TProcessInfo;
 begin
   with Result, ProcessInfo do
   begin
-    hxProcess := TAutoHandle.Capture(hProcess);
-    hxThread := TAutoHandle.Capture(hThread);
+    hxProcess := NtxObject.Capture(hProcess);
+    hxThread := NtxObject.Capture(hThread);
     ClientId.UniqueProcess := ProcessId;
     ClientId.UniqueThread := ThreadId;
   end;
@@ -318,14 +323,13 @@ function AdvxCreateProcess;
 var
   CreationFlags: TProcessCreateFlags;
   ProcessSA, ThreadSA: TSecurityAttributes;
-  Application, CommandLine: String;
+  CommandLine: String;
   SI: TStartupInfoExW;
   PTA: IPtAttributes;
   ProcessInfo: TProcessInformation;
   RunAsInvoker: IAutoReleasable;
 begin
   PrepareStartupInfo(SI.StartupInfo, CreationFlags, Options);
-  PrepareCommandLine(Application, CommandLine, Options);
 
   // Prepare process-thread attribute list
   Result := AllocPtAttributes(Options.Attributes, PTA);
@@ -349,19 +353,20 @@ begin
     Exit;
 
   // CreateProcess needs the command line to be in writable memory
+  CommandLine := Options.CommandLine;
   UniqueString(CommandLine);
 
   Result.Location := 'CreateProcessAsUserW';
   Result.LastCall.ExpectedPrivilege := SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE;
   Result.Win32Result := CreateProcessAsUserW(
-    GetHandleOrZero(Options.hxToken),
-    RefStrOrNil(Application),
+    HandleOrDefault(Options.hxToken),
+    RefStrOrNil(Options.ApplicationWin32),
     RefStrOrNil(CommandLine),
     RefSA(ProcessSA, Options.ProcessSecurity),
     RefSA(ThreadSA, Options.ThreadSecurity),
     poInheritHandles in Options.Flags,
     CreationFlags,
-    IMem.RefOrNil<PEnvironment>(Options.Environment),
+    Auto.RefOrNil<PEnvironment>(Options.Environment),
     RefStrOrNil(Options.CurrentDirectory),
     SI,
     ProcessInfo
@@ -374,22 +379,20 @@ end;
 function AdvxCreateProcessWithToken;
 var
   CreationFlags: TProcessCreateFlags;
-  Application, CommandLine: String;
   StartupInfo: TStartupInfoW;
   ProcessInfo: TProcessInformation;
 begin
   PrepareStartupInfo(StartupInfo, CreationFlags, Options);
-  PrepareCommandLine(Application, CommandLine, Options);
 
   Result.Location := 'CreateProcessWithTokenW';
   Result.LastCall.ExpectedPrivilege := SE_IMPERSONATE_PRIVILEGE;
   Result.Win32Result := CreateProcessWithTokenW(
-    GetHandleOrZero(Options.hxToken),
+    HandleOrDefault(Options.hxToken),
     Options.LogonFlags,
-    RefStrOrNil(Application),
-    RefStrOrNil(CommandLine),
+    RefStrOrNil(Options.ApplicationWin32),
+    RefStrOrNil(Options.CommandLine),
     CreationFlags,
-    IMem.RefOrNil<PEnvironment>(Options.Environment),
+    Auto.RefOrNil<PEnvironment>(Options.Environment),
     RefStrOrNil(Options.CurrentDirectory),
     StartupInfo,
     ProcessInfo
@@ -402,12 +405,10 @@ end;
 function AdvxCreateProcessWithLogon;
 var
   CreationFlags: TProcessCreateFlags;
-  Application, CommandLine: String;
   StartupInfo: TStartupInfoW;
   ProcessInfo: TProcessInformation;
 begin
   PrepareStartupInfo(StartupInfo, CreationFlags, Options);
-  PrepareCommandLine(Application, CommandLine, Options);
 
   Result.Location := 'CreateProcessWithLogonW';
   Result.Win32Result := CreateProcessWithLogonW(
@@ -415,10 +416,10 @@ begin
     RefStrOrNil(Options.Domain),
     RefStrOrNil(Options.Password),
     Options.LogonFlags,
-    RefStrOrNil(Application),
-    RefStrOrNil(CommandLine),
+    RefStrOrNil(Options.ApplicationWin32),
+    RefStrOrNil(Options.CommandLine),
     CreationFlags,
-    IMem.RefOrNil<PEnvironment>(Options.Environment),
+    Auto.RefOrNil<PEnvironment>(Options.Environment),
     RefStrOrNil(Options.CurrentDirectory),
     StartupInfo,
     ProcessInfo
