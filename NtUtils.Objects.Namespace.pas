@@ -18,10 +18,10 @@ type
 
   { Directories }
 
-// Get an object manager's namespace path for a token (supports pseudo-handles)
+// Get an object manager's namespace path
 function RtlxGetNamedObjectPath(
   out Path: String;
-  hToken: THandle
+  [opt, Access(TOKEN_QUERY)] hxToken: IHandle = nil
 ): TNtxStatus;
 
 // Create directory object
@@ -41,7 +41,7 @@ function NtxOpenDirectory(
 
 // Enumerate named objects in a directory
 function NtxEnumerateDirectory(
-  hDirectory: THandle;
+  [Access(DIRECTORY_QUERY)] hDirectory: THandle;
   out Entries: TArray<TDirectoryEnumEntry>
 ): TNtxStatus;
 
@@ -65,7 +65,7 @@ function NtxOpenSymlink(
 
 // Get symbolic link target
 function NtxQueryTargetSymlink(
-  hSymlink: THandle;
+  [Access(SYMBOLIC_LINK_QUERY)] hSymlink: THandle;
   out Target: String
 ): TNtxStatus;
 
@@ -73,13 +73,18 @@ implementation
 
 uses
   Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntrtl, Ntapi.ntpebteb, NtUtils.Ldr,
-  NtUtils.Tokens.Query, NtUtils.SysUtils, DelphiUtils.AutoObjects;
+  NtUtils.Tokens, NtUtils.Tokens.Info, NtUtils.SysUtils,
+  DelphiUtils.AutoObjects;
 
 function RtlxGetNamedObjectPath;
 var
   SessionId: TSessionId;
   ObjectPath: TNtUnicodeString;
 begin
+  // Uses the current process token by default
+  if not Assigned(hxToken) then
+    hxToken := NtxCurrentProcessToken;
+
   Result := LdrxCheckNtDelayedImport('RtlGetTokenNamedObjectPath');
 
   if not Result.IsSuccess then
@@ -87,14 +92,14 @@ begin
     // AppContainers are not supported, obtain
     // the current session and construct the path manually.
 
-    if hToken = NtCurrentProcessToken then
+    if hxToken.Handle = NtCurrentProcessToken then
     begin
       // Process session does not change
       SessionId := RtlGetCurrentPeb.SessionId;
       Result.Status := STATUS_SUCCESS;
     end
     else
-      Result := NtxToken.Query(hToken, TokenSessionId, SessionId);
+      Result := NtxToken.Query(hxToken, TokenSessionId, SessionId);
 
     if Result.IsSuccess then
       Path := '\Sessions\' + RtlxIntToStr(SessionId) + '\BaseNamedObjects';
@@ -103,10 +108,13 @@ begin
   begin
     FillChar(ObjectPath, SizeOf(ObjectPath), 0);
 
+    // This function uses only NtQueryInformationToken under the hood and,
+    // therefore, supports token pseudo-handles
     Result.Location := 'RtlGetTokenNamedObjectPath';
     Result.LastCall.Expects<TTokenAccessMask>(TOKEN_QUERY);
 
-    Result.Status := RtlGetTokenNamedObjectPath(hToken, nil, ObjectPath);
+    Result.Status := RtlGetTokenNamedObjectPath(hxToken.Handle, nil,
+      ObjectPath);
 
     if Result.IsSuccess then
     begin
@@ -136,7 +144,7 @@ var
   hDirectory: THandle;
 begin
   Result.Location := 'NtOpenDirectoryObject';
-  Result.LastCall.AttachAccess(DesiredAccess);
+  Result.LastCall.OpensForAccess(DesiredAccess);
 
   Result.Status := NtOpenDirectoryObject(
     hDirectory,
@@ -203,7 +211,7 @@ var
   hSymlink: THandle;
 begin
   Result.Location := 'NtOpenSymbolicLinkObject';
-  Result.LastCall.AttachAccess(DesiredAccess);
+  Result.LastCall.OpensForAccess(DesiredAccess);
 
   Result.Status := NtOpenSymbolicLinkObject(
     hSymlink,

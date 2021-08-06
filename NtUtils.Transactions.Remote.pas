@@ -23,21 +23,21 @@ const
 
 // Get a handle value of the current transaction on a remote thread
 function RtlxGetTransactionThread(
-  hProcess: THandle;
-  hThread: THandle;
+  [Access(PROCESS_GET_THREAD_TRANSACTION)] hProcess: THandle;
+  [Access(THREAD_GET_TRANSACTION)] hThread: THandle;
   out HandleValue: THandle
 ): TNtxStatus;
 
 // Set a handle value of the current transaction on a remote thread
 function RtlxSetTransactionThread(
-  hProcess: THandle;
-  hThread: THandle;
+  [Access(PROCESS_SET_THREAD_TRANSACTION)] hProcess: THandle;
+  [Access(THREAD_SET_TRANSACTION)] hThread: THandle;
   [opt] HandleValue: THandle
 ): TNtxStatus;
 
 // Set a handle value as a current transaction on all threads in a process
 function RtlxSetTransactionProcess(
-  const hxProcess: IHandle;
+  [Access(PROCESS_SET_PROCESS_TRANSACTION)] const hxProcess: IHandle;
   [opt] HandleValue: THandle
 ): TNtxStatus;
 
@@ -45,7 +45,7 @@ implementation
 
 uses
   Ntapi.ntwow64, Ntapi.ntstatus, NtUtils.Threads, NtUtils.Processes,
-  NtUtils.Processes.Memory, NtUtils.Processes.Query;
+  NtUtils.Memory, NtUtils.Processes.Info;
 
 function RtlxGetTransactionThread;
 var
@@ -77,9 +77,11 @@ begin
   // store the same handle value. However, 64-bit TEB has precendence, so
   // the following code also works for WoW64 processes.
 
-  Result := NtxReadMemoryProcess(hProcess,
+  Result := NtxMemory.Read(
+    hProcess,
     @ThreadInfo.TebBaseAddress.CurrentTransactionHandle,
-      TMemory.Reference(HandleValue));
+    HandleValue
+  );
 end;
 
 function RtlxSetTransactionThread;
@@ -117,9 +119,10 @@ begin
   end;
 
   // Write the handle value to thread's TEB
-  Result := NtxWriteMemoryProcess(hProcess,
+  Result := NtxMemory.Write(hProcess,
     @ThreadInfo.TebBaseAddress.CurrentTransactionHandle,
-    TMemory.Reference(HandleValue));
+    HandleValue
+  );
 
   if not Result.IsSuccess then
     Exit;
@@ -133,9 +136,8 @@ begin
     IsWow64Target then
   begin
     // 64-bit TEB stores an offset to a 32-bit TEB, read it
-    if not NtxReadMemoryProcess(hProcess,
-      @ThreadInfo.TebBaseAddress.WowTebOffset,
-      TMemory.Reference(Teb32Offset)).IsSuccess then
+    if not NtxMemory.Read(hProcess, @ThreadInfo.TebBaseAddress.WowTebOffset,
+      Teb32Offset).IsSuccess then
       Exit;
 
     if Teb32Offset = 0 then
@@ -145,8 +147,7 @@ begin
     Teb32 := PTeb32(NativeInt(ThreadInfo.TebBaseAddress) + Teb32Offset);
 
     // Write the handle to the 32-bit TEB
-    NtxWriteMemoryProcess(hProcess, @Teb32.CurrentTransactionHandle,
-      TMemory.Reference(HandleValue32));
+    NtxMemory.Write(hProcess, @Teb32.CurrentTransactionHandle, HandleValue32);
   end;
   {$ENDIF}
 end;

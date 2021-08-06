@@ -19,7 +19,7 @@ implementation
 
 uses
   Winapi.WinNt, Ntapi.ntdef, Ntapi.ntldr, Winapi.WinUser, NtUtils.Ldr,
-  NtUtils.Processes.Snapshots, NtUtils.Processes.Query;
+  NtUtils.Processes.Snapshots, NtUtils.Processes.Info;
 
 // User32.dll has a pair of functions called LockWindowStation and
 // UnlockWindowStation. Although any application can call them, only calls
@@ -76,7 +76,7 @@ function UsrxLockerPrepare(
   Lock: Boolean
 ): TNtxStatus;
 var
-  hUser32: HMODULE;
+  hUser32: Pointer;
 begin
   // Winlogon always loads user32.dll, so we don't need to check it
   Result := LdrxGetDllHandle(user32, hUser32);
@@ -96,7 +96,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  Result := LdrxGetProcedureAddress(hNtdll, 'RtlGetLastWin32Error',
+  Result := LdrxGetProcedureAddress(hNtdll.DllBase, 'RtlGetLastWin32Error',
     Pointer(@Data.RtlGetLastWin32Error));
 end;
 

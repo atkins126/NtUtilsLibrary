@@ -7,8 +7,8 @@ unit NtUtils.Profiles.Reloader;
 interface
 
 uses
-  Winapi.WinNt, DelphiApi.Reflection, NtUtils, NtUtils.Objects.Snapshots,
-  NtUtils.Profiles;
+  Winapi.WinNt, Winapi.UserEnv, DelphiApi.Reflection, NtUtils,
+  NtUtils.Objects.Snapshots, NtUtils.Profiles;
 
 type
   TProcessOperation = reference to procedure (
@@ -77,15 +77,15 @@ type
   end;
 
 // Load a user profile with volatile registry
-function UnvxLoadProfileReadonly(
+function UnvxLoadProfileVolatile(
   out hxKey: IHandle;
-  hToken: THandle
+  [Access(TOKEN_LOAD_PROFILE)] const hxToken: IHandle
 ): TNtxStatus;
 
 // Load a user profile with volatile registry monitoring the progress
-function UnvxLoadProfileReadonlyEx(
+function UnvxLoadProfileVolatileEx(
   out hxKey: IHandle;
-  hToken: THandle;
+  [Access(TOKEN_LOAD_PROFILE)] const hxToken: IHandle;
   const Events: TProfileReloaderEvents
 ): TNtxStatus;
 
@@ -108,7 +108,7 @@ uses
   Ntapi.ntdef, Ntapi.ntregapi, Ntapi.ntpsapi, Ntapi.ntseapi,
   Ntapi.ntstatus, NtUtils.SysUtils, NtUtils.Registry, NtUtils.Processes,
   NtUtils.Files, NtUtils.Objects, NtUtils.Objects.Remote, NtUtils.Shellcode,
-  NtUtils.Tokens, NtUtils.Tokens.Query, NtUtils.Security.Sid,
+  NtUtils.Tokens, NtUtils.Tokens.Info, NtUtils.Security.Sid,
   NtUtils.Processes.Snapshots, NtUtils.Environment, DelphiUtils.Arrays;
 
 const
@@ -133,7 +133,8 @@ type
 
   THiveConsumer = record
     ProcessId: TProcessId;
-    hxProcess: IHandle;
+    [Access(PROCESS_DUP_HANDLE or PROCESS_QUERY_INFORMATION or
+      PROCESS_SUSPEND_RESUME)] hxProcess: IHandle;
     Resumer: IAutoReleasable;
     Keys: TArray<TOpenedKeyEntry>;
   end;
@@ -144,7 +145,7 @@ var
 
 // Provides a function for finding names for registry key handles
 function KeyNameFinder(
-  const hxProcess: IHandle;
+  [Access(PROCESS_DUP_HANDLE)] const hxProcess: IHandle;
   const Events: TProfileReloaderEvents
 ): TConvertRoutine<TProcessHandleEntry, TOpenedKeyEntry>;
 begin
@@ -718,13 +719,13 @@ function EnsurePrivileges: TNtxStatus;
 begin
   // Backup and Restore are essential;
   // Debug is extremely helpful, though not strictly necessary
-  Result := NtxAdjustPrivileges(NtCurrentEffectiveToken, [SE_BACKUP_PRIVILEGE,
+  Result := NtxAdjustPrivileges(NtxCurrentEffectiveToken, [SE_BACKUP_PRIVILEGE,
     SE_RESTORE_PRIVILEGE, SE_DEBUG_PRIVILEGE], SE_PRIVILEGE_ENABLED, False);
 end;
 
 { --------------------------------- Public  --------------------------------- }
 
-function UnvxLoadProfileReadonlyEx;
+function UnvxLoadProfileVolatileEx;
 var
   Sid: ISid;
 begin
@@ -734,13 +735,13 @@ begin
     Exit;
 
   // Determine the SID which is part of the key path
-  Result := NtxQuerySidToken(hToken, TokenUser, Sid);
+  Result := NtxQuerySidToken(hxToken, TokenUser, Sid);
 
   if not Result.IsSuccess then
     Exit;
 
   // Ask the User Profile Service to load the profile the normal way
-  Result := UnvxLoadProfile(hxKey, hToken);
+  Result := UnvxLoadProfile(hxKey, hxToken);
 
   if not Result.IsSuccess then
     Exit;
@@ -749,9 +750,9 @@ begin
   Result := ReloadProfile(Sid.Data, REG_OPEN_READ_ONLY, Events);
 end;
 
-function UnvxLoadProfileReadonly;
+function UnvxLoadProfileVolatile;
 begin
-  Result := UnvxLoadProfileReadonlyEx(hxKey, hToken,
+  Result := UnvxLoadProfileVolatileEx(hxKey, hxToken,
     Default(TProfileReloaderEvents));
 end;
 

@@ -33,7 +33,7 @@ function LsaxLogonS4U(
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntstatus, NtUtils.Processes.Query, NtUtils.Tokens.Misc,
+  Ntapi.ntdef, Ntapi.ntstatus, NtUtils.Processes.Info, NtUtils.Tokens.Misc,
   DelphiUtils.AutoObjects, NtUtils.Lsa;
 
 function LsaxLogonUser;
@@ -119,6 +119,9 @@ begin
     Buffer.Offset(SizeOf(KERB_S4U_LOGON) +
     Succ(Length(Username)) * SizeOf(WideChar)));
 
+  SubStatus := STATUS_SUCCESS;
+  Result.Location := 'LsaLogonUser';
+
   // Note: LsaLogonUser returns STATUS_ACCESS_DENIED where it
   // should return STATUS_PRIVILEGE_NOT_HELD which is confusing.
   if Length(AdditionalGroups) > 0 then
@@ -130,8 +133,6 @@ begin
     IMemory(GroupArray) := Auto.AllocateDynamic(0);
 
   // Perform the logon
-  SubStatus := STATUS_SUCCESS;
-  Result.Location := 'LsaLogonUser';
   Result.Status := LsaLogonUser(LsaHandle.Handle, TLsaAnsiString.From('S4U'),
     LogonTypeNetwork, AuthPkg, Buffer.Data, Buffer.Size, GroupArray.Data,
     TokenSource, ProfileBuffer, ProfileSize, LogonId, hToken, Quotas,

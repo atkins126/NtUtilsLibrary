@@ -41,7 +41,7 @@ type
 
 // Snapshot handles of a specific process
 function NtxEnumerateHandlesProcess(
-  hProcess: THandle;
+  [Access(PROCESS_QUERY_INFORMATION)] hProcess: THandle;
   out Handles: TArray<TProcessHandleEntry>
 ): TNtxStatus;
 
@@ -134,9 +134,8 @@ function ByGrantedAccess(
 implementation
 
 uses
-  Ntapi.ntrtl, Ntapi.ntobapi, Ntapi.ntstatus,
-  NtUtils.Processes.Query, NtUtils.System, NtUtils.Version,
-  DelphiUtils.AutoObjects;
+  Ntapi.ntrtl, Ntapi.ntobapi, Ntapi.ntstatus, NtUtils.Processes.Info,
+  NtUtils.System, NtUtils.Version, DelphiUtils.AutoObjects;
 
 { Process Handles }
 

@@ -8,7 +8,7 @@ unit NtUtils.Profiles;
 interface
 
 uses
-  Winapi.WinNt, NtUtils, DelphiApi.Reflection;
+  Winapi.WinNt, Winapi.UserEnv, NtUtils, DelphiApi.Reflection;
 
 type
   TProfileInfo = record
@@ -30,12 +30,12 @@ type
 // Load a profile using a token
 function UnvxLoadProfile(
   out hxKey: IHandle;
-  hToken: THandle
+  [Access(TOKEN_LOAD_PROFILE)] hxToken: IHandle
 ): TNtxStatus;
 
 // Unload a profile using a token
 function UnvxUnloadProfile(
-  hToken: THandle;
+  [Access(TOKEN_LOAD_PROFILE)] hxToken: IHandle;
   hProfile: THandle
 ): TNtxStatus;
 
@@ -115,10 +115,11 @@ function UnvxEnumerateChildrenAppContainer(
 implementation
 
 uses
-  Ntapi.ntregapi, Ntapi.ntseapi, Ntapi.ntdef, Winapi.UserEnv, Ntapi.ntstatus,
-  Ntapi.ntrtl, Winapi.WinError, NtUtils.Registry, NtUtils.Errors, NtUtils.Ldr,
+  Ntapi.ntregapi, Ntapi.ntseapi, Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntrtl,
+  Winapi.WinError, NtUtils.Registry, NtUtils.Errors, NtUtils.Ldr,
   NtUtils.Security.AppContainer, DelphiUtils.Arrays, NtUtils.Security.Sid,
-  NtUtils.Registry.HKCU, NtUtils.Objects, NtUtils.Tokens.Query, NtUtils.Lsa.Sid;
+  NtUtils.Registry.HKCU, NtUtils.Objects, NtUtils.Tokens.Info, NtUtils.Lsa.Sid,
+  NtUtils.Tokens;
 
 const
   PROFILE_PATH = REG_PATH_MACHINE + '\SOFTWARE\Microsoft\Windows NT\' +
@@ -139,8 +140,14 @@ var
   UserName: String;
   Profile: TProfileInfoW;
 begin
+  // Expand pseudo-handles
+  Result := NtxExpandToken(hxToken, TOKEN_LOAD_PROFILE);
+
+  if not Result.IsSuccess then
+    Exit;
+
   // Determine the SID
-  Result := NtxQuerySidToken(hToken, TokenUser, Sid);
+  Result := NtxQuerySidToken(hxToken, TokenUser, Sid);
 
   if not Result.IsSuccess then
     Exit;
@@ -152,10 +159,9 @@ begin
   Profile.UserName := PWideChar(UserName);
 
   Result.Location := 'LoadUserProfileW';
-  Result.LastCall.Expects<TTokenAccessMask>(TOKEN_QUERY or TOKEN_IMPERSONATE or
-    TOKEN_DUPLICATE);
+  Result.LastCall.Expects<TTokenAccessMask>(TOKEN_LOAD_PROFILE);
 
-  Result.Win32Result := LoadUserProfileW(hToken, Profile);
+  Result.Win32Result := LoadUserProfileW(hxToken.Handle, Profile);
 
   if Result.IsSuccess then
      hxKey := NtxObject.Capture(Profile.hProfile);
@@ -163,8 +169,16 @@ end;
 
 function UnvxUnloadProfile;
 begin
+  // Expand pseudo-handles
+  Result := NtxExpandToken(hxToken, TOKEN_LOAD_PROFILE);
+
+  if not Result.IsSuccess then
+    Exit;
+
   Result.Location := 'UnloadUserProfile';
-  Result.Win32Result := UnloadUserProfile(hToken, hProfile);
+  Result.LastCall.Expects<TTokenAccessMask>(TOKEN_LOAD_PROFILE);
+
+  Result.Win32Result := UnloadUserProfile(hxToken.Handle, hProfile);
 end;
 
 function UnvxEnumerateProfiles;
@@ -319,7 +333,7 @@ begin
   if not Assigned(User) then
   begin
     // Use HKCU of the effective user
-    Result := RtlxFormatUserKeyPath(Path, NtCurrentEffectiveToken);
+    Result := RtlxFormatUserKeyPath(Path, NtxCurrentEffectiveToken);
 
     if not Result.IsSuccess then
       Exit;

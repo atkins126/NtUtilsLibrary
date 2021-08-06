@@ -154,6 +154,8 @@ const
   // 673
   PROC_THREAD_ATTRIBUTE_REPLACE_VALUE = $00000001;
 
+  TOKEN_CREATE_PROCESS = TOKEN_ASSIGN_PRIMARY or TOKEN_QUERY or TOKEN_DUPLICATE;
+
   // WinBase.7268
   LOGON_WITH_PROFILE = $00000001;
   LOGON_NETCREDENTIALS_ONLY = $00000002;
@@ -276,7 +278,7 @@ procedure GetStartupInfoW(
 
 // 433
 function CreateProcessAsUserW(
-  [opt] hToken: THandle;
+  [opt, Access(TOKEN_CREATE_PROCESS)] hToken: THandle;
   [in, opt] ApplicationName: PWideChar;
   [in, out, opt] CommandLine: PWideChar;
   [in, opt] ProcessAttributes: PSecurityAttributes;
@@ -330,7 +332,7 @@ function CreateProcessWithLogonW(
 
 // WinBase.7293
 function CreateProcessWithTokenW(
-  hToken: THandle;
+  [Access(TOKEN_CREATE_PROCESS)] hToken: THandle;
   LogonFlags: TProcessLogonFlags;
   [in, opt] ApplicationName: PWideChar;
   [in, out, opt] CommandLine: PWideChar;

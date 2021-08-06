@@ -18,21 +18,21 @@ type
 
 // Enumerate modules loaded by a process
 function NtxEnumerateModulesProcess(
-  hProcess: THandle;
+  [Access(PROCESS_ENUMERATE_MODULES)] hProcess: THandle;
   out Modules: TArray<TModuleEntry>;
   [out, opt] IsWoW64: PBoolean = nil
 ): TNtxStatus;
 
 // Enumerate native modules loaded by a process
 function NtxEnumerateModulesProcessNative(
-  hProcess: THandle;
+  [Access(PROCESS_ENUMERATE_MODULES)] hProcess: THandle;
   out Modules: TArray<TModuleEntry>
 ): TNtxStatus;
 
 {$IFDEF Win64}
 // Enumerate WoW64 modules loaded by a process
 function NtxEnumerateModulesProcessWoW64(
-  hProcess: THandle;
+  [Access(PROCESS_ENUMERATE_MODULES)] hProcess: THandle;
   out Modules: TArray<TModuleEntry>
 ): TNtxStatus;
 {$ENDIF}
@@ -44,8 +44,7 @@ implementation
 
 uses
   Winapi.WinNt, Ntapi.ntdef, Ntapi.ntpebteb, Ntapi.ntldr, Ntapi.ntstatus,
-  Ntapi.ntwow64, NtUtils.Version, NtUtils.Processes.Query,
-  NtUtils.Processes.Memory;
+  Ntapi.ntwow64, NtUtils.Version, NtUtils.Processes.Info, NtUtils.Memory;
 
 function NtxEnumerateModulesProcess;
 var
@@ -142,7 +141,7 @@ begin
   while (pStart <> pCurrent) and (i <= MAX_MODULES) do
   begin
     // Read the entry
-    Result := NtxReadMemoryProcess(hProcess, pCurrent, TMemory.From(@Current,
+    Result := NtxReadMemory(hProcess, pCurrent, TMemory.From(@Current,
       EntrySize));
 
     if not Result.IsSuccess then
@@ -157,7 +156,7 @@ begin
       SizeOfImage := Current.SizeOfImage;
 
       // Retrieve full module name
-      if NtxReadMemoryProcess(hProcess, Current.FullDllName.Buffer,
+      if NtxReadMemory(hProcess, Current.FullDllName.Buffer,
         TMemory.From(xMemory.Data, Current.FullDllName.Length)).IsSuccess then
       begin
         Current.FullDllName.Buffer := xMemory.Data;
@@ -165,7 +164,7 @@ begin
       end;
 
       // Retrieve short module name
-      if NtxReadMemoryProcess(hProcess, Current.BaseDllName.Buffer,
+      if NtxReadMemory(hProcess, Current.BaseDllName.Buffer,
         TMemory.From(xMemory.Data, Current.BaseDllName.Length)).IsSuccess then
       begin
         Current.BaseDllName.Buffer := xMemory.Data;
@@ -266,7 +265,7 @@ begin
   while (pStart <> pCurrent) and (i <= MAX_MODULES) do
   begin
     // Read the entry
-    Result := NtxReadMemoryProcess(hProcess, pCurrent, TMemory.From(@Current,
+    Result := NtxReadMemory(hProcess, pCurrent, TMemory.From(@Current,
       EntrySize));
 
     if not Result.IsSuccess then
@@ -281,7 +280,7 @@ begin
       SizeOfImage := Current.SizeOfImage;
 
       // Retrieve full module name
-      if NtxReadMemoryProcess(hProcess, Pointer(Current.FullDllName.Buffer),
+      if NtxReadMemory(hProcess, Pointer(Current.FullDllName.Buffer),
         TMemory.From(Str.Buffer, Current.FullDllName.Length)).IsSuccess then
       begin
         Str.Length := Current.FullDllName.Length;
@@ -290,7 +289,7 @@ begin
       end;
 
       // Retrieve short module name
-      if NtxReadMemoryProcess(hProcess, Pointer(Current.BaseDllName.Buffer),
+      if NtxReadMemory(hProcess, Pointer(Current.BaseDllName.Buffer),
         TMemory.From(Str.Buffer, Current.BaseDllName.Length)).IsSuccess then
       begin
         Str.Length := Current.BaseDllName.Length;

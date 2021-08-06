@@ -18,7 +18,7 @@ function NtxCreateSection(
   PageProtection: TMemoryProtection = PAGE_READWRITE;
   AllocationAttributes: TAllocationAttributes = SEC_COMMIT;
   [opt] const ObjectAttributes: IObjectAttributes = nil;
-  [opt] hFile: THandle = 0
+  [opt, Access(FILE_MAP_SECTION)] hFile: THandle = 0
 ): TNtxStatus;
 
 // Open a section object by name
@@ -32,8 +32,8 @@ function NtxOpenSection(
 // Map a view section into a process's address space
 function NtxMapViewOfSection(
   out MappedMemory: IMemory;
-  hSection: THandle;
-  const hxProcess: IHandle;
+  [Access(SECTION_MAP_ANY)] hSection: THandle;
+  [Access(PROCESS_VM_OPERATION)] const hxProcess: IHandle;
   Protection: TMemoryProtection = PAGE_READWRITE;
   AllocationType: TAllocationType = 0;
   [in, opt] Address: Pointer = nil;
@@ -46,15 +46,21 @@ function NtxMapViewOfSection(
 
 // Unmap a view of section
 function NtxUnmapViewOfSection(
-  hProcess: THandle;
+  [Access(PROCESS_VM_OPERATION)] hProcess: THandle;
   [in] Address: Pointer
+): TNtxStatus;
+
+// Determine a name of a backing file for a section
+function NtxQueryFileNameSection(
+  [Access(SECTION_MAP_READ)] hSection: THandle;
+  out FileName: String
 ): TNtxStatus;
 
 type
   NtxSection = class abstract
     // Query fixed-size information about a section
     class function Query<T>(
-      hSection: THandle;
+      [Access(SECTION_QUERY)] hSection: THandle;
       InfoClass: TSectionInformationClass;
       out Buffer: T
     ): TNtxStatus; static;
@@ -93,7 +99,7 @@ implementation
 
 uses
   Ntapi.ntdef, Ntapi.ntioapi, Ntapi.ntpsapi, Ntapi.ntexapi, NtUtils.Files,
-  NtUtils.Processes;
+  NtUtils.Processes, NtUtils.Memory;
 
 type
   TMappedAutoSection = class(TCustomAutoMemory, IMemory)
@@ -150,7 +156,7 @@ var
   hSection: THandle;
 begin
   Result.Location := 'NtOpenSection';
-  Result.LastCall.AttachAccess(DesiredAccess);
+  Result.LastCall.OpensForAccess(DesiredAccess);
 
   Result.Status := NtOpenSection(
     hSection,
@@ -183,10 +189,22 @@ begin
   Result.Status := NtUnmapViewOfSection(hProcess, Address);
 end;
 
+function NtxQueryFileNameSection;
+var
+  MappedMemory: IMemory;
+begin
+  Result := NtxMapViewOfSection(MappedMemory, hSection, NtxCurrentProcess,
+    PAGE_NOACCESS);
+
+  if Result.IsSuccess then
+    Result := NtxQueryFileNameMemory(NtCurrentProcess, MappedMemory.Data,
+      FileName);
+end;
+
 class function NtxSection.Query<T>;
 begin
   Result.Location := 'NtQuerySection';
-  Result.LastCall.AttachInfoClass(InfoClass);
+  Result.LastCall.UsesInfoClass(InfoClass, icQuery);
   Result.LastCall.Expects<TSectionAccessMask>(SECTION_QUERY);
 
   Result.Status := NtQuerySection(hSection, InfoClass, @Buffer, SizeOf(Buffer),
@@ -221,13 +239,15 @@ function RtlxCreateImageSection;
 var
   hxFile: IHandle;
 begin
-  // Open the file for execution
-  Result := NtxOpenFile(hxFile, FILE_READ_DATA or FILE_EXECUTE, FileName);
+  // Open the file. Note that as long as we don't specify execute protection for
+  // the section, we don't even need FILE_EXECUTE.
+  Result := NtxOpenFile(hxFile, FILE_READ_DATA, FileName);
 
   if not Result.IsSuccess then
     Exit;
 
-  // Create an image section backed by the file
+  // Create an image section backed by the file. Note that the call uses
+  // PAGE_READONLY only for access checks on the file, not the page protection
   Result := NtxCreateSection(hxSection, 0, PAGE_READONLY, SEC_IMAGE, nil,
     hxFile.Handle);
 end;

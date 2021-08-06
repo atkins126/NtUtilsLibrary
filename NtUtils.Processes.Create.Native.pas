@@ -42,7 +42,7 @@ function NtxCreateUserProcess(
 function RtlxCloneCurrentProcess(
   out Info: TProcessInfo;
   ProcessFlags: TRtlProcessCloneFlags = RTL_CLONE_PROCESS_FLAGS_INHERIT_HANDLES;
-  [opt] DebugPort: THandle = 0;
+  [opt, Access(DEBUG_PROCESS_ASSIGN)] DebugPort: THandle = 0;
   [in, opt] ProcessSecurity: PSecurityDescriptor = nil;
   [in, opt] ThreadSecurity: PSecurityDescriptor = nil
 ): TNtxStatus;
@@ -50,8 +50,9 @@ function RtlxCloneCurrentProcess(
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntseapi, Ntapi.ntstatus, NtUtils.Threads,
-  Winapi.ProcessThreadsApi, NtUtils.Files, NtUtils.Objects, NtUtils.Ldr;
+  Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntseapi, Ntapi.ntdbg, Ntapi.ntstatus,
+  NtUtils.Threads, Winapi.ProcessThreadsApi, NtUtils.Files, NtUtils.Objects,
+  NtUtils.Ldr, NtUtils.Tokens;
 
 { Process Parameters & Attributes }
 
@@ -113,11 +114,12 @@ type
     FImageName: String;
     FClientId: TClientId;
     FHandleList: TArray<THandle>;
+    hxExpandedToken: IHandle;
     hJob: THandle;
     Buffer: IMemory<PPsAttributeList>;
     function GetData: PPsAttributeList;
   public
-    constructor Create(const Options: TCreateProcessOptions);
+    function Create(const Options: TCreateProcessOptions): TNtxStatus;
     property ClientId: TClientId read FClientId;
     property Data: PPsAttributeList read GetData;
     property ImageName: String read FImageName;
@@ -125,7 +127,7 @@ type
 
 { TPsAttributesRecord }
 
-constructor TPsAttributesRecord.Create;
+function TPsAttributesRecord.Create;
 var
   Count, i, j: Integer;
   TotalSize: Cardinal;
@@ -164,9 +166,16 @@ begin
 
   if Assigned(Options.hxToken) then
   begin
+    // Allow use of pseudo-handles
+    hxExpandedToken := Options.hxToken;
+    Result := NtxExpandToken(hxExpandedToken, TOKEN_ASSIGN_PRIMARY);
+
+    if not Result.IsSuccess then
+      Exit;
+
     Data.Attributes{$R-}[i]{$R+}.Attribute := PS_ATTRIBUTE_TOKEN;
     Data.Attributes{$R-}[i]{$R+}.Size := SizeOf(THandle);
-    Data.Attributes{$R-}[i]{$R+}.Value := Options.hxToken.Handle;
+    Data.Attributes{$R-}[i]{$R+}.Value := hxExpandedToken.Handle;
     Inc(i);
   end;
 
@@ -198,6 +207,8 @@ begin
     Data.Attributes{$R-}[i]{$R+}.Size := SizeOf(THandle);
     Pointer(Data.Attributes{$R-}[i]{$R+}.Value) := @hJob;
   end;
+
+  Result.Status := STATUS_SUCCESS;
 end;
 
 function TPsAttributesRecord.GetData;
@@ -211,13 +222,28 @@ function RtlxCreateUserProcess;
 var
   ProcessParams: IRtlUserProcessParamers;
   ProcessInfo: TRtlUserProcessInformation;
+  hxExpandedToken: IHandle;
 begin
   Result := RtlxCreateProcessParameters(Options, ProcessParams);
 
   if not Result.IsSuccess then
     Exit;
 
+  // Allow use of pseudo-tokens
+  hxExpandedToken := Options.hxToken;
+  Result := NtxExpandToken(hxExpandedToken, TOKEN_ASSIGN_PRIMARY);
+
+  if not Result.IsSuccess then
+    Exit;
+
   Result.Location := 'RtlCreateUserProcess';
+
+  if Assigned(Options.Attributes.hxParentProcess) then
+    Result.LastCall.Expects<TProcessAccessMask>(PROCESS_CREATE_PROCESS);
+
+  if Assigned(Options.hxToken) then
+    Result.LastCall.Expects<TTokenAccessMask>(TOKEN_ASSIGN_PRIMARY);
+
   Result.LastCall.ExpectedPrivilege := SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE;
   Result.Status := RtlCreateUserProcess(
     TNtUnicodeString.From(Options.ApplicationNative),
@@ -228,7 +254,7 @@ begin
     HandleOrDefault(Options.Attributes.hxParentProcess),
     poInheritHandles in Options.Flags,
     0,
-    HandleOrDefault(Options.hxToken),
+    HandleOrDefault(hxExpandedToken),
     ProcessInfo
   );
 
@@ -250,6 +276,7 @@ var
   ProcessParams: IRtlUserProcessParamers;
   ProcessInfo: TRtlUserProcessInformation;
   ParamsEx: TRtlUserProcessExtendedParameters;
+  hxExpandedToken: IHandle;
 begin
   Result := LdrxCheckNtDelayedImport('RtlCreateUserProcessEx');
 
@@ -257,6 +284,13 @@ begin
     Exit;
 
   Result := RtlxCreateProcessParameters(Options, ProcessParams);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Allow use of pseudo-tokens
+  hxExpandedToken := Options.hxToken;
+  Result := NtxExpandToken(hxExpandedToken, TOKEN_ASSIGN_PRIMARY);
 
   if not Result.IsSuccess then
     Exit;
@@ -272,6 +306,16 @@ begin
   ParamsEx.JobHandle := HandleOrDefault(Options.Attributes.hxJob);
 
   Result.Location := 'RtlCreateUserProcessEx';
+
+  if Assigned(Options.Attributes.hxParentProcess) then
+    Result.LastCall.Expects<TProcessAccessMask>(PROCESS_CREATE_PROCESS);
+
+  if Assigned(Options.hxToken) then
+    Result.LastCall.Expects<TTokenAccessMask>(TOKEN_ASSIGN_PRIMARY);
+
+  if Assigned(Options.Attributes.hxJob) then
+    Result.LastCall.Expects<TJobObjectAccessMask>(JOB_OBJECT_ASSIGN_PROCESS);
+
   Result.Status := RtlCreateUserProcessEx(
     TNtUnicodeString.From(Options.ApplicationNative),
     ProcessParams.Data,
@@ -309,15 +353,20 @@ begin
     Exit;
 
   // Prepare attributes
-  Attributes := TPsAttributesRecord.Create(Options);
+  Result := Attributes.Create(Options);
+
+  if not Result.IsSuccess then
+    Exit;
 
   if Assigned(Options.ProcessSecurity) then
-    ProcessObjectAttributes := AttributeBuilder.UseSecurity(Options.ProcessSecurity)
+    ProcessObjectAttributes := AttributeBuilder.UseSecurity(
+      Options.ProcessSecurity)
   else
     ProcessObjectAttributes := nil;
 
   if Assigned(Options.ThreadSecurity) then
-    ThreadObjectAttributes := AttributeBuilder.UseSecurity(Options.ThreadSecurity)
+    ThreadObjectAttributes := AttributeBuilder.UseSecurity(
+      Options.ThreadSecurity)
   else
     ThreadObjectAttributes := nil;
 
@@ -339,6 +388,16 @@ begin
   CreateInfo.Size := SizeOf(TPsCreateInfo);
 
   Result.Location := 'NtCreateUserProcess';
+
+  if Assigned(Options.Attributes.hxParentProcess) then
+    Result.LastCall.Expects<TProcessAccessMask>(PROCESS_CREATE_PROCESS);
+
+  if Assigned(Options.hxToken) then
+    Result.LastCall.Expects<TTokenAccessMask>(TOKEN_ASSIGN_PRIMARY);
+
+  if Assigned(Options.Attributes.hxJob) then
+    Result.LastCall.Expects<TJobObjectAccessMask>(JOB_OBJECT_ASSIGN_PROCESS);
+
   Result.Status := NtCreateUserProcess(
     hProcess,
     hThread,
@@ -366,6 +425,10 @@ var
   RtlProcessInfo: TRtlUserProcessInformation;
 begin
   Result.Location := 'RtlCloneUserProcess';
+
+  if DebugPort <> 0 then
+    Result.LastCall.Expects<TDebugObjectAccessMask>(DEBUG_PROCESS_ASSIGN);
+
   Result.Status := RtlCloneUserProcess(ProcessFlags, ProcessSecurity,
     ThreadSecurity, DebugPort, RtlProcessInfo);
 

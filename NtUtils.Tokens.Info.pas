@@ -1,4 +1,4 @@
-unit NtUtils.Tokens.Query;
+unit NtUtils.Tokens.Info;
 
 {
   This module allows querying and setting different information classes for
@@ -15,16 +15,15 @@ uses
 type
   TSecurityAttribute = NtUtils.Tokens.TSecurityAttribute;
 
-// Make sure pseudo-handles are supported for querying
-function NtxpExpandPseudoTokenForQuery(
-  out hxToken: IHandle;
-  hToken: THandle;
-  DesiredAccess: TTokenAccessMask
+// Make sure pseudo-handles are supported for querying on all OS versions
+function NtxpExpandTokenForQuery(
+  var hxToken: IHandle;
+  DesiredAccess: TTokenAccessMask = TOKEN_QUERY
 ): TNtxStatus;
 
 // Query variable-length token information without race conditions
 function NtxQueryToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] hxToken: IHandle;
   InfoClass: TTokenInformationClass;
   out xMemory: IMemory;
   InitialBuffer: Cardinal = 0;
@@ -33,7 +32,7 @@ function NtxQueryToken(
 
 // Set variable-length token information
 function NtxSetToken(
-  hToken: THandle;
+  [Access(TOKEN_ADJUST_DEFAULT)] hxToken: IHandle;
   InfoClass: TTokenInformationClass;
   [in] TokenInformation: Pointer;
   TokenInformationLength: Cardinal
@@ -43,14 +42,15 @@ type
   NtxToken = class abstract
     // Query fixed-size information
     class function Query<T>(
-      hToken: THandle;
+      [Access(TOKEN_QUERY or TOKEN_QUERY_SOURCE)] hxToken: IHandle;
       InfoClass: TTokenInformationClass;
       out Buffer: T
     ): TNtxStatus; static;
 
     // Set fixed-size information
     class function &Set<T>(
-      hToken: THandle;
+      [Access(TOKEN_ADJUST_DEFAULT or
+        TOKEN_ADJUST_SESSIONID)] const hxToken: IHandle;
       InfoClass: TTokenInformationClass;
       const Buffer: T
     ): TNtxStatus; static;
@@ -58,103 +58,103 @@ type
 
 // Query a SID (Owner, Primary group, ...)
 function NtxQuerySidToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
   InfoClass: TTokenInformationClass;
   out Sid: ISid
 ): TNtxStatus;
 
 // Query a SID and attributes (User, Integrity, ...)
 function NtxQueryGroupToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
   InfoClass: TTokenInformationClass;
   out Group: TGroup
 ): TNtxStatus;
 
 // Query groups (Groups, RestrictingSIDs, LogonSIDs, ...)
 function NtxQueryGroupsToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
   InfoClass: TTokenInformationClass;
   out Groups: TArray<TGroup>
 ): TNtxStatus;
 
 // Determine the SID of the user of the token
 function NtxQueryUserSddlToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
   out SDDL: String
 ): TNtxStatus;
 
 // Query privileges
 function NtxQueryPrivilegesToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
   out Privileges: TArray<TPrivilege>
 ): TNtxStatus;
 
 // Query default DACL
 function NtxQueryDefaultDaclToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
   out DefaultDacl: IAcl
 ): TNtxStatus;
 
 // Set default DACL
 function NtxSetDefaultDaclToken(
-  hToken: THandle;
+  [Access(TOKEN_ADJUST_DEFAULT)] const hxToken: IHandle;
   [opt] const DefaultDacl: IAcl
 ): TNtxStatus;
 
 // Query token flags
 function NtxQueryFlagsToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
   out Flags: TTokenFlags
 ): TNtxStatus;
 
 // Query integrity level of a token. For integrity SID use NtxQueryGroupToken.
 function NtxQueryIntegrityToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
   out IntegrityLevel: TIntegriyRid
 ): TNtxStatus;
 
 // Set integrity level of a token
 function NtxSetIntegrityToken(
-  hToken: THandle;
+  [Access(TOKEN_ADJUST_DEFAULT)] const hxToken: IHandle;
   IntegrityLevel: TIntegriyRid
 ): TNtxStatus;
 
 // Query all security attributes of a token
 function NtxQueryAttributesToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
   InfoClass: TTokenInformationClass;
   out Attributes: TArray<TSecurityAttribute>
 ): TNtxStatus;
 
 // Query security attributes of a token by names
 function NtxQueryAttributesByNameToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] hxToken: IHandle;
   const AttributeNames: TArray<String>;
   out Attributes: TArray<TSecurityAttribute>
 ): TNtxStatus;
 
 // Set or remove security attibutes of a token
 function NtxSetAttributesToken(
-  hToken: THandle;
+  [Access(TOKEN_ADJUST_DEFAULT)] const hxToken: IHandle;
   const Attributes: TArray<TSecurityAttribute>;
   [opt] Operations: TArray<TTokenAttributeOperation> = nil
 ): TNtxStatus;
 
 // Check if a token is a Less Privileged AppContainer token
 function NtxQueryLpacToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
   out IsLPAC: Boolean
 ): TNtxStatus;
 
 // Set if an AppContainer token is a Less Privileged AppContainer
 function NtxSetLpacToken(
-  hToken: THandle;
+  [Access(TOKEN_ADJUST_DEFAULT)] const hxToken: IHandle;
   IsLPAC: Boolean
 ): TNtxStatus;
 
 // Query token claim attributes
 function NtxQueryClaimsToken(
-  hToken: THandle;
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
   InfoClass: TTokenInformationClass;
   out Claims: TArray<TSecurityAttribute>
 ): TNtxStatus;
@@ -166,42 +166,31 @@ uses
   NtUtils.Objects, NtUtils.Tokens.Misc, NtUtils.Security.Sid,
   DelphiUtils.AutoObjects, DelphiUtils.Arrays, NtUtils.Lsa.Sid;
 
-function NtxpExpandPseudoTokenForQuery;
+function NtxpExpandTokenForQuery;
 begin
-  // Pseudo-handles are supported only starting from Win 8
-  // and only for query operations
+  // Pseudo-handles are supported for querying starting from Win 8
 
-  if (hToken <= MAX_HANDLE) or RtlOsVersionAtLeast(OsWin8) then
-  begin
-    // Not a pseudo-handle or they are supported.
-    // Capture, but do not close automatically.
-    Result.Status := STATUS_SUCCESS;
-    hxToken := NtxObject.Capture(hToken);
-    hxToken.AutoRelease := False;
-  end
+  if (hxToken.Handle > MAX_HANDLE) and not RtlOsVersionAtLeast(OsWin8) then
+    Result := NtxExpandToken(hxToken, DesiredAccess)
   else
-  begin
-    // This is a pseudo-handle, and they are not supported, open a real one
-    Result := NtxOpenPseudoToken(hxToken, hToken, DesiredAccess);
-  end;
+    Result.Status := STATUS_SUCCESS;
 end;
 
 function NtxQueryToken;
 var
-  hxToken: IHandle;
   DesiredAccess: TTokenAccessMask;
   Required: Cardinal;
 begin
   DesiredAccess := ExpectedTokenQueryAccess(InfoClass);
 
   // Make sure pseudo-handles are supported
-  Result := NtxpExpandPseudoTokenForQuery(hxToken, hToken, DesiredAccess);
+  Result := NtxpExpandTokenForQuery(hxToken, DesiredAccess);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'NtQueryInformationToken';
-  Result.LastCall.AttachInfoClass(InfoClass);
+  Result.LastCall.UsesInfoClass(InfoClass, icQuery);
   Result.LastCall.Expects(DesiredAccess);
   Result.LastCall.ExpectedPrivilege := ExpectedTokenQueryPrivilege(InfoClass);
 
@@ -215,19 +204,18 @@ end;
 
 function NtxSetToken;
 var
-  hxToken: IHandle;
   DesiredAccess: TTokenAccessMask;
 begin
   DesiredAccess := ExpectedTokenSetAccess(InfoClass);
 
   // Always expand pseudo-tokens for setting information
-  Result := NtxExpandPseudoToken(hxToken, hToken, DesiredAccess);
+  Result := NtxExpandToken(hxToken, DesiredAccess);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'NtSetInformationToken';
-  Result.LastCall.AttachInfoClass(InfoClass);
+  Result.LastCall.UsesInfoClass(InfoClass, icSet);
   Result.LastCall.Expects(DesiredAccess);
   Result.LastCall.ExpectedPrivilege := ExpectedTokenSetPrivilege(InfoClass);
 
@@ -237,20 +225,19 @@ end;
 
 class function NtxToken.Query<T>;
 var
-  hxToken: IHandle;
   DesiredAccess: TTokenAccessMask;
   ReturnedBytes: Cardinal;
 begin
   DesiredAccess := ExpectedTokenQueryAccess(InfoClass);
 
   // Make sure pseudo-handles are supported
-  Result := NtxpExpandPseudoTokenForQuery(hxToken, hToken, DesiredAccess);
+  Result := NtxpExpandTokenForQuery(hxToken, DesiredAccess);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'NtQueryInformationToken';
-  Result.LastCall.AttachInfoClass(InfoClass);
+  Result.LastCall.UsesInfoClass(InfoClass, icQuery);
   Result.LastCall.Expects(DesiredAccess);
   Result.LastCall.ExpectedPrivilege := ExpectedTokenQueryPrivilege(InfoClass);
 
@@ -260,7 +247,7 @@ end;
 
 class function NtxToken.&Set<T>;
 begin
-  Result := NtxSetToken(hToken, InfoClass, @Buffer, SizeOf(Buffer));
+  Result := NtxSetToken(hxToken, InfoClass, @Buffer, SizeOf(Buffer));
 end;
 
 { Typed queries }
@@ -269,7 +256,7 @@ function NtxQuerySidToken;
 var
   xMemory: IMemory<PTokenSidInformation>;
 begin
-  Result := NtxQueryToken(hToken, InfoClass, IMemory(xMemory),
+  Result := NtxQueryToken(hxToken, InfoClass, IMemory(xMemory),
     SECURITY_MAX_SID_SIZE);
 
   if Result.IsSuccess and Assigned(xMemory.Data.Sid) then
@@ -280,7 +267,7 @@ function NtxQueryGroupToken;
 var
   xMemory: IMemory<PSidAndAttributes>;
 begin
-  Result := NtxQueryToken(hToken, InfoClass, IMemory(xMemory),
+  Result := NtxQueryToken(hxToken, InfoClass, IMemory(xMemory),
     SECURITY_MAX_SID_SIZE + SizeOf(Cardinal));
 
   if Result.IsSuccess then
@@ -299,7 +286,7 @@ var
   xMemory: IMemory<PTokenGroups>;
   i: Integer;
 begin
-  Result := NtxQueryToken(hToken, InfoClass, IMemory(xMemory));
+  Result := NtxQueryToken(hxToken, InfoClass, IMemory(xMemory));
 
   if Result.IsSuccess then
   begin
@@ -323,13 +310,13 @@ var
   User: ISid;
   UserName: String;
 begin
-  Result := NtxQuerySidToken(hToken, TokenUser, User);
+  Result := NtxQuerySidToken(hxToken, TokenUser, User);
 
   if Result.IsSuccess then
     SDDL := RtlxSidToString(User.Data)
 
   // Ask LSA for help if we can't open our token
-  else if (hToken = NtCurrentEffectiveToken) and
+  else if (hxToken.Handle = NtCurrentEffectiveToken) and
     LsaxGetFullUserName(UserName).IsSuccess and
     LsaxLookupName(UserName, User).IsSuccess then
   begin
@@ -343,7 +330,7 @@ var
   xMemory: IMemory<PTokenPrivileges>;
   i: Integer;
 begin
-  Result := NtxQueryToken(hToken, TokenPrivileges, IMemory(xMemory),
+  Result := NtxQueryToken(hxToken, TokenPrivileges, IMemory(xMemory),
     SizeOf(Integer) + SizeOf(TPrivilege) * SE_MAX_WELL_KNOWN_PRIVILEGE);
 
   if Result.IsSuccess then
@@ -359,7 +346,7 @@ function NtxQueryDefaultDaclToken;
 var
   xMemory: IMemory<PTokenDefaultDacl>;
 begin
-  Result := NtxQueryToken(hToken, TokenDefaultDacl, IMemory(xMemory));
+  Result := NtxQueryToken(hxToken, TokenDefaultDacl, IMemory(xMemory));
 
   if Result.IsSuccess and Assigned(xMemory.Data.DefaultDacl) then
     Result := RtlxCopyAcl(xMemory.Data.DefaultDacl, DefaultDacl)
@@ -376,14 +363,14 @@ begin
   else
     Dacl.DefaultDacl := nil;
 
-  Result := NtxToken.&Set(hToken, TokenDefaultDacl, Dacl);
+  Result := NtxToken.Set(hxToken, TokenDefaultDacl, Dacl);
 end;
 
 function NtxQueryFlagsToken;
 var
   xMemory: IMemory<PTokenAccessInformation>;
 begin
-  Result := NtxQueryToken(hToken, TokenAccessInformation, IMemory(xMemory));
+  Result := NtxQueryToken(hxToken, TokenAccessInformation, IMemory(xMemory));
 
   if Result.IsSuccess then
     Flags := xMemory.Data.Flags;
@@ -393,7 +380,7 @@ function NtxQueryIntegrityToken;
 var
   IntegritySid: TGroup;
 begin
-  Result := NtxQueryGroupToken(hToken, TokenIntegrityLevel, IntegritySid);
+  Result := NtxQueryGroupToken(hxToken, TokenIntegrityLevel, IntegritySid);
 
   if not Result.IsSuccess then
     Exit;
@@ -421,14 +408,14 @@ begin
   MandatoryLabel.Sid := LabelSid.Data;
   MandatoryLabel.Attributes := SE_GROUP_INTEGRITY_ENABLED;
 
-  Result := NtxToken.&Set(hToken, TokenIntegrityLevel, MandatoryLabel);
+  Result := NtxToken.Set(hxToken, TokenIntegrityLevel, MandatoryLabel);
 end;
 
 function NtxQueryAttributesToken;
 var
   xMemory: IMemory<PTokenSecurityAttributes>;
 begin
-  Result := NtxQueryToken(hToken, InfoClass, IMemory(xMemory));
+  Result := NtxQueryToken(hxToken, InfoClass, IMemory(xMemory));
 
   if Result.IsSuccess then
     Attributes := NtxpParseSecurityAttributes(xMemory.Data);
@@ -436,13 +423,12 @@ end;
 
 function NtxQueryAttributesByNameToken;
 var
-  hxToken: IHandle;
   NameStrings: TArray<TNtUnicodeString>;
   xMemory: IMemory<PTokenSecurityAttributes>;
   Required: Cardinal;
 begin
   // Windows 7 supports this function, but can't handle pseudo-tokens yet
-  Result := NtxpExpandPseudoTokenForQuery(hxToken, hToken, TOKEN_QUERY);
+  Result := NtxpExpandTokenForQuery(hxToken, TOKEN_QUERY);
 
   if not Result.IsSuccess then
     Exit;
@@ -491,7 +477,7 @@ begin
   Buffer.Attributes := AttributeBuffer.Data;
   Buffer.Operations := Pointer(Operations);
 
-  Result := NtxToken.&Set(hToken, TokenSecurityAttributes, Buffer);
+  Result := NtxToken.Set(hxToken, TokenSecurityAttributes, Buffer);
 end;
 
 function NtxQueryLpacToken;
@@ -499,7 +485,7 @@ var
   Attributes: TArray<TSecurityAttribute>;
 begin
   // This security attribute indicates Less Privileged AppContainer
-  Result := NtxQueryAttributesByNameToken(hToken, ['WIN://NOALLAPPPKG'],
+  Result := NtxQueryAttributesByNameToken(hxToken, ['WIN://NOALLAPPPKG'],
     Attributes);
 
   IsLPAC := False;
@@ -546,7 +532,7 @@ begin
   else
     Operation := TokenAttributeDelete;
 
-  Result := NtxSetAttributesToken(hToken, [Attribute], [Operation]);
+  Result := NtxSetAttributesToken(hxToken, [Attribute], [Operation]);
 
   // Suceed if it is already a non-LPAC token
   if not IsLPAC and (Result.Status = STATUS_NOT_FOUND) then
@@ -557,7 +543,7 @@ function NtxQueryClaimsToken;
 var
   xMemory: IMemory<PClaimSecurityAttributes>;
 begin
-  Result := NtxQueryToken(hToken, InfoClass, IMemory(xMemory));
+  Result := NtxQueryToken(hxToken, InfoClass, IMemory(xMemory));
 
   if Result.IsSuccess then
     Claims := NtxpParseClaimAttributes(xMemory.Data);
