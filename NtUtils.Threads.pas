@@ -7,7 +7,7 @@ unit NtUtils.Threads;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntrtl, NtUtils;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntrtl, Ntapi.ntseapi, NtUtils;
 
 const
   // Ntapi.ntpsapi
@@ -19,12 +19,19 @@ const
   // For suspend/resume via state change
   THREAD_CHANGE_STATE = THREAD_SET_INFORMATION or THREAD_SUSPEND_RESUME;
 
+type
+  TThreadApcOptions = set of (
+    apcForceSignal, // Use special user APCs when possible (Win 10 RS5+)
+    apcWoW64        // Queue a WoW64 APC
+  );
+
 { Opening }
 
 // Get a pseudo-handle to the current thread
 function NtxCurrentThread: IHandle;
 
 // Open a thread (always succeeds for the current PID)
+[RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpForBypassingChecks)]
 function NtxOpenThread(
   out hxThread: IHandle;
   TID: TThreadId;
@@ -40,6 +47,7 @@ function NtxOpenCurrentThread(
 ): TNtxStatus;
 
 // Iterate through accessible threads in a process
+[RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpForBypassingChecks)]
 function NtxGetNextThread(
   [Access(PROCESS_QUERY_INFORMATION)] hProcess: THandle;
   [opt] var hxThread: IHandle; // use nil to start
@@ -48,6 +56,7 @@ function NtxGetNextThread(
 ): TNtxStatus;
 
 // Open a process containing a thread
+[RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpForBypassingChecks)]
 function NtxOpenProcessByThreadId(
   out hxProcess: IHandle;
   TID: TThreadId;
@@ -67,6 +76,8 @@ function NtxQueryThread(
 ): TNtxStatus;
 
 // Set variable-size information
+[RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpSometimes)]
+[RequiredPrivilege(SE_INCREASE_BASE_PRIORITY_PRIVILEGE, rpSometimes)]
 function NtxSetThread(
   [Access(THREAD_SET_INFORMATION)] hThread: THandle;
   InfoClass: TThreadInfoClass;
@@ -84,6 +95,8 @@ type
     ): TNtxStatus; static;
 
     // Set fixed-size information
+    [RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpSometimes)]
+    [RequiredPrivilege(SE_INCREASE_BASE_PRIORITY_PRIVILEGE, rpSometimes)]
     class function &Set<T>(
       [Access(THREAD_SET_INFORMATION)] hThread: THandle;
       InfoClass: TThreadInfoClass;
@@ -133,12 +146,13 @@ function NtxQueryExitStatusThread(
 { Manipulation }
 
 // Queue user APC to a thread
-function NtxQueueApcThread(
+function NtxQueueApcThreadEx(
   [Access(THREAD_SET_CONTEXT)] hThread: THandle;
   Routine: TPsApcRoutine;
   [in, opt] Argument1: Pointer = nil;
   [in, opt] Argument2: Pointer = nil;
-  [in, opt] Argument3: Pointer = nil
+  [in, opt] Argument3: Pointer = nil;
+  Options: TThreadApcOptions = []
 ): TNtxStatus;
 
 // Get thread context
@@ -151,7 +165,7 @@ function NtxGetContextThread(
 // Set thread context
 function NtxSetContextThread(
   [Access(THREAD_SET_CONTEXT)] hThread: THandle;
-  const Context: TContext
+  [in] Context: PContext
 ): TNtxStatus;
 
 // Suspend a thread
@@ -224,8 +238,8 @@ function RtlxCreateThread(
 implementation
 
 uses
-  Ntapi.ntobapi, Ntapi.ntseapi, Ntapi.ntmmapi, NtUtils.Version, NtUtils.Objects,
-  NtUtils.Processes, NtUtils.Ldr;
+  Ntapi.ntobapi, Ntapi.ntmmapi, Ntapi.Versions, NtUtils.Objects, NtUtils.Ldr,
+  NtUtils.Processes;
 
 var
   NtxpCurrentThread: IHandle;
@@ -465,13 +479,24 @@ begin
     ExitStatus := Info.ExitStatus;
 end;
 
-function NtxQueueApcThread;
+function NtxQueueApcThreadEx;
+var
+  Flags: THandle;
 begin
-  Result.Location := 'NtQueueApcThread';
+  if (apcForceSignal in Options) and RtlOsVersionAtLeast(OsWin10RS5) then
+    Flags := APC_FORCE_THREAD_SIGNAL
+  else
+    Flags := 0;
+
+  // Encode the pointer the same way RtlQueueApcWow64Thread does
+  if apcWoW64 in Options then
+    UIntPtr(@Routine) := UIntPtr(-IntPtr(@Routine)) shl 2;
+
+  Result.Location := 'NtQueueApcThreadEx';
   Result.LastCall.Expects<TThreadAccessMask>(THREAD_SET_CONTEXT);
 
-  Result.Status := NtQueueApcThread(hThread, Routine, Argument1, Argument2,
-    Argument3);
+  Result.Status := NtQueueApcThreadEx(hThread, Flags, Routine, Argument1,
+    Argument2, Argument3);
 end;
 
 function NtxGetContextThread;
@@ -481,7 +506,7 @@ begin
 
   Result.Location := 'NtGetContextThread';
   Result.LastCall.Expects<TThreadAccessMask>(THREAD_GET_CONTEXT);
-  Result.Status := NtGetContextThread(hThread, Context.Data^);
+  Result.Status := NtGetContextThread(hThread, Context.Data);
 end;
 
 function NtxSetContextThread;

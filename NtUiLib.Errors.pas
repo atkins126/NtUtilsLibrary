@@ -57,7 +57,7 @@ procedure RtlxRaiseException(
 implementation
 
 uses
-  Winapi.WinNt, Ntapi.ntrtl, Winapi.WinError, Ntapi.ntldr, NtUtils.Ldr,
+  Ntapi.WinNt, Ntapi.ntrtl, Ntapi.WinError, Ntapi.ntldr, NtUtils.Ldr,
   NtUtils.SysUtils, NtUtils.Errors, DelphiUiLib.Strings;
 
 function RtlxFindMessage;
@@ -80,9 +80,9 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  if LongBool(MessageEntry.Flags and MESSAGE_RESOURCE_UNICODE) then
+  if BitTest(MessageEntry.Flags and MESSAGE_RESOURCE_UNICODE) then
     Msg := String(PWideChar(@MessageEntry.Text))
-  else if LongBool(MessageEntry.Flags and MESSAGE_RESOURCE_UTF8) then
+  else if BitTest(MessageEntry.Flags and MESSAGE_RESOURCE_UTF8) then
     Msg := String(UTF8String(PAnsiChar(@MessageEntry.Text)))
   else
     Msg := String(PAnsiChar(@MessageEntry.Text));
@@ -111,11 +111,11 @@ begin
   begin
     // No name available. Prepare a numeric value.
     if Status.IsWin32Error then
-      Result := RtlxIntToStr(Status.ToWin32Error) + ' [Win32]'
+      Result := RtlxUIntToStr(Status.ToWin32Error) + ' [Win32]'
     else if Status.IsHResult then
-      Result := RtlxIntToStr(Cardinal(Status.ToHResult), 16) + ' [HRESULT]'
+      Result := RtlxUIntToStr(Cardinal(Status.ToHResult), 16) + ' [HRESULT]'
     else
-      Result :=  RtlxIntToStr(Status, 16) + ' [NTSTATUS]';
+      Result :=  RtlxUIntToStr(Status, 16) + ' [NTSTATUS]';
   end;
 end;
 
@@ -147,7 +147,7 @@ end;
 
 function RtlxNtStatusMessage;
 var
-  hKernel32: Pointer;
+  hKernel32: PDllBase;
 begin
   // Messages for Win32 errors and HRESULT codes are located in kernel32
   if Status.IsWin32Error or Status.IsHResult then

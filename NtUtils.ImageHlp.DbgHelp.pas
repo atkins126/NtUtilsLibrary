@@ -64,7 +64,7 @@ begin
     if Result <> '' then
       Result := Result + '+';
 
-    Result := Result + RtlxInt64ToStr(Offset, 16);
+    Result := Result + RtlxUInt64ToStr(Offset, 16);
   end;
 end;
 
@@ -72,8 +72,8 @@ function RtlxEnumSymbols;
 var
   ExportEntries: TArray<TExportEntry>;
 begin
-  Result := RtlxEnumerateExportImage(BaseAddress, ImageSize, MappedAsImage,
-    ExportEntries);
+  Result := RtlxEnumerateExportImage(ExportEntries, BaseAddress, ImageSize,
+    MappedAsImage);
 
   if not Result.IsSuccess then
     Exit;
@@ -92,7 +92,7 @@ begin
       if Entry.Name <> '' then
         Symbol.Name := String(Entry.Name)
       else
-        Symbol.Name := 'Ordinal#' + RtlxIntToStr(Entry.Ordinal);
+        Symbol.Name := 'Ordinal#' + RtlxUIntToStr(Entry.Ordinal);
     end
   );
 
@@ -130,7 +130,7 @@ var
   BestMatch: Integer;
 begin
   // We expect the symbols to be sorted
-  BestMatch := TArray.BinarySearch<TImageHlpSymbol>(Symbols,
+  BestMatch := TArray.BinarySearchEx<TImageHlpSymbol>(Symbols,
     function (const Entry: TImageHlpSymbol): Integer
     begin
       {$Q-}

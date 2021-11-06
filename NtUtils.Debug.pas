@@ -7,7 +7,7 @@ unit NtUtils.Debug;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntdbg,
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntdbg,
   NtUtils, NtUtils.Objects;
 
 const
@@ -266,7 +266,7 @@ begin
   end;
 
   // Apply the changes
-  Result := NtxSetContextThread(hxThread.Handle, Context.Data^);
+  Result := NtxSetContextThread(hxThread.Handle, Context.Data);
 end;
 
 function DbgxIssueThreadBreakin;

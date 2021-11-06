@@ -7,9 +7,10 @@ unit NtUtils.WinUser.WinstaLock;
 interface
 
 uses
-  NtUtils, NtUtils.Shellcode;
+  Ntapi.ntseapi, NtUtils, NtUtils.Shellcode;
 
 // Lock/unlock the current session's window station
+[RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpForBypassingChecks)]
 function UsrxLockWindowStation(
   Lock: Boolean;
   const Timeout: Int64 = DEFAULT_REMOTE_TIMEOUT
@@ -18,7 +19,7 @@ function UsrxLockWindowStation(
 implementation
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntldr, Winapi.WinUser, NtUtils.Ldr,
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntldr, Ntapi.WinUser, NtUtils.Ldr,
   NtUtils.Processes.Snapshots, NtUtils.Processes.Info;
 
 // User32.dll has a pair of functions called LockWindowStation and
@@ -76,7 +77,7 @@ function UsrxLockerPrepare(
   Lock: Boolean
 ): TNtxStatus;
 var
-  hUser32: Pointer;
+  hUser32: PDllBase;
 begin
   // Winlogon always loads user32.dll, so we don't need to check it
   Result := LdrxGetDllHandle(user32, hUser32);

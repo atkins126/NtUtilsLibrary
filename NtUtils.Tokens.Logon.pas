@@ -8,10 +8,11 @@ unit NtUtils.Tokens.Logon;
 interface
 
 uses
-  Winapi.WinNt, Winapi.WinBase, Winapi.NtSecApi, Ntapi.ntseapi, NtUtils,
+  Ntapi.WinNt, Ntapi.WinBase, Ntapi.NtSecApi, Ntapi.ntseapi, NtUtils,
   NtUtils.Objects;
 
 // Logon a user
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
 function LsaxLogonUser(
   out hxToken: IHandle;
   const Domain: String;
@@ -22,6 +23,7 @@ function LsaxLogonUser(
 ): TNtxStatus;
 
 // Logon a user without a password using S4U logon
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
 function LsaxLogonS4U(
   out hxToken: IHandle;
   const Domain: String;
@@ -78,7 +80,7 @@ var
   SubStatus: NTSTATUS;
   LsaHandle: ILsaHandle;
   AuthPkg: Cardinal;
-  Buffer: IMemory<PKERB_S4U_LOGON>;
+  Buffer: IMemory<PKerbS4ULogon>;
   GroupArray: IMemory<PTokenGroups>;
   ProfileBuffer: Pointer;
   ProfileSize: Cardinal;
@@ -86,7 +88,7 @@ var
   Quotas: TQuotaLimits;
 begin
 {$IFDEF Win32}
-  // TODO -c WoW64: LsaLogonUser overwrites our memory for some reason
+  // LsaLogonUser overwrites our memory under WoW64 for some reason
   if RtlxAssertNotWoW64(Result) then
     Exit;
 {$ENDIF}
@@ -104,7 +106,7 @@ begin
     Exit;
 
   // We need to prepare a self-contained buffer
-  IMemory(Buffer) := Auto.AllocateDynamic(SizeOf(KERB_S4U_LOGON) +
+  IMemory(Buffer) := Auto.AllocateDynamic(SizeOf(TKerbS4ULogon) +
     Succ(Length(Username)) * SizeOf(WideChar) +
     Succ(Length(Domain)) * SizeOf(WideChar));
 
@@ -112,11 +114,11 @@ begin
 
   // Serialize the username, placing it after the structure
   TLsaUnicodeString.Marshal(Username, @Buffer.Data.ClientUPN,
-    Buffer.Offset(SizeOf(KERB_S4U_LOGON)));
+    Buffer.Offset(SizeOf(TKerbS4ULogon)));
 
   // Serialize the domain, placing it after the username
   TLsaUnicodeString.Marshal(Domain, @Buffer.Data.ClientRealm,
-    Buffer.Offset(SizeOf(KERB_S4U_LOGON) +
+    Buffer.Offset(SizeOf(TKerbS4ULogon) +
     Succ(Length(Username)) * SizeOf(WideChar)));
 
   SubStatus := STATUS_SUCCESS;

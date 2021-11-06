@@ -32,12 +32,26 @@ function RtlxCompareStrings(
   CaseSensitive: Boolean = False
 ): Integer;
 
-// Compare two ASCII strings in a case-(in)sensitive way
+// Compare two ANSI strings in a case-(in)sensitive way
 function RtlxCompareAnsiStrings(
   const String1: AnsiString;
   const String2: AnsiString;
   CaseSensitive: Boolean = False
 ): Integer;
+
+// Check if two unicode strings are equal in a case-(in)sensitive way
+function RtlxEqualStrings(
+  const String1: String;
+  const String2: String;
+  CaseSensitive: Boolean = False
+): Boolean;
+
+// Check if two ANSI strings are equal in a case-(in)sensitive way
+function RtlxEqualAnsiStrings(
+  const String1: AnsiString;
+  const String2: AnsiString;
+  CaseSensitive: Boolean = False
+): Boolean;
 
 // Compute a hash of a string
 function RtlxHashString(
@@ -52,20 +66,39 @@ function RtlxPrefixString(
   CaseSensitive: Boolean = False
 ): Boolean;
 
+// Check if an ANSI string has a matching prefix
+function RtlxPrefixAnsiString(
+  const Prefix: AnsiString;
+  const S: AnsiString;
+  CaseSensitive: Boolean = False
+): Boolean;
+
 // Integers
 
 // Convert a 32-bit integer to a string
-function RtlxIntToStr(
+function RtlxUIntToStr(
   Value: Cardinal;
   Base: Cardinal = 10;
   Width: Cardinal = 0
 ): String;
 
 // Convert a 64-bit integer to a string
-function RtlxInt64ToStr(
+function RtlxUInt64ToStr(
   Value: UInt64;
   Base: Cardinal = 10;
   Width: Cardinal = 0
+): String;
+
+// Convert a native-size integer to a string
+function RtlxUIntPtrToStr(
+  Value: UIntPtr;
+  Base: Cardinal = 10;
+  Width: Cardinal = 0
+): String;
+
+// Convert a pointer value to a string
+function RtlxPtrToStr(
+  Value: Pointer
 ): String;
 
 // Convert a string to an integer
@@ -114,7 +147,7 @@ function RtlxIsPathUnderRoot(
 implementation
 
 uses
-  Winapi.WinNt, Ntapi.ntrtl, Ntapi.ntdef, Ntapi.crt;
+  Ntapi.WinNt, Ntapi.ntrtl, Ntapi.ntdef, Ntapi.crt;
 
 procedure RtlxSetStringW;
 var
@@ -155,6 +188,18 @@ begin
     TNtAnsiString.From(String2), not CaseSensitive);
 end;
 
+function RtlxEqualStrings;
+begin
+  Result := RtlEqualUnicodeString(TNtUnicodeString.From(String1),
+    TNtUnicodeString.From(String2), not CaseSensitive);
+end;
+
+function RtlxEqualAnsiStrings;
+begin
+  Result := RtlEqualString(TNtAnsiString.From(String1),
+    TNtAnsiString.From(String2), not CaseSensitive);
+end;
+
 function RtlxHashString;
 begin
   if not NT_SUCCESS(RtlHashUnicodeString(TNtUnicodeString.From(Source),
@@ -168,7 +213,13 @@ begin
     TNtUnicodeString.From(S), not CaseSensitive);
 end;
 
-function RtlxIntToStr;
+function RtlxPrefixAnsiString;
+begin
+  Result := RtlPrefixString(TNtAnsiString.From(Prefix),
+    TNtAnsiString.From(S), not CaseSensitive);
+end;
+
+function RtlxUIntToStr;
 var
   Str: TNtUnicodeString;
   Buffer: array [0..32] of WideChar;
@@ -194,7 +245,7 @@ begin
     Result := '';
 end;
 
-function RtlxInt64ToStr;
+function RtlxUInt64ToStr;
 var
   Str: TNtUnicodeString;
   Buffer: array [0..64] of WideChar;
@@ -218,6 +269,20 @@ begin
   end
   else
     Result := '';
+end;
+
+function RtlxUIntPtrToStr;
+begin
+  {$IF SizeOf(Value) = SizeOf(UInt64)}
+  Result := RtlxUInt64ToStr(Value, Base, Width);
+  {$ELSE}
+  Result := RtlxUIntToStr(Value, Base, Width);
+  {$ENDIF}
+end;
+
+function RtlxPtrToStr;
+begin
+  Result := RtlxUIntPtrToStr(UIntPtr(Value), 16, 8);
 end;
 
 function RtlxStrToInt;

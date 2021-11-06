@@ -8,7 +8,7 @@ unit NtUtils.DbgHelp;
 interface
 
 uses
-  Winapi.DbgHelp, NtUtils, NtUtils.Ldr, DelphiApi.Reflection;
+  Ntapi.DbgHelp, NtUtils, NtUtils.Ldr, DelphiApi.Reflection;
 
 type
   ISymbolContext = interface (IAutoReleasable)
@@ -90,7 +90,7 @@ function SymxFindBestMatch(
 implementation
 
 uses
-  Winapi.WinNt, Ntapi.ntstatus, DelphiUtils.AutoObjects,
+  Ntapi.WinNt, Ntapi.ntstatus, DelphiUtils.AutoObjects,
   NtUtils.Processes, NtUtils.SysUtils, DelphiUtils.Arrays;
 
 type
@@ -168,7 +168,7 @@ begin
     if Result <> '' then
       Result := Result + '+';
 
-    Result := Result + RtlxInt64ToStr(Offset, 16);
+    Result := Result + RtlxUInt64ToStr(Offset, 16);
   end;
 end;
 
@@ -279,7 +279,7 @@ var
   Index: Integer;
 begin
   // Check if we have the module cached
-  Index := TArray.BinarySearch<String>(SymxNamesCache,
+  Index := TArray.BinarySearchEx<String>(SymxNamesCache,
     function (const Entry: String): Integer
     begin
       Result := RtlxCompareStrings(Entry, FileName);

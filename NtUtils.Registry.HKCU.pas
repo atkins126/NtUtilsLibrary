@@ -8,7 +8,7 @@ unit NtUtils.Registry.HKCU;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntseapi, Ntapi.ntregapi, NtUtils;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntseapi, Ntapi.ntregapi, NtUtils;
 
 // Get user's hive path. Uses the effective token by default.
 function RtlxFormatUserKeyPath(
@@ -17,6 +17,8 @@ function RtlxFormatUserKeyPath(
 ): TNtxStatus;
 
 // Open a handle to a key under the HKCU hive
+[RequiredPrivilege(SE_BACKUP_PRIVILEGE, rpForBypassingChecks)]
+[RequiredPrivilege(SE_RESTORE_PRIVILEGE, rpForBypassingChecks)]
 function RtlxOpenUserKey(
   out hxKey: IHandle;
   DesiredAccess: TRegKeyAccessMask;

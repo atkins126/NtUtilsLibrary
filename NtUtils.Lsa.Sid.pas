@@ -7,7 +7,7 @@ unit NtUtils.Lsa.Sid;
 interface
 
 uses
-  Winapi.WinNt, Winapi.ntlsa, NtUtils, NtUtils.Lsa;
+  Ntapi.WinNt, Ntapi.ntlsa, Ntapi.ntseapi, NtUtils, NtUtils.Lsa;
 
 type
   TTranslatedName = record
@@ -76,6 +76,7 @@ function LsaxGetFullUserName(
 ): TNtxStatus;
 
 // Assign a name to an SID
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpAlways)]
 function LsaxAddSidNameMapping(
   const Domain: String;
   const User: String;
@@ -83,6 +84,7 @@ function LsaxAddSidNameMapping(
 ): TNtxStatus;
 
 // Revoke a name from an SID
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpAlways)]
 function LsaxRemoveSidNameMapping(
   const Domain: String;
   const User: String
@@ -91,8 +93,7 @@ function LsaxRemoveSidNameMapping(
 implementation
 
 uses
-  Winapi.NtSecApi, Ntapi.ntstatus, Ntapi.ntseapi, NtUtils.SysUtils,
-  NtUtils.Security.Sid;
+  Ntapi.NtSecApi, Ntapi.ntstatus, NtUtils.SysUtils, NtUtils.Security.Sid;
 
 { TTranslatedName }
 
@@ -192,7 +193,7 @@ end;
 function LsaxLookupName;
 var
   BufferDomain: PLsaReferencedDomainList;
-  BufferTranslatedSid: PLsaTranslatedSid2;
+  BufferTranslatedSid: PLsaTranslatedSid2Array;
   NeedsFreeMemory: Boolean;
 begin
   Result := LsaxpEnsureConnected(hxPolicy, POLICY_LOOKUP_NAMES);
@@ -209,7 +210,7 @@ begin
   NeedsFreeMemory := Result.IsSuccess or (Result.Status = STATUS_NONE_MAPPED);
 
   if Result.IsSuccess then
-    Result := RtlxCopySid(BufferTranslatedSid.Sid, Sid);
+    Result := RtlxCopySid(BufferTranslatedSid{$R-}[0]{$R+}.Sid, Sid);
 
   if NeedsFreeMemory then
   begin
@@ -307,6 +308,7 @@ begin
   end;
 end;
 
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpAlways)]
 function LsaxManageSidNameMapping(
   OperationType: TLsaSidNameMappingOperationType;
   Input: TLsaSidNameMappingOperation

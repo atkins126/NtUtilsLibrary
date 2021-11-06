@@ -9,11 +9,20 @@ unit NtUiLib.Reflection.Types;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntseapi, NtUtils, DelphiUiLib.Reflection;
+  Ntapi.WinNt, Ntapi.ntseapi, NtUtils, DelphiUiLib.Reflection;
 
 type
   // TNtUnicodeString
   TNtUnicodeStringRepresenter = class abstract (TRepresenter)
+    class function GetType: Pointer; override;
+    class function Represent(
+      const Instance;
+      [opt] const Attributes: TArray<TCustomAttribute>
+    ): TRepresentation; override;
+  end;
+
+  // TNtAnsiString
+  TNtAnsiStringRepresenter = class abstract (TRepresenter)
     class function GetType: Pointer; override;
     class function Represent(
       const Instance;
@@ -41,6 +50,24 @@ type
 
   // TProcessId32
   TProcessId32Representer = class abstract (TRepresenter)
+    class function GetType: Pointer; override;
+    class function Represent(
+      const Instance;
+      [opt] const Attributes: TArray<TCustomAttribute>
+    ): TRepresentation; override;
+  end;
+
+  // TThreadId
+  TThreadIdRepresenter = class abstract (TRepresenter)
+    class function GetType: Pointer; override;
+    class function Represent(
+      const Instance;
+      [opt] const Attributes: TArray<TCustomAttribute>
+    ): TRepresentation; override;
+  end;
+
+  // TThreadId32
+  TThreadId32Representer = class abstract (TRepresenter)
     class function GetType: Pointer; override;
     class function Represent(
       const Instance;
@@ -176,11 +203,12 @@ function RepresentSidWorker(
 implementation
 
 uses
-  Ntapi.ntdef, DelphiApi.Reflection, NtUiLib.Errors,
-  DelphiUiLib.Reflection.Strings, DelphiUiLib.Reflection.Numeric,
-  System.SysUtils, NtUtils.Lsa.Sid, NtUtils.Lsa.Logon, NtUtils.WinStation,
-  Winapi.WinUser, NtUtils.Security.Sid, NtUtils.Processes.Info,
-  DelphiUiLib.Strings, NtUtils.Errors;
+  System.SysUtils, Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.WinUser, Ntapi.winsta,
+  DelphiApi.Reflection, NtUtils.Errors, NtUiLib.Errors,NtUtils.Lsa.Sid,
+  NtUtils.Lsa.Logon, NtUtils.WinStation, NtUtils.Security.Sid,
+  NtUtils.Processes, NtUtils.Processes.Info, NtUtils.Threads,
+  NtUtils.Synchronization, DelphiUiLib.Strings, DelphiUiLib.Reflection.Strings,
+  DelphiUiLib.Reflection.Numeric;
 
 function RepresentSidWorker;
 var
@@ -253,6 +281,20 @@ begin
   Result.Text := Value.ToString;
 end;
 
+{ TNtAnsiStringRepresenter }
+
+class function TNtAnsiStringRepresenter.GetType;
+begin
+  Result := TypeInfo(TNtAnsiString);
+end;
+
+class function TNtAnsiStringRepresenter.Represent;
+var
+  Value: TNtAnsiString absolute Instance;
+begin
+  Result.Text := String(Value.ToString);
+end;
+
 { TClientIdRepresenter }
 
 class function TClientIdRepresenter.GetType;
@@ -264,9 +306,8 @@ class function TClientIdRepresenter.Represent;
 var
   CID: TClientId absolute Instance;
 begin
-  Result.Text := Format('[PID: %d, TID: %d]', [CID.UniqueProcess,
-    CID.UniqueThread]);
-  // TODO: Represent TThreadId
+  Result.Text := Format('[PID: %d, TID: %d]',
+    [CID.UniqueProcess, CID.UniqueThread]);
 end;
 
 { TProcessIdRepresenter }
@@ -280,6 +321,7 @@ class function TProcessIdRepresenter.Represent;
 var
   PID: TProcessId absolute Instance;
   ImageName: String;
+  hxProcess: IHandle;
 begin
   if PID = 0 then
     ImageName := 'System Idle Process'
@@ -287,11 +329,20 @@ begin
     ImageName := 'System'
   else if NtxQueryImageNameProcessId(PID, ImageName).IsSuccess then
   begin
-    ImageName := ExtractFileName(ImageName);
-    Result.Hint := BuildHint('NT Image Name', ImageName);
+    if ImageName <> '' then
+    begin
+      Result.Hint := BuildHint('NT Image Name', ImageName);
+      ImageName := ExtractFileName(ImageName);
+    end
+    else
+      ImageName := 'Unnamed Process';
+
+    if NtxOpenProcess(hxProcess, PID, SYNCHRONIZE).IsSuccess and
+      (NtxWaitForSingleObject(hxProcess.Handle, 0).Status = STATUS_SUCCESS) then
+      ImageName := 'Terminated ' + ImageName;
   end
   else
-    ImageName := 'Unknown';
+    ImageName := 'Unknown Process';
 
   Result.Text := Format('%s [%d]', [ImageName, PID]);
 end;
@@ -310,6 +361,68 @@ var
 begin
   PID := PID32;
   Result := TProcessIdRepresenter.Represent(PID, Attributes);
+end;
+
+{ TThreadIdRepresenter }
+
+class function TThreadIdRepresenter.GetType;
+begin
+  Result := TypeInfo(TThreadId);
+end;
+
+class function TThreadIdRepresenter.Represent;
+var
+  TID: TThreadId absolute Instance;
+  hxThread: IHandle;
+  BasicInfo: TThreadBasicInformation;
+  IsKnownName, IsTerminated: LongBool;
+  ThreadName: String;
+begin
+  Result.Text := 'Unknown Process';
+  IsTerminated := False;
+  IsKnownName := False;
+
+  if NtxOpenThread(hxThread, TID, THREAD_QUERY_LIMITED_INFORMATION).IsSuccess then
+  begin
+    // Represent owning process
+    if NtxThread.Query(hxThread.Handle, ThreadBasicInformation,
+      BasicInfo).IsSuccess then
+      Result := TProcessIdRepresenter.Represent(
+        BasicInfo.ClientId.UniqueProcess, Attributes);
+
+    // Check if we can query the name
+    IsKnownName := NtxQueryNameThread(hxThread.Handle, ThreadName).IsSuccess;
+
+    if IsKnownName and (ThreadName = '') then
+       ThreadName := 'unnamed thread';
+
+    // Check for termination
+    NtxThread.Query(hxThread.Handle, ThreadIsTerminated, IsTerminated);
+  end;
+
+  if not IsKnownName then
+    ThreadName := 'thread';
+
+  if IsTerminated then
+    ThreadName := 'terminated ' + ThreadName;
+
+  Result.Text := Format('%s: %s [%d]', [Result.Text, ThreadName, TID]);
+end;
+
+{ TProcessId32Representer }
+
+class function TThreadId32Representer.GetType;
+begin
+  Result := TypeInfo(TThreadId32);
+end;
+
+class function TThreadId32Representer.Represent;
+var
+  TID32: TThreadId32 absolute Instance;
+  TID: TProcessId;
+begin
+  TID := TID32;
+  Result := TThreadIdRepresenter.Represent(TID, Attributes);
 end;
 
 { TNtStatusRepresenter }
@@ -475,34 +588,44 @@ end;
 class function TLogonIdRepresenter.Represent;
 var
   LogonId: TLogonId absolute Instance;
+  UserName: String;
   LogonData: ILogonSession;
-  Sid: ISid;
-  User: TTranslatedName;
 begin
-  Result.Text := IntToHexEx(LogonId);
+  LsaxQueryLogonSession(LogonId, LogonData);
 
-  // Try known SIDs first
-  Sid := LsaxLookupKnownLogonSessionSid(LogonId);
-
-  // Query logon session otherwise
-  if not Assigned(Sid) and LsaxQueryLogonSession(LogonId, LogonData).IsSuccess
-    and not RtlxCopySid(LogonData.Data.Sid, Sid).IsSuccess then
-    Sid := nil;
-
-  // Lookup the user name
-  if Assigned(Sid) and LsaxLookupSid(Sid.Data, User).IsSuccess and not
-    (User.SidType in [SidTypeUndefined, SidTypeInvalid, SidTypeUnknown]) and
-    (User.UserName <> '') then
-  begin
-    Result.Text := Result.Text + ' (' + User.UserName;
-
+  case LogonId of
+    SYSTEM_LUID:          UserName := 'SYSTEM';
+    ANONYMOUS_LOGON_LUID: UserName := 'ANONYMOUS LOGON';
+    LOCALSERVICE_LUID:    UserName := 'LOCAL SERVICE';
+    NETWORKSERVICE_LUID:  UserName := 'NETWORK SERVICE';
+    IUSER_LUID:           UserName := 'IUSR';
+  else
     if Assigned(LogonData) then
-      Result.Text := Result.Text + ' @ ' + IntToStrEx(LogonData.Data.Session);
-
-    Result.Text := Result.Text + ')';
+      if LogonData.Data.UserName.Length > 0 then
+        UserName := LogonData.Data.UserName.ToString
+      else
+        UserName := 'No user'
+    else
+      UserName := '';
   end;
 
-  // TODO: Add more logon info to hint
+  Result.Text := IntToHexEx(LogonId);
+
+  if Assigned(LogonData) then
+  begin
+    Result.Text := Format('%s (%s @ %d)', [Result.Text, UserName,
+      LogonData.Data.Session]);
+
+    Result.Hint := BuildHint([
+      THintSection.New('Logon ID', IntToHexEx(LogonId)),
+      THintSection.New('Logon Time', TLargeIntegerRepresenter.Represent(
+        LogonData.Data.LogonTime, nil).Text),
+      THintSection.New('User', TSidRepresenter.Represent(
+        LogonData.Data.SID, nil).Text),
+      THintSection.New('Session', TSessionIdRepresenter.Represent(
+        LogonData.Data.Session, nil).Text)
+    ]);
+  end;
 end;
 
 { TSessionIdRepresenter }
@@ -515,9 +638,23 @@ end;
 class function TSessionIdRepresenter.Represent;
 var
   SessionId: TSessionId absolute Instance;
+  Info: TWinStationInformation;
 begin
-  Result.Text := WsxQueryName(SessionId);
-  // TODO: Add more session info to hint
+  Result.Text := IntToStrEx(SessionId);
+
+  if not WsxWinStation.Query(SessionId, WinStationInformation, Info).IsSuccess then
+    Exit;
+
+  if Info.WinStationName <> '' then
+    Result.Text := Format('%s: %s', [Result.Text, Info.WinStationName]);
+
+  Result.Text := Format('%s (%s)', [Result.Text, Info.FullUserName]);
+
+  Result.Hint := BuildHint([
+    THintSection.New('ID', IntToStrEx(Info.LogonID)),
+    THintSection.New('Name', Info.WinStationName),
+    THintSection.New('User', Info.FullUserName)
+  ]);
 end;
 
 { TRectRepresenter }
@@ -538,9 +675,12 @@ end;
 initialization
   // Make all representers available at runtime for RTTI
   CompileTimeInclude(TNtUnicodeStringRepresenter);
+  CompileTimeInclude(TNtAnsiStringRepresenter);
   CompileTimeInclude(TClientIdRepresenter);
   CompileTimeInclude(TProcessIdRepresenter);
   CompileTimeInclude(TProcessId32Representer);
+  CompileTimeInclude(TThreadIdRepresenter);
+  CompileTimeInclude(TThreadId32Representer);
   CompileTimeInclude(TNtStatusRepresenter);
   CompileTimeInclude(THResultRepresenter);
   CompileTimeInclude(TWin32ErrorRepresenter);

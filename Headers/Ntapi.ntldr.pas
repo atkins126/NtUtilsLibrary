@@ -1,13 +1,19 @@
 unit Ntapi.ntldr;
 
-{$MINENUMSIZE 4}
+{
+  The module defines structures and functions of the image loader from ntdll.
+}
 
 interface
 
+{$MINENUMSIZE 4}
+
 uses
-  Winapi.WinNt, Ntapi.ntdef, NtUtils.Version, DelphiApi.Reflection;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ImageHlp, Ntapi.Versions,
+  DelphiApi.Reflection;
 
 const
+  // PHNT::ntldr.h - module flags
   LDRP_PACKAGED_BINARY = $00000001;
   LDRP_STATIC_LINK = $00000002;
   LDRP_IMAGE_DLL = $00000004;
@@ -32,18 +38,23 @@ const
   LDRP_MM_LOADED = $40000000;
   LDRP_COMPAT_DATABASE_PROCESSED = $80000000;
 
+  // PHNT::ntldr.h - loader lock acquiring options
   LDR_LOCK_LOADER_LOCK_FLAG_RAISE_ON_ERRORS =  $00000001;
   LDR_LOCK_LOADER_LOCK_FLAG_TRY_ONLY = $00000002;
 
 type
-  // ntdef
+  PDllBase = Ntapi.ImageHlp.PImageDosHeader;
+
+  // SDK::ntdef.h
   PRtlBalancedNode = ^TRtlBalancedNode;
+  [SDKName('RTL_BALANCED_NODE')]
   TRtlBalancedNode = record
     Left: PRtlBalancedNode;
     Right: PRtlBalancedNode;
     ParentValue: NativeUInt;
   end;
 
+  // PHNT::ntldr.h
   [NamingStyle(nsCamelCase, 'LoadReason')]
   TLdrDllLoadReason = (
     LoadReasonStaticDependency,
@@ -82,25 +93,32 @@ type
   [FlagName(LDRP_COMPAT_DATABASE_PROCESSED, 'Compact Database Processed')]
   TLdrFlags = type Cardinal;
 
+  // PHNT::ntldr.h
   PLdrServiceTagRecord = ^TLdrServiceTagRecord;
+  [SDKName('LDR_SERVICE_TAG_RECORD')]
   TLdrServiceTagRecord = record
     Next: PLdrServiceTagRecord;
-    ServiceTag: Cardinal; // TODO: add support for service tags
+    ServiceTag: TServiceTag;
   end;
 
+  // PHNT::ntldr.h
+  [SDKName('LDR_DDAG_NODE')]
   TLdrDdagNode = record
     Modules: TListEntry;
     ServiceTagList: PLdrServiceTagRecord;
     LoadCount: Cardinal;
     LoadWhileUnloadingCount: Cardinal;
+    // TODO: add more LDR DDAG fields
   end;
   PLdrDdagNode = ^TLdrDdagNode;
 
+  // PHNT::ntldr.h
+  [SDKName('LDR_DATA_TABLE_ENTRY')]
   TLdrDataTableEntry = record
     InLoadOrderLinks: TListEntry;
     InMemoryOrderLinks: TListEntry;
     InInitializationOrderLinks: TListEntry;
-    DllBase: Pointer;
+    DllBase: PDllBase;
     EntryPoint: Pointer;
     [Bytes] SizeOfImage: Cardinal;
     FullDllName: TNtUnicodeString;
@@ -109,13 +127,13 @@ type
     ObsoleteLoadCount: Word;
     TlsIndex: Word;
     HashLinks: TListEntry;
-    TimeDateStamp: Cardinal;
+    TimeDateStamp: TUnixTime;
     EntryPointActivationContext: Pointer;
     Lock: Pointer;
     DdagNode: PLdrDdagNode;
     NodeModuleLink: TListEntry;
     LoadContext: Pointer;
-    ParentDllBase: Pointer;
+    ParentDllBase: PDllBase;
     SwitchBackContext: Pointer;
     BaseAddressIndexNode: TRtlBalancedNode;
     MappingInfoIndexNode: TRtlBalancedNode;
@@ -134,6 +152,7 @@ type
   [FlagName(LDR_LOCK_LOADER_LOCK_FLAG_TRY_ONLY, 'Try Only')]
   TLdrLockFlags = type Cardinal;
 
+  // PHNT::ntldr.h
   [NamingStyle(nsSnakeCase, 'LDR_LOCK_LOADER_LOCK_DISPOSITION')]
   TLdrLoaderLockDisposition = (
     LDR_LOCK_LOADER_LOCK_DISPOSITION_INVALID = 0,
@@ -142,7 +161,7 @@ type
   );
   PLdrLoaderLockDisposition = ^TLdrLoaderLockDisposition;
 
-  // MSDN
+  // MSDocs::win32/desktop-src/DevNotes/LdrDllNotification.md
   [NamingStyle(nsSnakeCase, 'LDR_DLL_NOTIFICATION_REASON'), Range(1)]
   TLdrDllNotificationReason = (
     LDR_DLL_NOTIFICATION_REASON_RESERVED = 0,
@@ -150,95 +169,111 @@ type
     LDR_DLL_NOTIFICATION_REASON_UNLOADED = 2
   );
 
-  // MSDN
+  // MSDocs::win32/desktop-src/DevNotes/LdrDllNotification.md
+  [SDKName('LDR_DLL_LOADED_NOTIFICATION_DATA')]
   TLdrDllNotificationData = record
     [Reserved] Flags: Cardinal;
     FullDllName: PNtUnicodeString;
     BaseDllName: PNtUnicodeString;
-    DllBase: Pointer;
+    DllBase: PDllBase;
     [Bytes] SizeOfImage: Cardinal;
   end;
 
-  // MSDN
+  // MSDocs::win32/desktop-src/DevNotes/LdrDllNotification.md
+  [SDKName('LdrDllNotification')]
   TLdrDllNotificationFunction = procedure(
     NotificationReason: TLdrDllNotificationReason;
     const NotificationData: TLdrDllNotificationData;
     [in, opt] Context: Pointer
   ); stdcall;
 
+  // PHNT::ntldr.h
+  [SDKName('PLDR_ENUM_CALLBACK')]
   TLdrEnumCallback = procedure(
     ModuleInformation: PLdrDataTableEntry;
     Parameter: Pointer;
     out Stop: Boolean
   ); stdcall;
 
+// PHNT::ntldr.h
 function LdrLoadDll(
   [in, opt] DllPath: PWideChar;
   [in, opt] DllCharacteristics: PCardinal;
   const DllName: TNtUnicodeString;
-  out DllBase: Pointer
+  out DllBase: PDllBase
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrUnloadDll(
-  [in] DllBase: Pointer
+  [in] DllBase: PDllBase
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrGetDllHandle(
   [in, opt] DllPath: PWideChar;
   [in, opt] DllCharacteristics: PCardinal;
   const DllName: TNtUnicodeString;
-  out DllBase: Pointer
+  out DllBase: PDllBase
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrGetDllHandleByMapping(
   [in] BaseAddress: Pointer;
-  out DllBase: Pointer
+  out DllBase: PDllBase
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrGetDllHandleByName(
   [in, opt] BaseDllName: PNtUnicodeString;
   [in, opt] FullDllName: PNtUnicodeString;
-  out DllBase: Pointer
+  out DllBase: PDllBase
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrGetDllFullName(
-  [in] DllBase: Pointer;
+  [in] DllBase: PDllBase;
   out FullDllName: TNtUnicodeString
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrGetDllDirectory(
   out DllDirectory: TNtUnicodeString
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrSetDllDirectory(
   const DllDirectory: TNtUnicodeString
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrGetProcedureAddress(
-  [in] DllBase: Pointer;
+  [in] DllBase: PDllBase;
   const ProcedureName: TNtAnsiString;
   ProcedureNumber: Cardinal;
   out ProcedureAddress: Pointer
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrGetKnownDllSectionHandle(
   [in] DllName: PWideChar;
   KnownDlls32: Boolean;
   out Section: THandle
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrLockLoaderLock(
   Flags: TLdrLockFlags;
   [out, opt] Disposition: PLdrLoaderLockDisposition;
   out Cookie: NativeUInt
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrUnlockLoaderLock(
   Flags: TLdrLockFlags;
   Cookie: NativeUInt
 ): NTSTATUS; stdcall; external ntdll;
 
-// MSDN
+// MSDocs::win32/desktop-src/DevNotes/LdrRegisterDllNotification.md
 function LdrRegisterDllNotification(
   [Reserved] Flags: Cardinal;
   NotificationFunction: TLdrDllNotificationFunction;
@@ -246,25 +281,28 @@ function LdrRegisterDllNotification(
   out Cookie: NativeUInt
 ): NTSTATUS; stdcall; external ntdll;
 
-// MSDN
+// MSDocs::win32/desktop-src/DevNotes/LdrUnregisterDllNotification.md
 function LdrUnregisterDllNotification(
   Cookie: NativeUInt
 ): NTSTATUS; stdcall; external ntdll;
 
-// MSDN
+// MSDocs::win32/desktop-src/DevNotes/LdrFastFailInLoaderCallout.md
 procedure LdrFastFailInLoaderCallout; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrFindEntryForAddress(
-  [in] DllBase: Pointer;
+  [in] DllBase: PDllBase;
   Entry: PLdrDataTableEntry
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrEnumerateLoadedModules(
   ReservedFlag: Boolean;
   EnumProc: TLdrEnumCallback;
   [in, opt] Context: Pointer
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
 function LdrQueryImageFileExecutionOptions(
   const SubKey: TNtUnicodeString;
   [in] ValueName: PWideChar;

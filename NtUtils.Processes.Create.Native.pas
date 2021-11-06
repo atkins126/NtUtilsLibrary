@@ -7,7 +7,7 @@ unit NtUtils.Processes.Create.Native;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntrtl, NtUtils, NtUtils.Processes.Create,
+  Ntapi.WinNt, Ntapi.ntrtl, Ntapi.ntseapi, NtUtils, NtUtils.Processes.Create,
   DelphiUtils.AutoObjects;
 
 type
@@ -20,18 +20,50 @@ function RtlxCreateProcessParameters(
 ): TNtxStatus;
 
 // Create a new process via RtlCreateUserProcess
+[SupportedOption(spoSuspended)]
+[SupportedOption(spoInheritHandles)]
+[SupportedOption(spoEnvironment)]
+[SupportedOption(spoSecurity)]
+[SupportedOption(spoWindowMode)]
+[SupportedOption(spoDesktop)]
+[SupportedOption(spoToken)]
+[SupportedOption(spoParentProcess)]
+[SupportedOption(spoJob)]
+[RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
 function RtlxCreateUserProcess(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
 ): TNtxStatus;
 
 // Create a new process via RtlCreateUserProcessEx
+[SupportedOption(spoSuspended)]
+[SupportedOption(spoInheritHandles)]
+[SupportedOption(spoEnvironment)]
+[SupportedOption(spoSecurity)]
+[SupportedOption(spoWindowMode)]
+[SupportedOption(spoDesktop)]
+[SupportedOption(spoToken)]
+[SupportedOption(spoParentProcess)]
+[SupportedOption(spoJob)]
+[RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
 function RtlxCreateUserProcessEx(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
 ): TNtxStatus;
 
 // Create a new process via NtCreateUserProcess
+[SupportedOption(spoSuspended)]
+[SupportedOption(spoInheritHandles)]
+[SupportedOption(spoBreakawayFromJob)]
+[SupportedOption(spoEnvironment)]
+[SupportedOption(spoSecurity)]
+[SupportedOption(spoWindowMode)]
+[SupportedOption(spoDesktop)]
+[SupportedOption(spoToken)]
+[SupportedOption(spoParentProcess)]
+[SupportedOption(spoJob)]
+[SupportedOption(spoHandleList)]
+[RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
 function NtxCreateUserProcess(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
@@ -50,9 +82,9 @@ function RtlxCloneCurrentProcess(
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntseapi, Ntapi.ntdbg, Ntapi.ntstatus,
-  NtUtils.Threads, Winapi.ProcessThreadsApi, NtUtils.Files, NtUtils.Objects,
-  NtUtils.Ldr, NtUtils.Tokens;
+  Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntdbg, Ntapi.ntstatus, NtUtils.Threads,
+  Ntapi.ProcessThreadsApi, NtUtils.Files, NtUtils.Objects, NtUtils.Ldr,
+  NtUtils.Tokens;
 
 { Process Parameters & Attributes }
 
@@ -73,7 +105,7 @@ var
   ApplicationStr, CommandLineStr, CurrentDirStr, DesktopStr: TNtUnicodeString;
 begin
   // Note: do not inline these since the compiler reuses hidden variables
-  ApplicationStr := TNtUnicodeString.From(Options.ApplicationNative);
+  ApplicationStr := TNtUnicodeString.From(Options.ApplicationWin32);
   CommandLineStr := TNtUnicodeString.From(Options.CommandLine);
   CurrentDirStr := TNtUnicodeString.From(Options.CurrentDirectory);
   DesktopStr := TNtUnicodeString.From(Options.Desktop);
@@ -95,6 +127,18 @@ begin
 
   if not Result.IsSuccess then
     Exit;
+
+  { TODO: there is something wrong string marshling within the process
+    parameters block. NtCreateUserProcess parses it correctly and then
+    allocates a correct reconstructed version within the target.
+    NtCreateProcessEx, on the other hand, requires manually writing it, and with
+    the block we get, the tager process often crashes during initialization.
+    Manually zeroing out empty strings seems to at least mitigate the problem
+    with console applcations. }
+  Buffer.DLLPath := Default(TNtUnicodeString);
+  Buffer.WindowTitle := Default(TNtUnicodeString);
+  Buffer.ShellInfo := Default(TNtUnicodeString);
+  Buffer.RuntimeData := Default(TNtUnicodeString);
 
   IMemory(xMemory) := TAutoUserProcessParams.Capture(Buffer,
     Buffer.MaximumLength + Buffer.EnvironmentSize);
@@ -393,7 +437,10 @@ begin
     Result.LastCall.Expects<TProcessAccessMask>(PROCESS_CREATE_PROCESS);
 
   if Assigned(Options.hxToken) then
+  begin
+    Result.LastCall.ExpectedPrivilege := SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE;
     Result.LastCall.Expects<TTokenAccessMask>(TOKEN_ASSIGN_PRIMARY);
+  end;
 
   if Assigned(Options.Attributes.hxJob) then
     Result.LastCall.Expects<TJobObjectAccessMask>(JOB_OBJECT_ASSIGN_PROCESS);

@@ -7,11 +7,11 @@ unit NtUtils.WinStation;
 interface
 
 uses
-  Winapi.WinNt, Winapi.winsta, Winapi.WinUser, NtUtils, NtUtils.Objects;
+  Ntapi.WinNt, Ntapi.winsta, Ntapi.WinUser, NtUtils, NtUtils.Objects;
 
 type
-  TSessionIdW = Winapi.winsta.TSessionIdW;
-  TWinStaHandle = Winapi.winsta.TWinStaHandle;
+  TSessionIdW = Ntapi.winsta.TSessionIdW;
+  TWinStaHandle = Ntapi.winsta.TWinStaHandle;
   IWinStaHandle = NtUtils.IHandle;
 
 // Connect to a remote computer
@@ -46,12 +46,6 @@ function WsxQuery(
   InitialBuffer: Cardinal = 0;
   [opt] GrowthMethod: TBufferGrowthMethod = nil
 ): TNtxStatus;
-
-// Format a name of a session, always succeeds with at least an ID
-function WsxQueryName(
-  SessionId: TSessionId;
-  [opt] hServer: TWinStaHandle = SERVER_CURRENT
-): String;
 
 // Open session token
 function WsxQueryToken(
@@ -188,22 +182,6 @@ begin
     Result.Win32Result := WinStationQueryInformationW(hServer, SessionId,
       InfoClass, xMemory.Data, xMemory.Size, Required);
   until not NtxExpandBufferEx(Result, xMemory, Required, GrowthMethod);
-end;
-
-function WsxQueryName;
-var
-  Info: TWinStationInformation;
-begin
-  Result := RtlxIntToStr(SessionId);
-
-  if WsxWinStation.Query(SessionId, WinStationInformation, Info,
-    hServer).IsSuccess then
-  begin
-    if Info.WinStationName <> '' then
-      Result := Result + ': ' + String(Info.WinStationName);
-
-    Result := Result + ' (' + Info.FullUserName + ')';
-  end;
 end;
 
 function WsxQueryToken;

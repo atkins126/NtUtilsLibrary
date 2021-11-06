@@ -8,13 +8,13 @@ unit NtUtils.WinUser;
 interface
 
 uses
-  Winapi.WinNt, Winapi.WinUser, NtUtils, NtUtils.Objects;
+  Ntapi.WinNt, Ntapi.WinUser, NtUtils, NtUtils.Objects;
 
 const
   DEFAULT_USER_TIMEOUT = 1000; // in ms
 
 type
-  TGuiThreadInfo = Winapi.WinUser.TGuiThreadInfo;
+  TGuiThreadInfo = Ntapi.WinUser.TGuiThreadInfo;
 
 { Open }
 
@@ -115,7 +115,7 @@ function UsrxGetGuiInfoThread(
 // Send a window message with a timeout
 function UsrxSendMessage(
   out Outcome: NativeInt;
-  hWindow: HWND;
+  hWindow: THwnd;
   Msg: Cardinal;
   wParam: NativeUInt;
   lParam: NativeInt;
@@ -126,14 +126,14 @@ function UsrxSendMessage(
 // Get text of a window.
 // The function ensures to retrieve a complete string despite race conditions.
 function UsrxGetWindowText(
-  Control: HWND;
+  Control: THwnd;
   out Text: String
 ): TNtxStatus;
 
 implementation
 
 uses
-  Winapi.ProcessThreadsApi, Ntapi.ntpsapi, Ntapi.ntstatus;
+  Ntapi.ProcessThreadsApi, Ntapi.ntpsapi, Ntapi.ntstatus;
 
 function UsrxOpenDesktop;
 var

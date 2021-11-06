@@ -7,7 +7,7 @@ unit NtUtils.Ldr;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntldr, NtUtils, NtUtils.Version, DelphiApi.Reflection;
+  Ntapi.WinNt, Ntapi.ntldr, NtUtils, Ntapi.Versions, DelphiApi.Reflection;
 
 const
   // Artificial limitation to prevent accidental infinite loops
@@ -15,7 +15,7 @@ const
 
 type
   TModuleEntry = record
-    DllBase: Pointer;
+    DllBase: PDllBase;
     EntryPoint: Pointer;
     [Bytes] SizeOfImage: Cardinal;
     FullDllName: String;
@@ -23,11 +23,10 @@ type
     LoadCount: Cardinal;
     Flags: TLdrFlags;
     TimeDateStamp: TUnixTime;
-    ParentDllBase: Pointer;
+    ParentDllBase: PDllBase;
     [Hex] OriginalBase: UIntPtr;
     LoadTime: TLargeInteger;
     [MinOSVersion(OsWin8)] LoadReason: TLdrDllLoadReason;
-    // TODO: more fields
     function IsInRange(Address: Pointer): Boolean;
   end;
 
@@ -56,18 +55,18 @@ function LdrxCheckModuleDelayedImport(
 // Get base address of a loaded dll
 function LdrxGetDllHandle(
   const DllName: String;
-  out DllBase: Pointer
+  out DllBase: PDllBase
 ): TNtxStatus;
 
 // Load a dll
 function LdrxLoadDll(
   const DllName: String;
-  out DllBase: Pointer
+  out DllBase: PDllBase
 ): TNtxStatus;
 
 // Get a function address
 function LdrxGetProcedureAddress(
-  [in] DllBase: Pointer;
+  [in] DllBase: PDllBase;
   const ProcedureName: AnsiString;
   out Address: Pointer
 ): TNtxStatus;
@@ -104,7 +103,7 @@ function ContainingAddress(
 // Provides a finder for a module with a specific base name
 function ByBaseName(
   const DllName: String;
-  CaseSensitive: Boolean = True
+  CaseSensitive: Boolean = False
 ): TModuleFinder;
 
 implementation
@@ -126,7 +125,7 @@ end;
 
 function LdrxCheckModuleDelayedImport;
 var
-  hDll: Pointer;
+  hDll: PDllBase;
   ProcAddr: Pointer;
 begin
   Result.Location := 'LdrGetDllHandle';
@@ -186,15 +185,23 @@ type
   end;
 
 constructor TAutoDllCallback.Create;
+var
+  CallbackIntf: IInterface absolute Callback;
 begin
   inherited Create;
   FCookie := Cookie;
   FCallback := Callback;
+  CallbackIntf._AddRef;
 end;
 
 procedure TAutoDllCallback.Release;
+var
+  Callback: TDllNotification;
+  CallbackIntf: IInterface absolute Callback;
 begin
   LdrUnregisterDllNotification(FCookie);
+  Callback := FCallback;
+  CallbackIntf._Release;
   inherited;
 end;
 

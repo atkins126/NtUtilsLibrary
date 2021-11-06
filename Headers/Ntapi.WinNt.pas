@@ -1,46 +1,47 @@
-unit Winapi.WinNt;
+unit Ntapi.WinNt;
 
-{$MINENUMSIZE 4}
+{
+  This file includes widely used type definitions for Win32 and Native API.
+  For sources see SDK::winnt.h
+}
 
 interface
 
+{$MINENUMSIZE 4}
+
 uses
   DelphiApi.Reflection;
-
-// Note: line numbers are valid for SDK 10.0.18362
 
 const
   kernelbase = 'kernelbase.dll';
   kernel32 = 'kernel32.dll';
   advapi32 = 'advapi32.dll';
 
-  MAX_HANDLE = $FFFFFF;
+  MAX_HANDLE = $FFFFFF; // handle table maximum
   MAX_UINT = $FFFFFFFF;
 
-  // 2580
   MAXIMUM_WAIT_OBJECTS = 64;
 
   NT_INFINITE = $8000000000000000; // maximum possible relative timeout
   MILLISEC = -10000; // 100ns in 1 ms in relative time
 
-  // 1 shl PTR_SHIFT = SizeOf(Pointer)
-  PTR_SHIFT = {$IFDEF Win64}3{$ELSE}2{$ENDIF};
-
-  // 7526
+  // Thread context geting/setting flags
   CONTEXT_i386 = $00010000;
+  CONTEXT_AMD64 = $00100000;
+  CONTEXT_NATIVE = {$IFDEF Win64}CONTEXT_AMD64{$ELSE}CONTEXT_i386{$ENDIF};
 
-  CONTEXT_CONTROL = CONTEXT_i386 or $00000001;  // SS:SP, CS:IP, FLAGS, BP
-  CONTEXT_INTEGER = CONTEXT_i386 or $00000002;  // AX, BX, CX, DX, SI, DI
-  CONTEXT_SEGMENTS = CONTEXT_i386 or $00000004; // DS, ES, FS, GS
-  CONTEXT_FLOATING_POINT = CONTEXT_i386 or $00000008;     // 387 state
-  CONTEXT_DEBUG_REGISTERS = CONTEXT_i386 or $00000010;    // DB 0-3,6,7
-  CONTEXT_EXTENDED_REGISTERS = CONTEXT_i386 or $00000020; // cpu specific extensions
+  CONTEXT_CONTROL = $00000001;  // SS:SP, CS:IP, FLAGS, BP
+  CONTEXT_INTEGER = $00000002;  // AX, BX, CX, DX, SI, DI
+  CONTEXT_SEGMENTS = $00000004; // DS, ES, FS, GS
+  CONTEXT_FLOATING_POINT = $00000008;     // 387 state
+  CONTEXT_DEBUG_REGISTERS = $00000010;    // DB 0-3,6,7
+  CONTEXT_EXTENDED_REGISTERS = $00000020; // cpu specific extensions
 
   CONTEXT_FULL = CONTEXT_CONTROL or CONTEXT_INTEGER or CONTEXT_SEGMENTS;
   CONTEXT_ALL = CONTEXT_FULL or CONTEXT_FLOATING_POINT or
     CONTEXT_DEBUG_REGISTERS or CONTEXT_EXTENDED_REGISTERS;
 
-  CONTEXT_XSTATE = CONTEXT_i386 or $00000040;
+  CONTEXT_XSTATE = $00000040;
 
   CONTEXT_EXCEPTION_ACTIVE = $08000000;
   CONTEXT_SERVICE_ACTIVE = $10000000;
@@ -58,7 +59,7 @@ const
   EFLAGS_DF = $0400; // Direction
   EFLAGS_OF = $0800; // Overflow
 
-  // 8849
+  // Exception flags
   EXCEPTION_NONCONTINUABLE = $01;
   EXCEPTION_UNWINDING = $02;
   EXCEPTION_EXIT_UNWIND = $04;
@@ -70,7 +71,7 @@ const
   EXCEPTION_UNWIND = EXCEPTION_UNWINDING or EXCEPTION_EXIT_UNWIND or
     EXCEPTION_TARGET_UNWIND or EXCEPTION_COLLIDED_UNWIND;
 
-  // 8943
+  // Access masks
   _DELETE = $00010000;      // SDDL: DE
   READ_CONTROL = $00020000; // SDDL: RC
   WRITE_DAC = $00040000;    // SDDL: WD
@@ -98,18 +99,16 @@ const
   OBJECT_READ_SECURITY = READ_CONTROL or ACCESS_SYSTEM_SECURITY;
   OBJECT_WRITE_SECURITY = WRITE_DAC or WRITE_OWNER or ACCESS_SYSTEM_SECURITY;
 
-  // 9069
+  // SID structure consts
   SID_MAX_SUB_AUTHORITIES = 15;
   SECURITY_MAX_SID_SIZE = 8 + SID_MAX_SUB_AUTHORITIES * SizeOf(Cardinal);
   SECURITY_MAX_SID_STRING_CHARACTERS = 2 + 4 + 15 +
     (11 * SID_MAX_SUB_AUTHORITIES) + 1;
 
-  // 9749
   ACL_REVISION = 2;
-
   MAX_ACL_SIZE = High(Word) and not (SizeOf(Cardinal) - 1);
 
-  // 9846
+  // ACE flags
   OBJECT_INHERIT_ACE = $1;
   CONTAINER_INHERIT_ACE = $2;
   NO_PROPAGATE_INHERIT_ACE = $4;
@@ -120,15 +119,15 @@ const
   FAILED_ACCESS_ACE_FLAG = $80;          // for audit and alarm aces
   TRUST_PROTECTED_FILTER_ACE_FLAG = $40; // for access filter ace
 
-  // 9993
+  // Mandatory policy flags
   SYSTEM_MANDATORY_LABEL_NO_WRITE_UP = $1;
   SYSTEM_MANDATORY_LABEL_NO_READ_UP = $2;
   SYSTEM_MANDATORY_LABEL_NO_EXECUTE_UP = $4;
 
-  // 10174
+  // SD version
   SECURITY_DESCRIPTOR_REVISION = 1;
 
-  // 10185 + ntifs.858
+  // SDK::winnt.h & WDK::ntifs.h - security descriptor control
   SE_OWNER_DEFAULTED = $0001;
   SE_GROUP_DEFAULTED = $0002;
   SE_DACL_PRESENT = $0004;
@@ -146,7 +145,7 @@ const
   SE_RM_CONTROL_VALID = $4000;
   SE_SELF_RELATIVE = $8000;
 
-  // 11286
+  // Security information values
   OWNER_SECURITY_INFORMATION = $00000001; // q: RC; s: WO
   GROUP_SECURITY_INFORMATION = $00000002; // q: RC; s: WO
   DACL_SECURITY_INFORMATION = $00000004;  // q: RC; s: WD
@@ -163,27 +162,13 @@ const
   UNPROTECTED_DACL_SECURITY_INFORMATION = $20000000; // s: WD
   UNPROTECTED_SACL_SECURITY_INFORMATION = $10000000; // s: AS
 
-  // 16664
-  IMAGE_DOS_SIGNATURE = $5A4D; // MZ
-
-  // 16829
-  IMAGE_FILE_MACHINE_I386 = $014c;
-  IMAGE_FILE_MACHINE_AMD64 = $8664;
-
-  // 16968
-  IMAGE_NT_OPTIONAL_HDR32_MAGIC = $10b;
-  IMAGE_NT_OPTIONAL_HDR64_MAGIC = $20b;
-
-  // 17120
-  IMAGE_SIZEOF_SHORT_NAME = 8;
-
-  // 21273
+  // DLL reasons
   DLL_PROCESS_DETACH = 0;
   DLL_PROCESS_ATTACH = 1;
   DLL_THREAD_ATTACH = 2;
   DLL_THREAD_DETACH = 3;
 
-  // Ntapi.ntpsapi
+  // process access masks
   PROCESS_TERMINATE = $0001;
   PROCESS_CREATE_THREAD = $0002;
   PROCESS_SET_SESSIONID = $0004;
@@ -201,7 +186,7 @@ const
 
   PROCESS_ALL_ACCESS = STANDARD_RIGHTS_ALL or SPECIFIC_RIGHTS_ALL;
 
-  // Ntapi.ntpsapi
+  // thread access mask
   THREAD_TERMINATE = $0001;
   THREAD_SUSPEND_RESUME = $0002;
   THREAD_ALERT = $0004;
@@ -226,16 +211,18 @@ type
 
   TWin32Error = type Cardinal;
 
-  // 839, for absolute times
+  // Absolute times
+  [SDKName('LARGE_INTEGER')]
   TLargeInteger = type Int64;
   PLargeInteger = ^TLargeInteger;
   TUnixTime = type Cardinal;
 
-  // 859, for relative times
+  // Relative times
+  [SDKName('ULARGE_INTEGER')]
   TULargeInteger = type UInt64;
   PULargeInteger = ^TULargeInteger;
 
-  // 892
+  [SDKName('LUID')]
   [Hex] TLuid = type UInt64;
   PLuid = ^TLuid;
 
@@ -243,25 +230,27 @@ type
   TThreadId = type NativeUInt;
   TProcessId32 = type Cardinal;
   TThreadId32 = type Cardinal;
+  TServiceTag = type Cardinal;
 
   TLogonId = type TLuid;
   TSessionId = type Cardinal;
 
   PEnvironment = type PWideChar;
 
-  // 1138
   PListEntry = ^TListEntry;
+  [SDKName('LIST_ENTRY')]
   TListEntry = record
     Flink: PListEntry;
     Blink: PListEntry;
   end;
 
-  // 2578
   {$ALIGN 16}
+  [SDKName('M128A')]
   M128A = record
     Low: UInt64;
     High: Int64;
   end;
+  PM128A = ^M128A;
   {$ALIGN 8}
 
   [FlagName(EFLAGS_CF, 'Carry')]
@@ -283,9 +272,10 @@ type
   [FlagName(CONTEXT_FLOATING_POINT, 'Floating Point')]
   [FlagName(CONTEXT_DEBUG_REGISTERS, 'Debug Registers')]
   [FlagName(CONTEXT_EXTENDED_REGISTERS, 'Extended Registers')]
+  [FlagName(CONTEXT_i386, 'i386')]
+  [FlagName(CONTEXT_AMD64, 'AMD64')]
   TContextFlags = type Cardinal;
 
-  // 3886
   {$ALIGN 16}
   [Hex]
   TContext64 = record
@@ -343,7 +333,7 @@ type
   PContext64 = ^TContext64;
   {$ALIGN 8}
 
-  // 7556
+  [SDKName('FLOATING_SAVE_AREA')]
   TFloatingSaveArea = record
   const
     SIZE_OF_80387_REGISTERS = 80;
@@ -359,7 +349,6 @@ type
     Cr0NpxState: Cardinal;
   end;
 
-  // 7597
   [Hex]
   TContext32 = record
   const
@@ -418,8 +407,8 @@ type
   [FlagName(EXCEPTION_COLLIDED_UNWIND, 'Collided Unwind')]
   TExceptionFlags = type Cardinal;
 
-  // 8824
   PExceptionRecord = ^TExceptionRecord;
+  [SDKName('EXCEPTION_RECORD')]
   TExceptionRecord = record
   const
     EXCEPTION_MAXIMUM_PARAMETERS = 15;
@@ -433,7 +422,6 @@ type
       NativeUInt;
   end;
 
-  // 8926
   [FriendlyName('object'), ValidMask($FFFFFFFF)]
   [FlagName(READ_CONTROL, 'Read Permissions')]
   [FlagName(WRITE_DAC, 'Write Permissions')]
@@ -448,7 +436,7 @@ type
   [FlagName(GENERIC_ALL, 'Generic All')]
   TAccessMask = type Cardinal;
 
-  // 8985
+  [SDKName('GENERIC_MAPPING')]
   TGenericMapping = record
     GenericRead: TAccessMask;
     GenericWrite: TAccessMask;
@@ -457,24 +445,24 @@ type
   end;
   PGenericMapping = ^TGenericMapping;
 
-  // 9048
+  [SDKName('SID_IDENTIFIER_AUTHORITY')]
   TSidIdentifierAuthority = record
     Value: array [0..5] of Byte;
-    function ToInt64: Int64;
-    procedure FromInt64(IntValue: Int64);
+    class operator Implicit(const Source: UInt64): TSidIdentifierAuthority;
+    class operator Implicit(const Source: TSidIdentifierAuthority): UInt64;
   end;
   PSidIdentifierAuthority = ^TSidIdentifierAuthority;
 
-  // 9056
-  TSid_Internal = record
+  [SDKName('SID')]
+  TSid = record
    Revision: Byte;
    SubAuthorityCount: Byte;
    IdentifierAuthority: TSidIdentifierAuthority;
    SubAuthority: array [0 .. SID_MAX_SUB_AUTHORITIES - 1] of Cardinal;
   end;
-  PSid = ^TSid_Internal;
+  PSid = ^TSid;
 
-  // 9104
+  [SDKName('SID_NAME_USE')]
   [NamingStyle(nsCamelCase, 'SidType'), Range(1)]
   TSidNameUse = (
     SidTypeUndefined = 0,
@@ -491,17 +479,16 @@ type
     SidTypeLogonSession = 11
   );
 
-  // 9762
-  TAcl_Internal = record
+  [SDKName('ACL')]
+  TAcl = record
     AclRevision: Byte;
     Sbz1: Byte;
     AclSize: Word;
     AceCount: Word;
     Sbz2: Word;
   end;
-  PAcl = ^TAcl_Internal;
+  PAcl = ^TAcl;
 
-  // 9805
   {$MINENUMSIZE 1}
   [NamingStyle(nsSnakeCase, '', 'ACE_TYPE')]
   TAceType = (
@@ -549,7 +536,7 @@ type
   [FlagName(FAILED_ACCESS_ACE_FLAG, 'Falied Access')]
   TAceFlags = type Byte;
 
-  // 9792
+  [SDKName('ACE_HEADER')]
   TAceHeader = record
     AceType: TAceType;
     AceFlags: TAceFlags;
@@ -557,17 +544,19 @@ type
   end;
   PAceHeader = ^TAceHeader;
 
-  // This structure covers:
-  //  ACCESS_ALLOWED_ACE & ACCESS_DENIED_ACE
-  //  SYSTEM_AUDIT_ACE & SYSTEM_ALARM_ACE
-  //  SYSTEM_RESOURCE_ATTRIBUTE_ACE
-  //  SYSTEM_SCOPED_POLICY_ID_ACE
-  //  SYSTEM_MANDATORY_LABEL_ACE
-  //  SYSTEM_PROCESS_TRUST_LABEL_ACE
-  //  SYSTEM_ACCESS_FILTER_ACE
-  //  ACCESS_ALLOWED_CALLBACK_ACE & ACCESS_DENIED_CALLBACK_ACE
-  //  SYSTEM_AUDIT_CALLBACK_ACE & SYSTEM_ALARM_CALLBACK_ACE
-  // i.e. everything except OBJECT ACEs.
+  [SDKName('ACCESS_ALLOWED_ACE')]
+  [SDKName('ACCESS_DENIED_ACE')]
+  [SDKName('SYSTEM_AUDIT_ACE')]
+  [SDKName('SYSTEM_ALARM_ACE')]
+  [SDKName('SYSTEM_RESOURCE_ATTRIBUTE_ACE')]
+  [SDKName('SYSTEM_SCOPED_POLICY_ID_ACE')]
+  [SDKName('SYSTEM_MANDATORY_LABEL_ACE')]
+  [SDKName('SYSTEM_PROCESS_TRUST_LABEL_ACE')]
+  [SDKName('SYSTEM_ACCESS_FILTER_ACE')]
+  [SDKName('ACCESS_ALLOWED_CALLBACK_ACE')]
+  [SDKName('ACCESS_DENIED_CALLBACK_ACE')]
+  [SDKName('SYSTEM_AUDIT_CALLBACK_ACE')]
+  [SDKName('SYSTEM_ALARM_CALLBACK_ACE')]
   TAce_Internal = record
     Header: TAceHeader;
     Mask: TAccessMask;
@@ -578,11 +567,14 @@ type
   end;
   PAce = ^TAce_Internal;
 
-  // This structure covers:
-  //  ACCESS_ALLOWED_OBJECT_ACE & ACCESS_DENIED_OBJECT_ACE
-  //  SYSTEM_AUDIT_OBJECT_ACE & SYSTEM_ALARM_OBJECT_ACE
-  //  ACCESS_ALLOWED_CALLBACK_OBJECT_ACE & ACCESS_DENIED_CALLBACK_OBJECT_ACE
-  //  SYSTEM_AUDIT_CALLBACK_OBJECT_ACE & SYSTEM_ALARM_CALLBACK_OBJECT_ACE
+  [SDKName('ACCESS_ALLOWED_OBJECT_ACE')]
+  [SDKName('ACCESS_DENIED_OBJECT_ACE')]
+  [SDKName('SYSTEM_AUDIT_OBJECT_ACE')]
+  [SDKName('SYSTEM_ALARM_OBJECT_ACE')]
+  [SDKName('ACCESS_ALLOWED_CALLBACK_OBJECT_ACE')]
+  [SDKName('ACCESS_DENIED_CALLBACK_OBJECT_ACE')]
+  [SDKName('SYSTEM_AUDIT_CALLBACK_OBJECT_ACE')]
+  [SDKName('SYSTEM_ALARM_CALLBACK_OBJECT_ACE')]
   TObjectAce_Internal = record
     Header: TAceHeader;
     Mask: TAccessMask;
@@ -596,21 +588,15 @@ type
   end;
   PObjectAce = ^TObjectAce_Internal;
 
-  // 10132
+  [SDKName('ACL_INFORMATION_CLASS')]
   [NamingStyle(nsCamelCase, 'Acl'), Range(1)]
   TAclInformationClass = (
     AclReserved = 0,
-    AclRevisionInformation = 1,
-    AclSizeInformation = 2
+    AclRevisionInformation = 1, // q: Cardinal (revision)
+    AclSizeInformation = 2      // q: TAclSizeInformation
   );
 
-  // 10142
-  TAclRevisionInformation = record
-    AclRevision: Cardinal;
-  end;
-  PAclRevisionInformation = ^TAclRevisionInformation;
-
-  // 10151
+  [SDKName('ACL_SIZE_INFORMATION')]
   TAclSizeInformation = record
     AceCount: Integer;
     [Bytes] AclBytesInUse: Cardinal;
@@ -619,7 +605,7 @@ type
   end;
   PAclSizeInformation = ^TAclSizeInformation;
 
-  // 10183
+  [SDKName('SECURITY_DESCRIPTOR_CONTROL')]
   [FlagName(SE_OWNER_DEFAULTED, 'Owner Defaulted')]
   [FlagName(SE_GROUP_DEFAULTED, 'Group Defaulted')]
   [FlagName(SE_DACL_PRESENT, 'DACL Present')]
@@ -639,7 +625,7 @@ type
   TSecurityDescriptorControl = type Word;
   PSecurityDescriptorControl = ^TSecurityDescriptorControl;
 
-  // 10283
+  [SDKName('SECURITY_DESCRIPTOR')]
   TSecurityDescriptor = record
     Revision: Byte;
     Sbz1: Byte;
@@ -659,7 +645,7 @@ type
   end;
   PSecurityDescriptor = ^TSecurityDescriptor;
 
-  // 10637
+  [SDKName('SECURITY_IMPERSONATION_LEVEL')]
   [NamingStyle(nsCamelCase, 'Security')]
   TSecurityImpersonationLevel = (
     SecurityAnonymous = 0,
@@ -668,7 +654,7 @@ type
     SecurityDelegation = 3
   );
 
-  // 11260
+  [SDKName('SECURITY_QUALITY_OF_SERVICE')]
   TSecurityQualityOfService = record
     [Bytes, Unlisted] Length: Cardinal;
     ImpersonationLevel: TSecurityImpersonationLevel;
@@ -677,7 +663,7 @@ type
   end;
   PSecurityQualityOfService = ^TSecurityQualityOfService;
 
-  // 11284
+  [SDKName('SECURITY_INFORMATION')]
   [FlagName(OWNER_SECURITY_INFORMATION, 'Owner')]
   [FlagName(GROUP_SECURITY_INFORMATION, 'Group')]
   [FlagName(DACL_SECURITY_INFORMATION, 'DACL')]
@@ -694,7 +680,7 @@ type
   [FlagName(UNPROTECTED_SACL_SECURITY_INFORMATION, 'Unprotected SACL')]
   TSecurityInformation = type Cardinal;
 
-  // 11535
+  [SDKName('QUOTA_LIMITS')]
   TQuotaLimits = record
     [Bytes] PagedPoolLimit: NativeUInt;
     [Bytes] NonPagedPoolLimit: NativeUInt;
@@ -705,7 +691,7 @@ type
   end;
   PQuotaLimits = ^TQuotaLimits;
 
-  // 11573
+  [SDKName('IO_COUNTERS')]
   TIoCounters = record
     ReadOperationCount: UInt64;
     WriteOperationCount: UInt64;
@@ -716,7 +702,6 @@ type
   end;
   PIoCounters = ^TIoCounters;
 
-  // 12576
   [NamingStyle(nsSnakeCase, 'PF'), Range(0, 35)]
   TProcessorFeature = (
     PF_FLOATING_POINT_PRECISION_ERRATA = 0,
@@ -763,269 +748,8 @@ type
     PF_RESERVED61, PF_RESERVED62, PF_RESERVED63
   );
 
-  // 16682
-  TImageDosHeader = record        // DOS .EXE header
-    e_magic: Word;                // Magic number
-    e_cblp: Word;                 // Bytes on last page of file
-    e_cp: Word;                   // Pages in file
-    e_crlc: Word;                 // Relocations
-    e_cparhdr: Word;              // Size of header in paragraphs
-    e_minalloc: Word;             // Minimum extra paragraphs needed
-    e_maxalloc: Word;             // Maximum extra paragraphs needed
-    e_ss: Word;                   // Initial (relative) SS value
-    e_sp: Word;                   // Initial SP value
-    e_csum: Word;                 // Checksum
-    e_ip: Word;                   // Initial IP value
-    e_cs: Word;                   // Initial (relative) CS value
-    e_lfarlc: Word;               // File address of relocation table
-    e_ovno: Word;                 // Overlay number
-    e_res: array [0..3] of Word;  // Reserved words
-    e_oemid: Word;                // OEM identifier (for e_oeminfo)
-    e_oeminfo: Word;              //  information: OEM; e_oemid specific
-    e_res2: array [0..9] of Word; // Reserved words
-    e_lfanew: Cardinal;           // File address of new exe header
-  end;
-  PImageDosHeader = ^TImageDosHeader;
-
-  // 16799
-  TImageFileHeader = record
-    [Hex] Machine: Word;
-    NumberOfSections: Word;
-    TimeDateStamp: TUnixTime;
-    [Hex] PointerToSymbolTable: Cardinal;
-    NumberOfSymbols: Cardinal;
-    [Bytes] SizeOfOptionalHeader: Word;
-    [Hex] Characteristics: Word;
-  end;
-  PImageFileHeader = ^TImageFileHeader;
-
-  // 16865
-  TImageDataDirectory = record
-    [Hex] VirtualAddress: Cardinal;
-    [Bytes] Size: Cardinal;
-  end;
-  PImageDataDirectory = ^TImageDataDirectory;
-
-  // 17017
-  {$MINENUMSIZE 2}
-  [NamingStyle(nsSnakeCase, 'IMAGE_SUBSYSTEM')]
-  TImageSubsystem = (
-    IMAGE_SUBSYSTEM_UNKNOWN = 0,
-    IMAGE_SUBSYSTEM_NATIVE = 1,
-    IMAGE_SUBSYSTEM_WINDOWS_GUI = 2,
-    IMAGE_SUBSYSTEM_WINDOWS_CUI = 3
-  );
-  {$MINENUMSIZE 4}
-
-  // 17053
-  {$MINENUMSIZE 2}
-  [NamingStyle(nsSnakeCase, 'IMAGE_DIRECTORY_ENTRY'), Range(0, 14)]
-  TImageDirectoryEntry = (
-    IMAGE_DIRECTORY_ENTRY_EXPORT = 0,
-    IMAGE_DIRECTORY_ENTRY_IMPORT = 1,
-    IMAGE_DIRECTORY_ENTRY_RESOURCE = 2,
-    IMAGE_DIRECTORY_ENTRY_EXCEPTION = 3,
-    IMAGE_DIRECTORY_ENTRY_SECURITY = 4,
-    IMAGE_DIRECTORY_ENTRY_BASERELOC = 5,
-    IMAGE_DIRECTORY_ENTRY_DEBUG = 6,
-    IMAGE_DIRECTORY_ENTRY_ARCHITECTURE = 7,
-    IMAGE_DIRECTORY_ENTRY_GLOBALPTR = 8,
-    IMAGE_DIRECTORY_ENTRY_TLS = 9,
-    IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG = 10,
-    IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT = 11,
-    IMAGE_DIRECTORY_ENTRY_IAT = 12,
-    IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT = 13,
-    IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR = 14,
-    IMAGE_DIRECTORY_ENTRY_RESERVED = 15
-  );
-  {$MINENUMSIZE 4}
-
-  // 16876
-  TImageOptionalHeader32 = record
-    [Hex] Magic: Word;
-    MajorLinkerVersion: Byte;
-    MinorLinkerVersion: Byte;
-    [Bytes] SizeOfCode: Cardinal;
-    [Bytes] SizeOfInitializedData: Cardinal;
-    [Bytes] SizeOfUninitializedData: Cardinal;
-    [Hex] AddressOfEntryPoint: Cardinal;
-    [Hex] BaseOfCode: Cardinal;
-    [Hex] BaseOfData: Cardinal;
-    [Hex] ImageBase: Cardinal;
-    SectionAlignment: Cardinal;
-    FileAlignment: Cardinal;
-    MajorOperatingSystemVersion: Word;
-    MinorOperatingSystemVersion: Word;
-    MajorImageVersion: Word;
-    MinorImageVersion: Word;
-    MajorSubsystemVersion: Word;
-    MinorSubsystemVersion: Word;
-    Win32VersionValue: Cardinal;
-    [Bytes] SizeOfImage: Cardinal;
-    [Bytes] SizeOfHeaders: Cardinal;
-    [Hex] CheckSum: Cardinal;
-    Subsystem: TImageSubsystem;
-    [Hex] DllCharacteristics: Word;
-    [Bytes] SizeOfStackReserve: Cardinal;
-    [Bytes] SizeOfStackCommit: Cardinal;
-    [Bytes] SizeOfHeapReserve: Cardinal;
-    [Bytes] SizeOfHeapCommit: Cardinal;
-    [Hex] LoaderFlags: Cardinal;
-    NumberOfRvaAndSizes: Cardinal;
-    DataDirectory: array [TImageDirectoryEntry] of TImageDataDirectory;
-  end;
-  PImageOptionalHeader32 = ^TImageOptionalHeader32;
-
-  // 16935
-  TImageOptionalHeader64 = record
-    [Hex] Magic: Word;
-    MajorLinkerVersion: Byte;
-    MinorLinkerVersion: Byte;
-    [Bytes] SizeOfCode: Cardinal;
-    [Bytes] SizeOfInitializedData: Cardinal;
-    [Bytes] SizeOfUninitializedData: Cardinal;
-    [Hex] AddressOfEntryPoint: Cardinal;
-    [Hex] BaseOfCode: Cardinal;
-    [Hex] ImageBase: UInt64;
-    SectionAlignment: Cardinal;
-    FileAlignment: Cardinal;
-    MajorOperatingSystemVersion: Word;
-    MinorOperatingSystemVersion: Word;
-    MajorImageVersion: Word;
-    MinorImageVersion: Word;
-    MajorSubsystemVersion: Word;
-    MinorSubsystemVersion: Word;
-    Win32VersionValue: Cardinal;
-    [Bytes] SizeOfImage: Cardinal;
-    [Bytes] SizeOfHeaders: Cardinal;
-    [Hex] CheckSum: Cardinal;
-    Subsystem: TImageSubsystem;
-    [Hex] DllCharacteristics: Word;
-    [Bytes] SizeOfStackReserve: UInt64;
-    [Bytes] SizeOfStackCommit: UInt64;
-    [Bytes] SizeOfHeapReserve: UInt64;
-    [Bytes] SizeOfHeapCommit: UInt64;
-    [Hex] LoaderFlags: Cardinal;
-    NumberOfRvaAndSizes: Cardinal;
-    DataDirectory: array [TImageDirectoryEntry] of TImageDataDirectory;
-  end;
-  PImageOptionalHeader64 = ^TImageOptionalHeader64;
-
-  // Common part of 32- abd 64-bit structures
-  TImageOptionalHeader = record
-  public
-    [Hex] Magic: Word;
-    MajorLinkerVersion: Byte;
-    MinorLinkerVersion: Byte;
-    [Bytes] SizeOfCode: Cardinal;
-    [Bytes] SizeOfInitializedData: Cardinal;
-    [Bytes] SizeOfUninitializedData: Cardinal;
-    [Hex] AddressOfEntryPoint: Cardinal;
-    [Hex] BaseOfCode: Cardinal;
-    FImageBase: UInt64 deprecated 'Use ImageBase function instead';
-    SectionAlignment: Cardinal;
-    FileAlignment: Cardinal;
-    MajorOperatingSystemVersion: Word;
-    MinorOperatingSystemVersion: Word;
-    MajorImageVersion: Word;
-    MinorImageVersion: Word;
-    MajorSubsystemVersion: Word;
-    MinorSubsystemVersion: Word;
-    Win32VersionValue: Cardinal;
-    [Bytes] SizeOfImage: Cardinal;
-    [Bytes] SizeOfHeaders: Cardinal;
-    [Hex] CheckSum: Cardinal;
-    Subsystem: TImageSubsystem;
-    [Hex] DllCharacteristics: Word;
-    function SelfAs32: PImageOptionalHeader32;
-    function SelfAs64: PImageOptionalHeader64;
-    function ImageBase: UInt64;
-    function SizeOfStackReserve: UInt64;
-    function SizeOfStackCommit: UInt64;
-    function SizeOfHeapReserve: UInt64;
-    function SizeOfHeapCommit: UInt64;
-    function LoaderFlags: Cardinal;
-    function NumberOfRvaAndSizes: Cardinal;
-    function GetDataDirectory(Index: TImageDirectoryEntry): TImageDataDirectory;
-    property DataDirectory[Index: TImageDirectoryEntry]: TImageDataDirectory read GetDataDirectory;
-  end;
-
-  // 16982
-  TImageNtHeaders = record
-    [Hex] Signature: Cardinal;
-    FileHeader: TImageFileHeader;
-  case Word of
-    0: (OptionalHeader: TImageOptionalHeader);
-    IMAGE_NT_OPTIONAL_HDR32_MAGIC: (OptionalHeader32: TImageOptionalHeader32);
-    IMAGE_NT_OPTIONAL_HDR64_MAGIC: (OptionalHeader64: TImageOptionalHeader64);
-  end;
-  PImageNtHeaders = ^TImageNtHeaders;
-
-  TImageSectionName = array [0 .. IMAGE_SIZEOF_SHORT_NAME - 1] of AnsiChar;
-
-  // 17122
-  TImageSectionHeader = record
-    Name: TImageSectionName;
-    Misc: Cardinal;
-    [Hex] VirtualAddress: Cardinal;
-    [Bytes] SizeOfRawData: Cardinal;
-    [Hex] PointerToRawData: Cardinal;
-    [Hex] PointerToRelocations: Cardinal;
-    [Hex] PointerToLinenumbers: Cardinal;
-    NumberOfRelocations: Word;
-    NumberOfLineNumbers: Word;
-    [Hex] Characteristics: Cardinal;
-  end;
-  PImageSectionHeader = ^TImageSectionHeader;
-  PPImageSectionHeader = ^PImageSectionHeader;
-
-  // 17982
-  TImageExportDirectory = record
-    [Hex] Characteristics: Cardinal;
-    TimeDateStamp: TUnixTime;
-    MajorVersion: Word;
-    MinorVersion: Word;
-    Name: Cardinal;
-    [Hex] Base: Cardinal;
-    NumberOfFunctions: Cardinal;
-    NumberOfNames: Cardinal;
-    [Hex] AddressOfFunctions: Cardinal;     // RVA from base of image
-    [Hex] AddressOfNames: Cardinal;         // RVA from base of image
-    [Hex] AddressOfNameOrdinals: Cardinal;  // RVA from base of image
-  end;
-  PImageExportDirectory = ^TImageExportDirectory;
-
-  // 18001
-  TImageImportByName = record
-    Hint: Word;
-    Name: TAnysizeArray<AnsiChar>;
-  end;
-  PImageImportByName = ^TImageImportByName;
-
-  // 18104
-  TImageImportDescriptor = record
-    [Hex] OriginalFirstThunk: Cardinal;
-    TimeDateStamp: TUnixTime;
-    [Hex] ForwarderChain: Cardinal;
-    [Hex] Name: Cardinal;
-    [Hex] FirstThunk: Cardinal;
-  end;
-  PImageImportDescriptor = ^TImageImportDescriptor;
-
-  // 18137
-  TImageDelayLoadDescriptor = record
-    [Hex] Attributes: Cardinal;
-    [Hex] DllNameRVA: Cardinal;
-    [Hex] ModuleHandleRVA: Cardinal;
-    [Hex] ImportAddressTableRVA: Cardinal;
-    [Hex] ImportNameTableRVA: Cardinal;
-    [Hex] BoundImportAddressTableRVA: Cardinal;
-    [Hex] UnloadInformationTableRVA: Cardinal;
-    TimeDateStamp: TUnixTime;
-  end;
-  PImageDelayLoadDescriptor = ^TImageDelayLoadDescriptor;
-
-  // ntapi.ntdef
+  // WDK::wdm.h
+  [SDKName('KSYSTEM_TIME')]
   KSystemTime = packed record
   case Boolean of
     True: (
@@ -1038,7 +762,8 @@ type
     );
   end;
 
-  // ntapi.ntdef
+  // WDK::ntdef.h
+  [SDKName('NT_PRODUCT_TYPE')]
   [NamingStyle(nsCamelCase, 'NtProduct'), Range(1)]
   TNtProductType = (
     NtProductUnknown = 0,
@@ -1047,7 +772,7 @@ type
     NtProductServer = 3
   );
 
-  // ntddk.8222
+  // WDK::ntddk.h
   [NamingStyle(nsSnakeCase, 'SYSTEM_CALL')]
   TSystemCall = (
     SYSTEM_CALL_SYSCALL = 0,
@@ -1057,7 +782,8 @@ type
   TNtSystemRoot = array [0..259] of WideChar;
   TProcessorFeatures = array [TProcessorFeature] of Boolean;
 
-  // ntddk.8264
+  // WDK::ntddk.h
+  [SDKName('KUSER_SHARED_DATA')]
   KUSER_SHARED_DATA = packed record
     TickCountLowDeprecated: Cardinal;
     [Hex] TickCountMultiplier: Cardinal;
@@ -1158,25 +884,21 @@ const
   SECURITY_NON_UNIQUE_AUTHORITY: TSIDIdentifierAuthority =
     (Value: (0, 0, 0, 0, 0, 4));
 
-  // 9164
   SECURITY_NULL_RID = $00000000;         // NULL SID      S-1-0-0
   SECURITY_WORLD_RID = $00000000;        // Everyone      S-1-1-0
   SECURITY_LOCAL_RID = $00000000;        // LOCAL         S-1-2-0
   SECURITY_LOCAL_LOGON_RID  = $00000001; // CONSOLE LOGON S-1-2-1
 
-  // 9175
   SECURITY_CREATOR_OWNER_RID = $00000000;        // CREATOR OWNER        S-1-3-0
   SECURITY_CREATOR_GROUP_RID = $00000001;        // CREATOR GROUP        S-1-3-1
   SECURITY_CREATOR_OWNER_SERVER_RID = $00000002; // CREATOR OWNER SERVER S-1-3-2
   SECURITY_CREATOR_GROUP_SERVER_RID = $00000003; // CREATOR GROUP SERVER S-1-3-3
   SECURITY_CREATOR_OWNER_RIGHTS_RID = $00000004; // OWNER RIGHTS         S-1-3-4
 
-  // 9224
   SECURITY_NT_AUTHORITY_ID = 5;
   SECURITY_NT_AUTHORITY: TSIDIdentifierAuthority =
-    (Value: (0, 0, 0, 0, 0, 5));
+    (Value: (0, 0, 0, 0, 0, 5)); // S-1-5
 
-  // 9226
   SECURITY_LOGON_IDS_RID = $00000005;       // S-1-5-5-X-X
   SECURITY_LOGON_IDS_RID_COUNT = 3;
   SECURITY_ANONYMOUS_LOGON_RID = $00000007; // S-1-5-7
@@ -1190,15 +912,12 @@ const
   SECURITY_BUILTIN_DOMAIN_RID = $00000020;  // S-1-5-32
   SECURITY_WRITE_RESTRICTED_CODE_RID = $00000021; // S-1-5-33
 
-  // 9267
   SECURITY_MIN_BASE_RID = $050; // S-1-5-80
   SECURITY_MAX_BASE_RID = $06F; // S-1-5-111
 
-  // 9331
   SECURITY_INSTALLER_GROUP_CAPABILITY_BASE = $00000020; // Same as BUILTIN
   SECURITY_INSTALLER_GROUP_CAPABILITY_RID_COUNT = 9; // S-1-5-32-[+8 from hash]
 
-  // 9360
   DOMAIN_USER_RID_ADMIN = $000001F4;
   DOMAIN_USER_RID_GUEST = $000001F5;
   DOMAIN_USER_RID_KRBTGT = $000001F6;
@@ -1214,9 +933,8 @@ const
   DOMAIN_ALIAS_RID_GUESTS = $00000222;
   DOMAIN_ALIAS_RID_POWER_USERS = $00000223;
 
-  // 9431
   SECURITY_APP_PACKAGE_AUTHORITY: TSIDIdentifierAuthority =
-    (Value: (0, 0, 0, 0, 0, 15));
+    (Value: (0, 0, 0, 0, 0, 15)); // S-1-15
 
   SECURITY_CAPABILITY_BASE_RID = $00000003;
   SECURITY_CAPABILITY_APP_RID = $00000400;
@@ -1232,12 +950,11 @@ const
   SECURITY_BUILTIN_PACKAGE_ANY_PACKAGE = $00000001;            // S-1-15-2-1
   SECURITY_BUILTIN_PACKAGE_ANY_RESTRICTED_PACKAGE = $00000002; // S-1-15-2-2
 
-  // 9473
   SECURITY_MANDATORY_LABEL_AUTHORITY_ID = 16;
   SECURITY_MANDATORY_LABEL_AUTHORITY: TSIDIdentifierAuthority =
-    (Value: (0, 0, 0, 0, 0, 16));
+    (Value: (0, 0, 0, 0, 0, 16)); // S-1-16
 
-  // 9473, S-1-16-X
+  // Integrity levels, S-1-16-X
   SECURITY_MANDATORY_UNTRUSTED_RID = $0000;
   SECURITY_MANDATORY_LOW_RID = $1000;
   SECURITY_MANDATORY_MEDIUM_RID = $2000;
@@ -1246,7 +963,7 @@ const
   SECURITY_MANDATORY_SYSTEM_RID = $4000;
   SECURITY_MANDATORY_PROTECTED_PROCESS_RID = $5000;
 
-  // 9671
+  // Known logon sessions
   SYSTEM_LUID = $3e7;
   ANONYMOUS_LOGON_LUID = $3e6;
   LOCALSERVICE_LUID = $3e5;
@@ -1299,24 +1016,26 @@ implementation
 
 { TSidIdentifierAuthority }
 
-procedure TSidIdentifierAuthority.FromInt64;
+class operator TSidIdentifierAuthority.Implicit(
+  const Source: TSidIdentifierAuthority): UInt64;
 begin
-  Value[0] := Byte(IntValue shr 40);
-  Value[1] := Byte(IntValue shr 32);
-  Value[2] := Byte(IntValue shr 24);
-  Value[3] := Byte(IntValue shr 16);
-  Value[4] := Byte(IntValue shr 8);
-  Value[5] := Byte(IntValue shr 0);
+  Result := (UInt64(Source.Value[5]) shl  0) or
+            (UInt64(Source.Value[4]) shl  8) or
+            (UInt64(Source.Value[3]) shl 16) or
+            (UInt64(Source.Value[2]) shl 24) or
+            (UInt64(Source.Value[1]) shl 32) or
+            (UInt64(Source.Value[0]) shl 40);
 end;
 
-function TSidIdentifierAuthority.ToInt64;
+class operator TSidIdentifierAuthority.Implicit(
+  const Source: UInt64): TSidIdentifierAuthority;
 begin
-  Result := (Int64(Value[5]) shl  0) or
-            (Int64(Value[4]) shl  8) or
-            (Int64(Value[3]) shl 16) or
-            (Int64(Value[2]) shl 24) or
-            (Int64(Value[1]) shl 32) or
-            (Int64(Value[0]) shl 40);
+  Result.Value[0] := Byte(Source shr 40);
+  Result.Value[1] := Byte(Source shr 32);
+  Result.Value[2] := Byte(Source shr 24);
+  Result.Value[3] := Byte(Source shr 16);
+  Result.Value[4] := Byte(Source shr 8);
+  Result.Value[5] := Byte(Source shr 0);
 end;
 
 { TAce_Internal }
@@ -1338,98 +1057,6 @@ end;
 function TAclSizeInformation.AclBytesTotal;
 begin
   Result := AclBytesInUse + AclBytesFree;
-end;
-
-{ TImageOptionalHeader }
-
-function TImageOptionalHeader.GetDataDirectory;
-begin
-  case Magic of
-    IMAGE_NT_OPTIONAL_HDR32_MAGIC: Result := SelfAs32.DataDirectory[Index];
-    IMAGE_NT_OPTIONAL_HDR64_MAGIC: Result := SelfAs64.DataDirectory[Index];
-  else
-    Result := Default(TImageDataDirectory);
-  end;
-end;
-
-function TImageOptionalHeader.ImageBase;
-begin
-  case Magic of
-    IMAGE_NT_OPTIONAL_HDR32_MAGIC: Result := SelfAs32.ImageBase;
-    IMAGE_NT_OPTIONAL_HDR64_MAGIC: Result := SelfAs64.ImageBase;
-  else
-    Result := 0;
-  end;
-end;
-
-function TImageOptionalHeader.LoaderFlags;
-begin
-  case Magic of
-    IMAGE_NT_OPTIONAL_HDR32_MAGIC: Result := SelfAs32.LoaderFlags;
-    IMAGE_NT_OPTIONAL_HDR64_MAGIC: Result := SelfAs64.LoaderFlags;
-  else
-    Result := 0;
-  end;
-end;
-
-function TImageOptionalHeader.NumberOfRvaAndSizes;
-begin
-  case Magic of
-    IMAGE_NT_OPTIONAL_HDR32_MAGIC: Result := SelfAs32.NumberOfRvaAndSizes;
-    IMAGE_NT_OPTIONAL_HDR64_MAGIC: Result := SelfAs64.NumberOfRvaAndSizes;
-  else
-    Result := 0;
-  end;
-end;
-
-function TImageOptionalHeader.SelfAs32;
-begin
-  Pointer(Result) := @Self;
-end;
-
-function TImageOptionalHeader.SelfAs64;
-begin
-  Pointer(Result) := @Self;
-end;
-
-function TImageOptionalHeader.SizeOfHeapCommit;
-begin
-  case Magic of
-    IMAGE_NT_OPTIONAL_HDR32_MAGIC: Result := SelfAs32.SizeOfHeapCommit;
-    IMAGE_NT_OPTIONAL_HDR64_MAGIC: Result := SelfAs64.SizeOfHeapCommit;
-  else
-    Result := 0;
-  end;
-end;
-
-function TImageOptionalHeader.SizeOfHeapReserve;
-begin
-  case Magic of
-    IMAGE_NT_OPTIONAL_HDR32_MAGIC: Result := SelfAs32.SizeOfHeapReserve;
-    IMAGE_NT_OPTIONAL_HDR64_MAGIC: Result := SelfAs64.SizeOfHeapReserve;
-  else
-    Result := 0;
-  end;
-end;
-
-function TImageOptionalHeader.SizeOfStackCommit;
-begin
-  case Magic of
-    IMAGE_NT_OPTIONAL_HDR32_MAGIC: Result := SelfAs32.SizeOfStackCommit;
-    IMAGE_NT_OPTIONAL_HDR64_MAGIC: Result := SelfAs64.SizeOfStackCommit;
-  else
-    Result := 0;
-  end;
-end;
-
-function TImageOptionalHeader.SizeOfStackReserve;
-begin
-  case Magic of
-    IMAGE_NT_OPTIONAL_HDR32_MAGIC: Result := SelfAs32.SizeOfStackReserve;
-    IMAGE_NT_OPTIONAL_HDR64_MAGIC: Result := SelfAs64.SizeOfStackReserve;
-  else
-    Result := 0;
-  end;
 end;
 
 { Conversion functions }

@@ -3,9 +3,12 @@ unit Ntapi.ntlpcapi;
 interface
 
 uses
-  Winapi.WinNt, DelphiApi.Reflection;
+  Ntapi.WinNt, DelphiApi.Reflection;
+
+{$MINENUMSIZE 4}
 
 const
+  // PHNT::ntlpcapi.h - LPC port access masks
   PORT_CONNECT = $0001;
   PORT_ALL_ACCESS = STANDARD_RIGHTS_ALL or PORT_CONNECT;
 

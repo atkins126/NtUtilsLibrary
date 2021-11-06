@@ -8,7 +8,7 @@ unit NtUtils.Sections;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntmmapi, NtUtils, NtUtils.Objects,
+  Ntapi.WinNt, Ntapi.ntmmapi, Ntapi.ntseapi, NtUtils, NtUtils.Objects,
   DelphiUtils.AutoObjects;
 
 // Create a section object backed by a paging or a regular file
@@ -69,12 +69,14 @@ type
 { Helper functions }
 
 // Map a file as a read-only section
+[RequiredPrivilege(SE_BACKUP_PRIVILEGE, rpForBypassingChecks)]
 function RtlxMapReadonlyFile(
   out MappedMemory: IMemory;
   const FileName: String
 ): TNtxStatus;
 
 // Create an image section from an executable file
+[RequiredPrivilege(SE_BACKUP_PRIVILEGE, rpForBypassingChecks)]
 function RtlxCreateImageSection(
   out hxSection: IHandle;
   const FileName: String
@@ -153,15 +155,23 @@ end;
 
 function NtxOpenSection;
 var
+  PassedAttributes: TObjectAttributesFlags;
   hSection: THandle;
 begin
   Result.Location := 'NtOpenSection';
   Result.LastCall.OpensForAccess(DesiredAccess);
 
+  if Assigned(ObjectAttributes) then
+    PassedAttributes := ObjectAttributes.Attributes
+  else
+    PassedAttributes := 0;
+
   Result.Status := NtOpenSection(
     hSection,
     DesiredAccess,
-    AttributeBuilder(ObjectAttributes).UseName(ObjectName).ToNative^
+    AttributeBuilder(ObjectAttributes)
+      .UseAttributes(PassedAttributes or OBJ_CASE_INSENSITIVE)
+      .UseName(ObjectName).ToNative^
   );
 
   if Result.IsSuccess then

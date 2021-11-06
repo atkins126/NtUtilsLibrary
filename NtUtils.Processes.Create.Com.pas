@@ -8,21 +8,29 @@ unit NtUtils.Processes.Create.Com;
 interface
 
 uses
-  Winapi.Shell, NtUtils, NtUtils.Processes.Create;
+  Ntapi.ShellApi, NtUtils, NtUtils.Processes.Create;
 
 // Create a new process via WMI
+[SupportedOption(spoSuspended)]
+[SupportedOption(spoEnvironment)]
+[SupportedOption(spoWindowMode)]
+[SupportedOption(spoDesktop)]
+[SupportedOption(spoToken)]
 function WmixCreateProcess(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
 ): TNtxStatus;
 
 // Ask Explorer via IShellDispatch2 to create a process on our behalf
+[SupportedOption(spoRequireElevation)]
+[SupportedOption(spoWindowMode)]
 function ComxShellExecute(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
 ): TNtxStatus;
 
 // Create a new process via WDC
+[SupportedOption(spoRequireElevation)]
 function WdcxCreateProcess(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
@@ -31,8 +39,8 @@ function WdcxCreateProcess(
 implementation
 
 uses
-  Winapi.WinNt, Ntapi.ntstatus, Winapi.ProcessThreadsApi, Winapi.WinError,
-  Winapi.ObjBase, Winapi.ObjIdl, NtUtils.Ldr, NtUtils.Com.Dispatch,
+  Ntapi.WinNt, Ntapi.ntstatus, Ntapi.ProcessThreadsApi, Ntapi.WinError,
+  Ntapi.ObjBase, Ntapi.ObjIdl, NtUtils.Ldr, NtUtils.Com.Dispatch,
   NtUtils.Tokens.Impersonate, NtUtils.Threads;
 
 { ----------------------------------- WMI ----------------------------------- }

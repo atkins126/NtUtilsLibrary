@@ -8,7 +8,7 @@ unit NtUtils.Objects.Snapshots;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntexapi, Ntapi.ntpsapi, NtUtils,
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntexapi, Ntapi.ntpsapi, NtUtils,
   NtUtils.Objects, DelphiUtils.Arrays;
 
 type
@@ -135,7 +135,7 @@ implementation
 
 uses
   Ntapi.ntrtl, Ntapi.ntobapi, Ntapi.ntstatus, NtUtils.Processes.Info,
-  NtUtils.System, NtUtils.Version, DelphiUtils.AutoObjects;
+  NtUtils.System, Ntapi.Versions, DelphiUtils.AutoObjects;
 
 { Process Handles }
 
@@ -251,10 +251,6 @@ begin
     function (const Entry: TSystemHandleEntry): TProcessId
     begin
       Result := Entry.UniqueProcessId;
-    end,
-    function (const A, B: TProcessId): Boolean
-    begin
-      Result := (A = B);
     end
   );
 end;

@@ -15,6 +15,12 @@ const
   PROCESS_CREATE_PROCESS_REMOTE = PROCESS_REMOTE_EXECUTE or PROCESS_DUP_HANDLE;
 
 // Call CreateProcess in a context of another process
+[SupportedOption(spoSuspended)]
+[SupportedOption(spoInheritHandles)]
+[SupportedOption(spoBreakawayFromJob)]
+[SupportedOption(spoNewConsole)]
+[SupportedOption(spoDesktop)]
+[SupportedOption(spoParentProcess, omRequired)]
 function AdvxCreateProcessRemote(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
@@ -23,8 +29,8 @@ function AdvxCreateProcessRemote(
 implementation
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntobapi, Ntapi.ntstatus, Winapi.WinBase,
-  Winapi.ProcessThreadsApi, NtUtils.Processes.Info, NtUtils.Objects,
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntobapi, Ntapi.ntstatus, Ntapi.WinBase,
+  Ntapi.ProcessThreadsApi, NtUtils.Processes.Info, NtUtils.Objects,
   DelphiUtils.AutoObjects;
 
 type

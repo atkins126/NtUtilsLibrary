@@ -10,7 +10,7 @@ interface
 { NOTE: All query/set functions here support pseudo-handles on all OS versions }
 
 uses
-  Winapi.WinNt, Ntapi.ntseapi, NtUtils, NtUtils.Tokens;
+  Ntapi.WinNt, Ntapi.ntseapi, NtUtils, NtUtils.Tokens;
 
 type
   TSecurityAttribute = NtUtils.Tokens.TSecurityAttribute;
@@ -22,6 +22,7 @@ function NtxpExpandTokenForQuery(
 ): TNtxStatus;
 
 // Query variable-length token information without race conditions
+[RequiredPrivilege(SE_SECURITY_PRIVILEGE, rpSometimes)]
 function NtxQueryToken(
   [Access(TOKEN_QUERY)] hxToken: IHandle;
   InfoClass: TTokenInformationClass;
@@ -31,6 +32,8 @@ function NtxQueryToken(
 ): TNtxStatus;
 
 // Set variable-length token information
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
+[RequiredPrivilege(SE_CREATE_TOKEN_PRIVILEGE, rpSometimes)]
 function NtxSetToken(
   [Access(TOKEN_ADJUST_DEFAULT)] hxToken: IHandle;
   InfoClass: TTokenInformationClass;
@@ -48,6 +51,8 @@ type
     ): TNtxStatus; static;
 
     // Set fixed-size information
+    [RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
+    [RequiredPrivilege(SE_CREATE_TOKEN_PRIVILEGE, rpSometimes)]
     class function &Set<T>(
       [Access(TOKEN_ADJUST_DEFAULT or
         TOKEN_ADJUST_SESSIONID)] const hxToken: IHandle;
@@ -114,6 +119,7 @@ function NtxQueryIntegrityToken(
 ): TNtxStatus;
 
 // Set integrity level of a token
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
 function NtxSetIntegrityToken(
   [Access(TOKEN_ADJUST_DEFAULT)] const hxToken: IHandle;
   IntegrityLevel: TIntegriyRid
@@ -134,6 +140,7 @@ function NtxQueryAttributesByNameToken(
 ): TNtxStatus;
 
 // Set or remove security attibutes of a token
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpAlways)]
 function NtxSetAttributesToken(
   [Access(TOKEN_ADJUST_DEFAULT)] const hxToken: IHandle;
   const Attributes: TArray<TSecurityAttribute>;
@@ -147,6 +154,7 @@ function NtxQueryLpacToken(
 ): TNtxStatus;
 
 // Set if an AppContainer token is a Less Privileged AppContainer
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpAlways)]
 function NtxSetLpacToken(
   [Access(TOKEN_ADJUST_DEFAULT)] const hxToken: IHandle;
   IsLPAC: Boolean
@@ -162,7 +170,7 @@ function NtxQueryClaimsToken(
 implementation
 
 uses
-  Ntapi.ntstatus, Ntapi.ntdef, NtUtils.Version, NtUtils.Security.Acl,
+  Ntapi.ntstatus, Ntapi.ntdef, Ntapi.Versions, NtUtils.Security.Acl,
   NtUtils.Objects, NtUtils.Tokens.Misc, NtUtils.Security.Sid,
   DelphiUtils.AutoObjects, DelphiUtils.Arrays, NtUtils.Lsa.Sid;
 
@@ -331,7 +339,7 @@ var
   i: Integer;
 begin
   Result := NtxQueryToken(hxToken, TokenPrivileges, IMemory(xMemory),
-    SizeOf(Integer) + SizeOf(TPrivilege) * SE_MAX_WELL_KNOWN_PRIVILEGE);
+    SizeOf(Integer) + SizeOf(TPrivilege) * Cardinal(High(TSeWellKnownPrivilege)));
 
   if Result.IsSuccess then
   begin
@@ -399,7 +407,7 @@ var
   MandatoryLabel: TSidAndAttributes;
 begin
   // Prepare SID for integrity level with 1 sub authority: S-1-16-X.
-  Result := RtlxNewSid(LabelSid, SECURITY_MANDATORY_LABEL_AUTHORITY,
+  Result := RtlxCreateSid(LabelSid, SECURITY_MANDATORY_LABEL_AUTHORITY,
     [IntegrityLevel]);
 
   if not Result.IsSuccess then
@@ -463,7 +471,7 @@ begin
 
     // Overwrite existing attributes by default
     for i := 0 to High(Operations) do
-      Operations[i] := TokenAttributeReplace;
+      Operations[i] := TOKEN_SECURITY_ATTRIBUTE_OPERATION_REPLACE;
   end
   else if Length(Attributes) <> Length(Operations) then
   begin
@@ -528,9 +536,9 @@ begin
   Attribute.ValuesUInt64 := [1];
 
   if IsLPAC then
-    Operation := TokenAttributeReplace
+    Operation := TOKEN_SECURITY_ATTRIBUTE_OPERATION_REPLACE
   else
-    Operation := TokenAttributeDelete;
+    Operation := TOKEN_SECURITY_ATTRIBUTE_OPERATION_DELETE;
 
   Result := NtxSetAttributesToken(hxToken, [Attribute], [Operation]);
 

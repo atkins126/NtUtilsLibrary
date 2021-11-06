@@ -7,21 +7,48 @@ unit NtUtils.Processes.Create.Win32;
 interface
 
 uses
-  NtUtils, NtUtils.Processes.Create;
+  Ntapi.ntseapi, NtUtils, NtUtils.Processes.Create;
 
 // Create a new process via CreateProcessAsUserW
+[SupportedOption(spoSuspended)]
+[SupportedOption(spoInheritHandles)]
+[SupportedOption(spoBreakawayFromJob)]
+[SupportedOption(spoNewConsole)]
+[SupportedOption(spoRunAsInvoker)]
+[SupportedOption(spoEnvironment)]
+[SupportedOption(spoSecurity)]
+[SupportedOption(spoWindowMode)]
+[SupportedOption(spoDesktop)]
+[SupportedOption(spoToken)]
+[SupportedOption(spoParentProcess)]
+[SupportedOption(spoJob)]
+[SupportedOption(spoHandleList)]
+[SupportedOption(spoMitigationPolicies)]
+[SupportedOption(spoAppContainer)]
+[RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
 function AdvxCreateProcess(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
 ): TNtxStatus;
 
 // Create a new process via CreateProcessWithTokenW
+[SupportedOption(spoSuspended)]
+[SupportedOption(spoEnvironment)]
+[SupportedOption(spoWindowMode)]
+[SupportedOption(spoDesktop)]
+[SupportedOption(spoToken, omRequired)]
+[RequiredPrivilege(SE_IMPERSONATE_PRIVILEGE, rpAlways)]
 function AdvxCreateProcessWithToken(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
 ): TNtxStatus;
 
 // Create a new process via CreateProcessWithLogonW
+[SupportedOption(spoSuspended)]
+[SupportedOption(spoEnvironment)]
+[SupportedOption(spoWindowMode)]
+[SupportedOption(spoDesktop)]
+[SupportedOption(spoCredentials, omRequired)]
 function AdvxCreateProcessWithLogon(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
@@ -30,8 +57,8 @@ function AdvxCreateProcessWithLogon(
 implementation
 
 uses
-  Winapi.WinNt, Ntapi.ntstatus, Ntapi.ntpsapi, Ntapi.ntseapi, Winapi.WinBase,
-  Winapi.ProcessThreadsApi, NtUtils.Objects, NtUtils.Tokens,
+  Ntapi.WinNt, Ntapi.ntstatus, Ntapi.ntpsapi, Ntapi.WinBase,
+  Ntapi.ProcessThreadsApi, NtUtils.Objects, NtUtils.Tokens,
   DelphiUtils.AutoObjects;
 
  { Process-thread attributes }
@@ -366,10 +393,12 @@ begin
   UniqueString(CommandLine);
 
   Result.Location := 'CreateProcessAsUserW';
-  Result.LastCall.ExpectedPrivilege := SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE;
 
   if Assigned(Options.hxToken) then
+  begin
+    Result.LastCall.ExpectedPrivilege := SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE;
     Result.LastCall.Expects<TTokenAccessMask>(TOKEN_CREATE_PROCESS);
+  end;
 
   if Assigned(Options.Attributes.hxParentProcess) then
     Result.LastCall.Expects<TProcessAccessMask>(PROCESS_CREATE_PROCESS);

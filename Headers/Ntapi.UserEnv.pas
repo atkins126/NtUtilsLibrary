@@ -1,24 +1,29 @@
-unit Winapi.UserEnv;
+unit Ntapi.UserEnv;
+
+{
+  This file defines functions for working with user and AppContainer profiles.
+}
+
+interface
 
 {$WARN SYMBOL_PLATFORM OFF}
 {$MINENUMSIZE 4}
 
-interface
-
 uses
-  Winapi.WinNt, Ntapi.ntseapi, Ntapi.ntregapi, NtUtils.Version,
+  Ntapi.WinNt, Ntapi.ntseapi, Ntapi.ntregapi, Ntapi.Versions,
   DelphiApi.Reflection;
 
 const
   userenv = 'userenv.dll';
 
 const
-  // 172
+  // SDK::UserEnv.h - profile flags
   PT_TEMPORARY = $00000001;
   PT_ROAMING = $00000002;
   PT_MANDATORY = $00000004;
   PT_ROAMING_PREEXISTING = $00000008;
 
+  // For annotations
   TOKEN_LOAD_PROFILE = TOKEN_QUERY or TOKEN_IMPERSONATE or TOKEN_DUPLICATE;
 
 type
@@ -28,7 +33,8 @@ type
   [FlagName(PT_ROAMING_PREEXISTING, 'Roaming Pre-existing')]
   TProfileType = type Cardinal;
 
-  // profinfo.38
+  // SDK::ProfInfo.h
+  [SDKName('PROFILEINFOW')]
   TProfileInfoW = record
     [Bytes, Unlisted] Size: Cardinal;
     Flags: TProfileType;
@@ -41,37 +47,41 @@ type
   end;
   PProfileInfoW = ^TProfileInfoW;
 
-// 80
+// SDK::UserEnv.h
+[RequiredPrivilege(SE_BACKUP_PRIVILEGE, rpAlways)]
+[RequiredPrivilege(SE_RESTORE_PRIVILEGE, rpAlways)]
 function LoadUserProfileW(
   [Access(TOKEN_LOAD_PROFILE)] hToken: THandle;
   var ProfileInfo: TProfileInfoW
 ): LongBool; stdcall; external userenv delayed;
 
-// 108
+// SDK::UserEnv.h
+[RequiredPrivilege(SE_BACKUP_PRIVILEGE, rpAlways)]
+[RequiredPrivilege(SE_RESTORE_PRIVILEGE, rpAlways)]
 function UnloadUserProfile(
   [Access(TOKEN_LOAD_PROFILE)] hToken: THandle;
   hProfile: THandle
 ): LongBool; stdcall; external userenv delayed;
 
-// 140
+// SDK::UserEnv.h
 function GetProfilesDirectoryW(
   [out, opt] ProfileDir: PWideChar;
   var Size: Cardinal
 ): LongBool; stdcall; external userenv delayed;
 
-// 180
+// SDK::UserEnv.h
 function GetProfileType(
   out Flags: Cardinal
 ): LongBool; stdcall; external userenv delayed;
 
-// 412
+// SDK::UserEnv.h
 function CreateEnvironmentBlock(
   out Environment: PEnvironment;
   [opt] hToken: THandle;
   bInherit: LongBool
 ): LongBool; stdcall; external userenv delayed;
 
-// 1396, free with RtlFreeSid
+// SDK::UserEnv.h
 [MinOSVersion(OsWin8)]
 function CreateAppContainerProfile(
   [in] AppContainerName: PWideChar;
@@ -79,39 +89,39 @@ function CreateAppContainerProfile(
   [in] Description: PWideChar;
   [in, opt] Capabilities: TArray<TSidAndAttributes>;
   CapabilityCount: Integer;
-  [allocates] out SidAppContainerSid: PSid
+  [allocates('RtlFreeSid')] out SidAppContainerSid: PSid
 ): HResult; stdcall; external userenv delayed;
 
-// 1427
+// SDK::UserEnv.h
 [MinOSVersion(OsWin8)]
 function DeleteAppContainerProfile(
   [in] AppContainerName: PWideChar
 ): HResult; stdcall; external userenv delayed;
 
-// 1455, Win 8+
+// SDK::UserEnv.h
+[MinOSVersion(OsWin8)]
 function GetAppContainerRegistryLocation(
   DesiredAccess: TRegKeyAccessMask;
   out hAppContainerKey: THandle
 ): HResult; stdcall; external userenv delayed;
 
-// combaseapi.1452
+// SDK::combaseapi.h
 procedure CoTaskMemFree(
   [in, opt] pv: Pointer
 ); stdcall; external 'ole32.dll';
 
-// 1484, free with CoTaskMemFree
+// SDK::UserEnv.h
 [MinOSVersion(OsWin8)]
 function GetAppContainerFolderPath(
   [in] AppContainerSid: PWideChar;
-  [allocates] out Path: PWideChar
+  [allocates('CoTaskMemFree')] out Path: PWideChar
 ): HResult; stdcall; external userenv delayed;
 
-// rev, free with RtlFreeSid
-// aka DeriveAppContainerSidFromAppContainerName
+// MSDN
 [MinOSVersion(OsWin8)]
 function AppContainerDeriveSidFromMoniker(
   [in] Moniker: PWideChar;
-  [allocates] out AppContainerSid: PSid
+  [allocates('RtlFreeSid')] out AppContainerSid: PSid
 ): HResult; stdcall; external kernelbase delayed;
 
 // rev
@@ -120,19 +130,19 @@ function AppContainerFreeMemory(
   [in] Memory: Pointer
 ): Boolean; stdcall; external kernelbase delayed;
 
-// rev, free with AppContainerFreeMemory
+// rev
 [MinOSVersion(OsWin8)]
 function AppContainerLookupMoniker(
   [in] Sid: PSid;
-  [allocates] out Moniker: PWideChar
+  [allocates('AppContainerFreeMemory')] out Moniker: PWideChar
 ): HResult; stdcall; external kernelbase delayed;
 
-// 1539, free with RtlFreeSid
+// SDK::UserEnv.h
 [MinOSVersion(OsWin81)]
 function DeriveRestrictedAppContainerSidFromAppContainerSidAndRestrictedName(
   [in] AppContainerSid: PSid;
   [in] RestrictedAppContainerName: PWideChar;
-  [allocates] out RestrictedAppContainerSid: PSid
+  [allocates('RtlFreeSid')] out RestrictedAppContainerSid: PSid
 ): HResult; stdcall; external userenv delayed;
 
 implementation

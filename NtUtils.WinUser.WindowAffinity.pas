@@ -8,22 +8,23 @@ unit NtUtils.WinUser.WindowAffinity;
 interface
 
 uses
-  Winapi.WinUser, NtUtils, NtUtils.Shellcode;
+  Ntapi.WinUser, Ntapi.ntseapi, NtUtils, NtUtils.Shellcode;
 
 const
-  WDA_NONE = Winapi.WinUser.WDA_NONE;
-  WDA_MONITOR = Winapi.WinUser.WDA_MONITOR;
-  WDA_EXCLUDEFROMCAPTURE = Winapi.WinUser.WDA_EXCLUDEFROMCAPTURE;
+  WDA_NONE = Ntapi.WinUser.WDA_NONE;
+  WDA_MONITOR = Ntapi.WinUser.WDA_MONITOR;
+  WDA_EXCLUDEFROMCAPTURE = Ntapi.WinUser.WDA_EXCLUDEFROMCAPTURE;
 
 // Determine if a window is visible for screen capturing
 function UsrxGetWindowAffinity(
-  Wnd: HWND;
+  Wnd: THwnd;
   out Affinity: Cardinal
 ): TNtxStatus;
 
 // Change whether a window is visible for screen capturing
+[RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpForBypassingChecks)]
 function UsrxSetWindowAffinity(
-  Wnd: HWND;
+  Wnd: THwnd;
   Affinity: Cardinal;
   const Timeout: Int64 = DEFAULT_REMOTE_TIMEOUT
 ): TNtxStatus;
@@ -31,7 +32,7 @@ function UsrxSetWindowAffinity(
 implementation
 
 uses
-  Winapi.WinNt, Ntapi.ntpebteb, Ntapi.ntdef, NtUtils.Processes.Info,
+  Ntapi.WinNt, Ntapi.ntpebteb, Ntapi.ntdef, NtUtils.Processes.Info,
   NtUtils.Processes, DelphiUtils.AutoObjects;
 
 type
@@ -46,7 +47,7 @@ type
     RtlGetLastWin32Error: function: TWin32Error; stdcall;
     {$IFDEF Win32}WoW64Padding2: Cardinal;{$ENDIF}
 
-    Window: HWND;
+    Window: THwnd;
     {$IFDEF Win32}WoW64Padding3: Cardinal;{$ENDIF}
 
     Affinity: Cardinal;

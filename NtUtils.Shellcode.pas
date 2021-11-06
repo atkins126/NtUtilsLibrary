@@ -8,7 +8,7 @@ unit NtUtils.Shellcode;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntpsapi, NtUtils;
+  Ntapi.WinNt, Ntapi.ntpsapi, Ntapi.ImageHlp, NtUtils;
 
 const
   PROCESS_REMOTE_EXECUTE = PROCESS_QUERY_LIMITED_INFORMATION or
@@ -235,8 +235,8 @@ begin
     Exit;
 
   // Parse the export table
-  Result := RtlxEnumerateExportImage(MappedMemory.Data,
-    Cardinal(MappedMemory.Size), True, AllEntries);
+  Result := RtlxEnumerateExportImage(AllEntries, MappedMemory.Data,
+    Cardinal(MappedMemory.Size), True);
 
   if not Result.IsSuccess then
     Exit;

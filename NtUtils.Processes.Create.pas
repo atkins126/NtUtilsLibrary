@@ -7,8 +7,8 @@ unit NtUtils.Processes.Create;
 interface
 
 uses
-  Ntapi.ntdef, Ntapi.Ntpsapi, Ntapi.ntseapi, Winapi.WinUser,
-  Winapi.ProcessThreadsApi, NtUtils;
+  Ntapi.ntdef, Ntapi.Ntpsapi, Ntapi.ntseapi, Ntapi.WinUser,
+  Ntapi.ProcessThreadsApi, NtUtils;
 
 type
   TNewProcessFlags = set of (
@@ -66,6 +66,42 @@ type
     out Info: TProcessInfo
   ): TNtxStatus;
 
+  TSupportedCreateProcessOptions = (
+    spoSuspended,
+    spoInheritHandles,
+    spoBreakawayFromJob,
+    spoNewConsole,
+    spoRequireElevation,
+    spoRunAsInvoker,
+    spoEnvironment,
+    spoSecurity,
+    spoWindowMode,
+    spoDesktop,
+    spoToken,
+    spoParentProcess,
+    spoJob,
+    spoSection,
+    spoHandleList,
+    spoMitigationPolicies,
+    spoAppContainer,
+    spoCredentials
+  );
+
+  TCreateProcessOptionMode = (
+    omOptional,
+    omRequired
+  );
+
+  // Annotation for indicating supported options for a process creation routine
+  SupportedOptionAttribute = class (TCustomAttribute)
+    Option: TSupportedCreateProcessOptions;
+    Mode: TCreateProcessOptionMode;
+    constructor Create(
+      Option: TSupportedCreateProcessOptions;
+      Mode: TCreateProcessOptionMode = omOptional
+    );
+  end;
+
 // Temporarily set or remove a compatibility layer to control elevation requests
 function RtlxApplyCompatLayer(
   ForceOn: Boolean;
@@ -101,7 +137,20 @@ begin
   if poForceCommandLine in Flags then
     Result := Parameters
   else
-    Result := '"' + ApplicationWin32 + '" ' + Parameters;
+  begin
+    Result := '"' + ApplicationWin32 + '"';
+
+    if Parameters <> '' then
+      Result := Result + ' ' + Parameters;
+  end;
+end;
+
+{ SupportedOptionAttribute }
+
+constructor SupportedOptionAttribute.Create;
+begin
+  Self.Option := Option;
+  Self.Mode := Mode;
 end;
 
 { Functions }

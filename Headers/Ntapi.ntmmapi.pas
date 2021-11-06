@@ -1,15 +1,22 @@
 unit Ntapi.ntmmapi;
 
-{$MINENUMSIZE 4}
+{
+  The module provides access to memory management with Native API.
+}
 
 interface
 
+{$MINENUMSIZE 4}
+
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntioapi, DelphiApi.Reflection,
-  NtUtils.Version;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntioapi, Ntapi.ntseapi, Ntapi.ImageHlp,
+  Ntapi.Versions, DelphiApi.Reflection;
 
 const
-  // WinNt.12943
+  // WDK::wdm.h
+  PAGE_SIZE = $1000;
+
+  // SDK::winnt.h - page access options
   PAGE_NOACCESS = $00000001;
   PAGE_READONLY = $00000002;
   PAGE_READWRITE = $00000004;
@@ -36,7 +43,7 @@ const
   PAGE_ENCLAVE_THREAD_CONTROL = $80000000;
   PAGE_REVERT_TO_FILE_MAP = $80000000;
 
-  // WinNt.12971
+  // SDK::winnt.h - memory operation options
   MEM_UNMAP_WITH_TRANSIENT_BOOST = $00000001;
   MEM_COALESCE_PLACEHOLDERS = $00000001;
   MEM_PRESERVE_PLACEHOLDER = $00000002;
@@ -58,7 +65,7 @@ const
   MEM_64K_PAGES = MEM_LARGE_PAGES or MEM_PHYSICAL;
   MEM_4MB_PAGES = $80000000;
 
-  // WinNt.13047
+  // SDK::winnt.h - allocation attributes
   SEC_PARTITION_OWNER_HANDLE = $00040000;
   SEC_64K_PAGES = $00080000;
   SEC_FILE = $00800000;
@@ -71,11 +78,12 @@ const
   SEC_LARGE_PAGES = $80000000;
   SEC_IMAGE_NO_EXECUTE = SEC_IMAGE or SEC_NOCACHE; // Win 8+
 
-  // WinNt.13067
+  // SDK::winnt.h - types of memory
   MEM_PRIVATE = $00020000;
   MEM_MAPPED = $00040000;
   MEM_IMAGE = $01000000;
 
+  // Memory region types extracted from a bit union of MEMORY_REGION_INFORMATION
   MEMORY_REGION_PRIVATE = $00000001;
   MEMORY_REGION_MAPPED_DATA_FILE = $00000002;
   MEMORY_REGION_MAPPED_IMAGE = $00000004;
@@ -85,16 +93,20 @@ const
   MEMORY_REGION_SOFTWARE_ENCLAVE = $00000040; // RS3
   MEMORY_REGION_PAGE_SIZE_64K = $00000080;
   MEMORY_REGION_PLACEHOLDER_RESERVATION = $00000100; // RS4
+  MEMORY_REGION_MAPPED_AWE = $00000200; // 21H1
+  MEMORY_REGION_MAPPED_WRITE_WATCH = $00000400;
+  MEMORY_REGION_PAGE_SIZE_LARGE = $00000800;
+  MEMORY_REGION_PAGE_SIZE_HUGE = $00001000;
 
   // Sections
 
+  // WDK::wdm.h - section access masks
   SECTION_QUERY = $0001;
   SECTION_MAP_WRITE = $0002;
   SECTION_MAP_READ = $0004;
   SECTION_MAP_EXECUTE = $0008;
   SECTION_EXTEND_SIZE = $0010;
   SECTION_MAP_EXECUTE_EXPLICIT = $0020; // not included into SECTION_ALL_ACCESS
-
   SECTION_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $1F;
 
   // For annotations
@@ -103,16 +115,16 @@ const
 
   // Partitions
 
+  // SDK::winnt.h - memory partition access masks
   MEMORY_PARTITION_QUERY_ACCESS = $0001;
   MEMORY_PARTITION_MODIFY_ACCESS = $0002;
   MEMORY_PARTITION_ALL_ACCESS = STANDARD_RIGHTS_ALL or $03;
 
   // Sessions
 
-  // WinNt.12832
+  // SDK::winnt.h - session object access masks
   SESSION_QUERY_ACCESS = $0001;
   SESSION_MODIFY_ACCESS = $0002;
-
   SESSION_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $03;
 
 type
@@ -143,7 +155,7 @@ type
   [FlagName(PAGE_EXECUTE, 'Execute')]
   [FlagName(PAGE_EXECUTE_READ, 'Execute-Read')]
   [FlagName(PAGE_EXECUTE_READWRITE, 'Execute-Read-Write')]
-  [FlagName(PAGE_EXECUTE_WRITECOPY, 'Execute0Write-Copy')]
+  [FlagName(PAGE_EXECUTE_WRITECOPY, 'Execute-Write-Copy')]
   [FlagName(PAGE_GUARD, 'Guard')]
   [FlagName(PAGE_NOCACHE, 'No-Cache')]
   [FlagName(PAGE_WRITECOMBINE, 'Write-Combine')]
@@ -168,24 +180,25 @@ type
   [FlagName(MEM_RESET_UNDO, 'Reset Undo')]
   TAllocationType = type Cardinal;
 
-  // ntddk.5211
-  [NamingStyle(nsCamelCase, 'MemoryPriority')]
+  // WDK::ntddk.h
+  [NamingStyle(nsCamelCase, 'MEMORY_PRIORITY')]
   TMemoryPriority = (
-    MemoryPriorityLowest = 0,
-    MemoryPriorityVeryLow = 1,
-    MemoryPriorityLow = 2,
-    MemoryPriorityMedium = 3,
-    MemoryPriorityBelowNormal = 4,
-    MemoryPriorityNormal = 5
+    MEMORY_PRIORITY_LOWEST = 0,
+    MEMORY_PRIORITY_VERY_LOW = 1,
+    MEMORY_PRIORITY_LOW = 2,
+    MEMORY_PRIORITY_MEDIUM = 3,
+    MEMORY_PRIORITY_BELOW_NORMAL = 4,
+    MEMORY_PRIORITY_NORMAL = 5
   );
 
+  // PHNT::ntmmapi.h
   [NamingStyle(nsCamelCase, 'Memory')]
   TMemoryInformationClass = (
     MemoryBasicInformation = 0,          // q: TMemoryBasicInformation
     MemoryWorkingSetInformation = 1,     // q: TMemoryWorkingSetInformation
     MemoryMappedFilenameInformation = 2, // q: UNICODE_STRING
     MemoryRegionInformation = 3,         // q: TMemoryRegionInformation
-    MemoryWorkingSetExInformation = 4,
+    MemoryWorkingSetExInformation = 4,   // q: TMemoryWorkingSetExInformation
     MemorySharedCommitInformation = 5,
     MemoryImageInformation = 6           // q: TMemoryImageInformation
   );
@@ -195,23 +208,36 @@ type
   [FlagName(MEM_IMAGE, 'Image')]
   TMemoryType = type Cardinal;
 
-  // WinNt.12692
+  // SDK::winnt.h
+  [SDKName('MEMORY_BASIC_INFORMATION')]
   TMemoryBasicInformation = record
     BaseAddress: Pointer;
     AllocationBase: Pointer;
     AllocationProtect: TMemoryProtection;
+  {$IFDEF Win64}
+    [MinOSVersion(OsWin1020H1)] PartitionId: Word;
+  {$ENDIF}
     [Bytes] RegionSize: NativeUInt;
     State: TAllocationType;
     Protect: TMemoryProtection;
-    &Type: TMemoryType;
+    MemoryType: TMemoryType;
   end;
   PMemoryBasicInformation = ^TMemoryBasicInformation;
 
+  // PHNT::ntmmapi.h
+  [SDKName('MEMORY_WORKING_SET_INFORMATION')]
   TMemoryWorkingSetInformation = record
     [Counter] NumberOfEntries: NativeUInt;
     WorkingSetInfo: TAnysizeArray<NativeUInt>;
   end;
   PMemoryWorkingSetInformation = ^TMemoryWorkingSetInformation;
+
+  [SDKName('MEMORY_WORKING_SET_EX_INFORMATION')]
+  TMemoryWorkingSetExInformation = record
+    VirtualAddress: Pointer;
+    VirtualAttributes: NativeUInt;
+  end;
+  PMemoryWorkingSetExInformation = ^TMemoryWorkingSetExInformation;
 
   [FlagName(MEMORY_REGION_PRIVATE, 'Private')]
   [FlagName(MEMORY_REGION_MAPPED_DATA_FILE, 'Mapped Data File')]
@@ -222,9 +248,14 @@ type
   [FlagName(MEMORY_REGION_SOFTWARE_ENCLAVE, 'Software Enclave')]
   [FlagName(MEMORY_REGION_PAGE_SIZE_64K, 'Page Size 64K')]
   [FlagName(MEMORY_REGION_PLACEHOLDER_RESERVATION, 'Placeholder Reservation')]
+  [FlagName(MEMORY_REGION_MAPPED_AWE, 'Mappeg AWE')]
+  [FlagName(MEMORY_REGION_MAPPED_WRITE_WATCH, 'Mappeg Write Watch')]
+  [FlagName(MEMORY_REGION_PAGE_SIZE_LARGE, 'Page Size Large')]
+  [FlagName(MEMORY_REGION_PAGE_SIZE_HUGE, 'Page Size Huge')]
   TRegionType = type Cardinal;
 
-  // memoryapi.884
+  // PHNT::ntmmapi.h & partially SDK::memoryapi.h
+  [SDKName('MEMORY_REGION_INFORMATION')]
   TMemoryRegionInformation = record
     AllocationBase: Pointer;
     AllocationProtect: TMemoryProtection;
@@ -232,9 +263,12 @@ type
     [Bytes] RegionSize: NativeUInt;
     [Bytes] CommitSize: NativeUInt;
     [MinOSVersion(OsWin1019H1)] PartitionID: NativeUInt;
+    [MinOSVersion(OsWin1020H1)] NodePreference: PNativeUInt;
   end;
   PMemoryRegionInformation = ^TMemoryRegionInformation;
 
+  // PHNT::ntmmapi.h
+  [SDKName('MEMORY_IMAGE_INFORMATION')]
   TMemoryImageInformation = record
     ImageBase: Pointer;
     [Bytes] SizeOfImage: NativeUInt;
@@ -242,6 +276,8 @@ type
   end;
   PMemoryImageInformation = ^TMemoryImageInformation;
 
+  // PHNT::ntmmapi.h
+  [SDKName('SECTION_INFORMATION_CLASS')]
   [NamingStyle(nsCamelCase, 'Section')]
   TSectionInformationClass = (
     SectionBasicInformation = 0,       // q: TSectionBasicInformation
@@ -263,6 +299,8 @@ type
   [FlagName(SEC_LARGE_PAGES, 'Large Pages')]
   TAllocationAttributes = type Cardinal;
 
+  // PHNT::ntmmapi.h
+  [SDKName('SECTION_BASIC_INFORMATION')]
   TSectionBasicInformation = record
     BaseAddress: Pointer;
     AllocationAttributes: TAllocationAttributes;
@@ -270,6 +308,8 @@ type
   end;
   PSectionBasicInformation = ^TSectionBasicInformation;
 
+  // PHNT::ntmmapi.h
+  [SDKName('SECTION_IMAGE_INFORMATION')]
   TSectionImageInformation = record
     TransferAddress: Pointer;
     ZeroBits: Cardinal;
@@ -289,7 +329,7 @@ type
   end;
   PSectionImageInformation = ^TSectionImageInformation;
 
-  // wdm.7542
+  // WDK::wdm.h
   [NamingStyle(nsCamelCase, 'View'), Range(1)]
   TSectionInherit = (
     ViewInvalid = 0,
@@ -297,7 +337,7 @@ type
     ViewUnmap = 2  // Don't map into child processes
   );
 
-  // reactos.mmtypes
+  // ReactOs::mmtypes.h
   [NamingStyle(nsSnakeCase, 'MAP'), Range(1)]
   TMapLockType = (
     MAP_INVALID = 0,
@@ -307,6 +347,7 @@ type
 
 // Virtual memory
 
+// WDK::ntifs.h
 function NtAllocateVirtualMemory(
   [Access(PROCESS_VM_OPERATION)] ProcessHandle: THandle;
   var BaseAddress: Pointer;
@@ -316,6 +357,7 @@ function NtAllocateVirtualMemory(
   Protect: TMemoryProtection
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::ntifs.h
 function NtFreeVirtualMemory(
   [Access(PROCESS_VM_OPERATION)] ProcessHandle: THandle;
   var BaseAddress: Pointer;
@@ -323,6 +365,7 @@ function NtFreeVirtualMemory(
   FreeType: TAllocationType
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntmmapi.h
 function NtReadVirtualMemory(
   [Access(PROCESS_VM_READ)] ProcessHandle: THandle;
   [in] BaseAddress: Pointer;
@@ -331,6 +374,7 @@ function NtReadVirtualMemory(
   [out, opt] NumberOfBytesRead: PNativeUInt
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntmmapi.h
 function NtWriteVirtualMemory(
   [Access(PROCESS_VM_WRITE)] ProcessHandle: THandle;
   [in] BaseAddress: Pointer;
@@ -339,6 +383,7 @@ function NtWriteVirtualMemory(
   [out, opt] NumberOfBytesWritten: PNativeUInt
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntmmapi.h
 function NtProtectVirtualMemory(
   [Access(PROCESS_VM_OPERATION)] ProcessHandle: THandle;
   var BaseAddress: Pointer;
@@ -347,6 +392,7 @@ function NtProtectVirtualMemory(
   out OldProtect: TMemoryProtection
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::ntifs.h
 function NtQueryVirtualMemory(
   [Access(PROCESS_VM_OPERATION)] ProcessHandle: THandle;
   [in] BaseAddress: Pointer;
@@ -356,6 +402,8 @@ function NtQueryVirtualMemory(
   [out, opt] ReturnLength: PNativeUInt
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntmmapi.h
+[RequiredPrivilege(SE_LOCK_MEMORY_PRIVILEGE, rpWithExceptions)]
 function NtLockVirtualMemory(
   [Access(PROCESS_VM_OPERATION)] ProcessHandle: THandle;
   var BaseAddress: Pointer;
@@ -363,6 +411,8 @@ function NtLockVirtualMemory(
   MapType: TMapLockType
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntmmapi.h
+[RequiredPrivilege(SE_LOCK_MEMORY_PRIVILEGE, rpWithExceptions)]
 function NtUnlockVirtualMemory(
   [Access(PROCESS_VM_OPERATION)] ProcessHandle: THandle;
   var BaseAddress: Pointer;
@@ -372,6 +422,7 @@ function NtUnlockVirtualMemory(
 
 // Sections
 
+// WDK::ntifs.h
 function NtCreateSection(
   out SectionHandle: THandle;
   DesiredAccess: TSectionAccessMask;
@@ -382,12 +433,14 @@ function NtCreateSection(
   [opt] FileHandle: THandle
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::wdm.h
 function NtOpenSection(
   out SectionHandle: THandle;
   DesiredAccess: TSectionAccessMask;
   const ObjectAttributes: TObjectAttributes
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::wdm.h
 function NtMapViewOfSection(
   [Access(SECTION_MAP_READ or SECTION_MAP_WRITE or
     SECTION_MAP_EXECUTE)] SectionHandle: THandle;
@@ -402,16 +455,19 @@ function NtMapViewOfSection(
   Win32Protect: TMemoryProtection
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::wdm.h
 function NtUnmapViewOfSection(
   [Access(PROCESS_VM_OPERATION)] ProcessHandle: THandle;
   [in] BaseAddress: Pointer
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntmmapi.h
 function NtExtendSection(
   [Access(SECTION_EXTEND_SIZE)] SectionHandle: THandle;
   var NewSectionSize: UInt64
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntmmapi.h
 function NtQuerySection(
   [Access(SECTION_QUERY)] SectionHandle: THandle;
   SectionInformationClass: TSectionInformationClass;
@@ -420,6 +476,7 @@ function NtQuerySection(
   [out, opt] ReturnLength: PNativeUInt
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntmmapi.h
 function NtAreMappedFilesTheSame(
   [in] File1MappedAsAnImage: Pointer;
   [in] File2MappedAsFile: Pointer
@@ -427,12 +484,14 @@ function NtAreMappedFilesTheSame(
 
 // Misc.
 
+// PHNT::ntmmapi.h
 function NtFlushInstructionCache(
   [Access(PROCESS_VM_WRITE)] ProcessHandle: THandle;
   [in, opt] BaseAddress: Pointer;
   Length: NativeUInt
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntmmapi.h
 function NtFlushWriteBuffer: NTSTATUS; stdcall; external ntdll;
 
  { Expected Access Masks }

@@ -1,5 +1,10 @@
 unit DelphiApi.Reflection;
 
+{
+  This module defines custom attributes for annotating types and function
+  parameters in the headers and elsewhere within the library.
+}
+
 interface
 
 type
@@ -13,8 +18,8 @@ type
     Prefix, Suffix: String;
     constructor Create(
       Style: TNamingStyle;
-      PrefixString: String = '';
-      SuffixString: String = ''
+      const PrefixString: String = '';
+      const SuffixString: String = ''
     );
   end;
 
@@ -22,7 +27,10 @@ type
   RangeAttribute = class(TCustomAttribute)
     MinValue, MaxValue: Cardinal;
     function Check(Value: Cardinal): Boolean;
-    constructor Create(Min: Cardinal; Max: Cardinal = Cardinal(-1));
+    constructor Create(
+      Min: Cardinal;
+      Max: Cardinal = Cardinal(-1)
+    );
   end;
 
   // Validity mask for enumerations
@@ -39,12 +47,13 @@ type
     Name: String;
   end;
 
-  TFlagNames = array of TFlagName;
-
   // Tags specific bits in a bit mask with a textual representation
   FlagNameAttribute = class (TCustomAttribute)
     Flag: TFlagName;
-    constructor Create(const Value: UInt64; Name: String);
+    constructor Create(
+      const Value: UInt64;
+      const Name: String
+    );
   end;
 
   // Specifies a textual representation of an enumeration entry that is embedded
@@ -52,7 +61,11 @@ type
   SubEnumAttribute = class (TCustomAttribute)
     Mask: UInt64;
     Flag: TFlagName;
-    constructor Create(const BitMask, Value: UInt64; Name: String);
+    constructor Create(
+      const BitMask: UInt64;
+      const Value: UInt64;
+      const Name: String
+    );
   end;
 
   // Do not include embedded enumerations into the reflection. Useful for
@@ -121,6 +134,7 @@ type
   // The parameter recieves an address allocated by the library and requires
   // freeing with a corresponding function
   AllocatesAttribute = class(TCustomAttribute)
+    constructor Create(FreeRoutine: AnsiString = '');
   end;
 
   // The parameter requires a specific access to the resource
@@ -142,9 +156,15 @@ type
   { Other }
 
   // Assign a field/type a user-friendly name
-  FriendlyNameAttribute = class(TCustomAttribute)
+  FriendlyNameAttribute = class (TCustomAttribute)
     Name: String;
-    constructor Create(FriendlyName: String);
+    constructor Create(const FriendlyName: String);
+  end;
+
+  // An official or at leact commonly used name for the type
+  SDKNameAttribute = class (TCustomAttribute)
+    Name: String;
+    constructor Create(const Name: String);
   end;
 
 // Make sure a class is accessible through reflection
@@ -224,6 +244,13 @@ begin
 
 end;
 
+{ AllocatesAttribute }
+
+constructor AllocatesAttribute.Create;
+begin
+
+end;
+
 { AccessAttribute }
 
 constructor AccessAttribute.Create;
@@ -243,6 +270,13 @@ end;
 constructor FriendlyNameAttribute.Create;
 begin
   Name := FriendlyName;
+end;
+
+{ SDKNameAttribute }
+
+constructor SDKNameAttribute.Create;
+begin
+  Self.Name := Name;
 end;
 
 { Functions }

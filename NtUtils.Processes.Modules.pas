@@ -43,8 +43,8 @@ function IsParentModule(const Parent, Child: TModuleEntry): Boolean;
 implementation
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntpebteb, Ntapi.ntldr, Ntapi.ntstatus,
-  Ntapi.ntwow64, NtUtils.Version, NtUtils.Processes.Info, NtUtils.Memory;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntpebteb, Ntapi.ntldr, Ntapi.ntstatus,
+  Ntapi.ntwow64, Ntapi.Versions, NtUtils.Processes.Info, NtUtils.Memory;
 
 function NtxEnumerateModulesProcess;
 var
@@ -74,7 +74,7 @@ var
   i: Integer;
   pStart, pCurrent: PListEntry;
   Current: TLdrDataTableEntry;
-  OsVersion: TKnownOsVersion;
+  OsVersion: TWindowsVersion;
   EntrySize: NativeUInt;
   xMemory: IMemory;
 begin
@@ -108,7 +108,7 @@ begin
     // a newly created suspended process.
     SetLength(Modules, 0);
 
-    // TODO: Try to figure out how to get modules in this case like PH does
+    // TODO: fallback to enumerating mapped images
     Result.Status := STATUS_MORE_ENTRIES;
     Exit;
   end;
@@ -191,12 +191,12 @@ end;
 function NtxEnumerateModulesProcessWoW64;
 var
   Peb32: PPeb32;
-  pLdr: Wow64Pointer;
+  pLdr: Wow64Pointer<PPebLdrData32>;
   Ldr: TPebLdrData32;
   i: Integer;
   pStart, pCurrent: PListEntry32;
   Current: TLdrDataTableEntry32;
-  OsVersion: TKnownOsVersion;
+  OsVersion: TWindowsVersion;
   EntrySize: NativeUInt;
   Str: TNtUnicodeString;
   xMemory: IMemory;
@@ -222,7 +222,7 @@ begin
 
   // Read the loader data itself
   FillChar(Ldr, SizeOf(Ldr), 0);
-  Result := NtxMemory.Read(hProcess, Pointer(pLdr), Ldr);
+  Result := NtxMemory.Read(hProcess, pLdr, Ldr);
 
   if Result.Matches(STATUS_PARTIAL_COPY, 'NtReadVirtualMemory') and
     not Ldr.Initialized then
@@ -231,7 +231,7 @@ begin
     // a newly created suspended process.
     SetLength(Modules, 0);
 
-    // TODO: Try to figure out how to get WoW64 modules in this case.
+    // TODO: fallback to enumerating mapped images
     Result.Status := STATUS_MORE_ENTRIES;
     Exit;
   end;
@@ -254,7 +254,7 @@ begin
 
   // Traverse the list
   i := 0;
-  pStart := @PPebLdrData32(pLdr).InLoadOrderModuleList;
+  pStart := @pLdr.Self.InLoadOrderModuleList;
   pCurrent := Pointer(Ldr.InLoadOrderModuleList.Flink);
   SetLength(Modules, 0);
 

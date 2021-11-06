@@ -1,267 +1,303 @@
 unit NtUtils.AntiHooking;
 
 {
-  This module provides facilities for automatically redirecting calls to
-  functions from ntdll into local trampolines. It allows bypassing user-mode
-  hooks on by issuing system calls directly.
+  This module introduces user-mode unhooking of ntdll functions via IAT
+  modification. It works for native 32 and 64 bits, as well as under WoW64.
+  Note that not all functions support unhooking, but syscall stubs always do.
 }
 
 interface
 
 uses
-  NtUtils;
+  NtUtils, NtUtils.Ldr;
 
 type
-  TAntiHookPolicyOverride = (
-    AntiHookUseGlobal,
-    AntiHookEnabled,
-    AntiHookDisabled
-  );
+  TUnhookableImport = record
+    FunctionName: AnsiString;
+    IATEntry: PPointer;
+    TargetRVA: Cardinal; // inside ntdll
+  end;
 
-// NOTE: currently, anti-hooking works only for 64-bit images
-
-// Unhook all syscall functions in ntdll
-function RtlxEnforceAntiHookPolicy(
-  EnableAntiHooking: Boolean;
-  ClearOverrides: Boolean = False
+// Find all imports of a module that can be unhooked via IAT modification
+function RtlxFindUnhookableImport(
+  const Module: TModuleEntry;
+  out Entries: TArray<TUnhookableImport>
 ): TNtxStatus;
 
-// Enable/disable unhooking on a per-function basis
-function RtlxOverrideAntiHookPolicy(
-  [in] ExternalImport: Pointer;
-  Policy: TAntiHookPolicyOverride
+// Unhook the specified functions
+function RtlxEnforceAntiHooking(
+  const Imports: TArray<TUnhookableImport>;
+  Enable: Boolean = True
 ): TNtxStatus;
-  
+
+// Unhook functions imported using Delphi's "external" keyword
+// Example usage: RtlxEnforceExternalImportAntiHooking([@NtCreateUserProcess]);
+function RtlxEnforceExternalImportAntiHooking(
+  const ExtenalImports: TArray<Pointer>;
+  Enable: Boolean = True
+): TNtxStatus;
+
+// Unhook specific functions for a single module
+function RtlxEnforceModuleAntiHooking(
+  const Module: TModuleEntry;
+  const Functions: TArray<AnsiString>;
+  Enable: Boolean = True
+): TNtxStatus;
+
+// Unhook specific functions for all currently loaded modules
+function RtlxEnforceGlobalAntiHooking(
+  const Functions: TArray<AnsiString>;
+  Enable: Boolean = True
+): TNtxStatus;
+
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntmmapi, Ntapi.ntstatus,
-  NtUtils.ImageHlp, NtUtils.ImageHlp.Syscalls, NtUtils.Sections,
-  NtUtils.Memory, NtUtils.AntiHooking.Trampoline, DelphiUtils.Arrays,
-  DelphiUtils.ExternalImport;
-
-type
-  TAntiHookEntry = record
-    Name: AnsiString;
-    IAT: PPointer;
-    PolicyOverride: TAntiHookPolicyOverride;
-    Enabled: Boolean;
-    AlternateTarget: Pointer;
-  end;
-  PAntiHookDescriptor = ^TAntiHookEntry;
+  Ntapi.ntdef, Ntapi.ntldr, Ntapi.ntmmapi, Ntapi.ntpebteb, Ntapi.ntstatus,
+  DelphiUtils.ExternalImport, NtUtils.Sections, NtUtils.ImageHlp,
+  NtUtils.SysUtils, NtUtils.Memory, NtUtils.Processes, DelphiUtils.Arrays;
 
 var
-  Initialized, GlobalEnabled: Boolean;
-  AntiHooks: TArray<TAntiHookEntry>;
+  AlternateNtdllInitialized: Boolean;
+  AlternateNtdll: IMemory;
+  AlternateTargets: TArray<TExportEntry>;
 
-function IsNtDll(const Entry: TImportDllEntry): Boolean;
+function RtlxInitializeAlternateNtdll: TNtxStatus;
 begin
-  Result := (Entry.DllName = ntdll);
+  if AlternateNtdllInitialized then
+  begin
+    Result.Status := STATUS_SUCCESS;
+    Exit;
+  end;
+
+  // Map a second instance of ntdll from KnownDlls
+  Result := RtlxMapKnownDll(AlternateNtdll, ntdll, RtlIsWoW64);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Parse its export and save all functions as available for redirection
+  Result := RtlxEnumerateExportImage(AlternateTargets, AlternateNtdll.Data,
+    AlternateNtdll.Size, True);
+
+  if not Result.IsSuccess then
+  begin
+    AlternateNtdll := nil;
+    Exit;
+  end;
+
+  AlternateNtdll.AutoRelease := False;
+  AlternateNtdllInitialized := True;
 end;
 
-function EnumerateOurNtdllImport(
-  out Entries: TArray<TAntiHookEntry>
-): TNtxStatus;
-var
-  RegionInfo: TMemoryRegionInformation;
-  Import: TArray<TImportDllEntry>;
+function UnhookableImportCapturer(
+  [in] IAT: Pointer
+): TConvertRoutineEx<TImportEntry, TUnhookableImport>;
 begin
-  // Determine our image's size
-  Result := NtxMemory.Query(NtCurrentProcess, @ImageBase,
-    MemoryRegionInformation, RegionInfo);
+  Result := function (
+    const Index: Integer;
+    const Import: TImportEntry;
+    out UnhookableImport: TUnhookableImport
+  ): Boolean
+  var
+    i: Integer;
+  begin
+    // Find the export that corresponds to the function. Use fast binary search
+    // when importing by name (which are sorted by default) or slow linear
+    // search when importing by ordinal.
 
-  if not Result.IsSuccess then
-    Exit;
-
-  // Enumerate our normal and delayed import
-  Result := RtlxEnumerateImportImage(Import, RegionInfo.AllocationBase,
-    RegionInfo.RegionSize, True);
-
-  if not Result.IsSuccess then
-    Exit;
-
-  // Leave ntdll only
-  TArray.FilterInline<TImportDllEntry>(Import, IsNtdll);
-
-  // Collect and convert all entries
-  Entries := TArray.Flatten<TImportDllEntry, TAntiHookEntry>(Import,
-    function (const Dll: TImportDllEntry): TArray<TAntiHookEntry>
-    var
-      pDll: ^TImportDllEntry;
-    begin
-      // Fix `E2555 Cannot capture symbol` in older versions of Delphi
-      pDll := @Dll;
-
-      // Collect all named functions
-      Result := TArray.ConvertEx<TImportEntry, TAntiHookEntry>(Dll.Functions,
-        function (
-          const Index: Integer;
-          const Func: TImportEntry;
-          out AntiHook: TAntiHookEntry
-        ): Boolean
+    if Import.ImportByName then
+      i := TArray.BinarySearchEx<TExportEntry>(AlternateTargets,
+        function (const Target: TExportEntry): Integer
         begin
-          Result := Func.ImportByName;
-
-          if Result then
-          begin
-            // Calculate IAT address for each function
-            AntiHook.Name := Func.Name;
-            AntiHook.IAT := Pointer(UIntPtr(@ImageBase) + pDll.IAT +
-              Cardinal(Index) * SizeOf(Pointer));
-          end;
+          Result := RtlxCompareAnsiStrings(Target.Name, Import.Name, True)
+        end
+      )
+    else
+      i := TArray.IndexOfMatch<TExportEntry>(AlternateTargets,
+        function (const Target: TExportEntry): Boolean
+        begin
+          Result := (Target.Ordinal = Import.Ordinal);
         end
       );
-    end
-  );
+
+    if i < 0 then
+      Exit(False);
+
+    // Save the name, IAT entry address, and ntdll function RVA
+    UnhookableImport.FunctionName := Import.Name;
+    UnhookableImport.IATEntry := PPointer(PByte(IAT) +
+      Cardinal(Index) * SizeOf(Pointer));
+     UnhookableImport.TargetRVA := AlternateTargets[i].VirtualAddress;
+
+    Result := True;
+  end;
 end;
 
-function InitializeAntiHooking: TNtxStatus;
-var
-  xMemory: IMemory;
-  Syscalls: TArray<TSyscallEntry>;
+function UnhookableImportFinder(
+  [in] Base: Pointer
+): TMapRoutine<TImportDllEntry, TArray<TUnhookableImport>>;
 begin
-  // Map an unmodified ntdll directly from KnowDlls
-  Result := RtlxMapKnownDll(xMemory, ntdll, False);
+  // Find and capture all functions that are imported from ntdll
+
+  Result := function (const Dll: TImportDllEntry): TArray<TUnhookableImport>
+  begin
+    if RtlxEqualAnsiStrings(Dll.DllName, ntdll) then
+      Result := TArray.ConvertEx<TImportEntry, TUnhookableImport>(Dll.Functions,
+        UnhookableImportCapturer(PByte(Base) + Dll.IAT))
+    else
+      Result := nil;
+  end
+end;
+
+function RtlxFindUnhookableImport;
+var
+  AllImport: TArray<TImportDllEntry>;
+begin
+  Result := RtlxInitializeAlternateNtdll;
 
   if not Result.IsSuccess then
     Exit;
 
-  // Find all syscalls in it
-  Result := RtlxEnumerateSycallsDll(xMemory.Data, xMemory.Size, True, Syscalls);
+  // Determine which functions a module imports
+  Result := RtlxEnumerateImportImage(AllImport, Module.DllBase,
+    Module.SizeOfImage, True);
 
   if not Result.IsSuccess then
     Exit;
 
-  // Find candidates for unhooking
-  Result := EnumerateOurNtdllImport(AntiHooks);
+  // Intersect them with what we can unhook
+  Entries := TArray.FlattenEx<TImportDllEntry, TUnhookableImport>(AllImport,
+    UnhookableImportFinder(Module.DllBase));
+end;
 
-  AntiHooks := TArray.Convert<TAntiHookEntry, TAntiHookEntry>(AntiHooks,
-    function (
-      const Entry: TAntiHookEntry;
-      out SyscalledEntry: TAntiHookEntry
-    ): Boolean
-    var
-      Trampoline: Pointer;
-      pEntry: ^TAntiHookEntry;
+function RtlxEnforceAntiHooking;
+var
+  ImportGroups: TArray<TArrayGroup<Pointer, TUnhookableImport>>;
+  ProtectionReverter: IAutoReleasable;
+  TargetModule: Pointer;
+  i, j: Integer;
+begin
+  Result := RtlxInitializeAlternateNtdll;
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Choose where to redirect the functions
+  if Enable then
+    TargetModule := AlternateNtdll.Data
+  else
+    TargetModule := hNtdll.DllBase;
+
+  // Combine entries that reside on the same page so we can change memory
+  // protection more efficiently
+  ImportGroups := TArray.GroupBy<TUnhookableImport, Pointer>(Imports,
+    function (const Element: TUnhookableImport): Pointer
     begin
-      // Fix `E2555 Cannot capture symbol` in older versions of Delphi
-      pEntry := @Entry;
-
-      // Find a syscal with the same name
-      Trampoline := TArray.ConvertFirstOrDefault<TSyscallEntry, Pointer>(
-        Syscalls,
-        function (
-          const Syscall: TSyscallEntry;
-          out Target: Pointer
-        ): Boolean
-        begin
-          Result := (Syscall.ExportEntry.Name = pEntry.Name);
-
-          if Result then
-          begin
-            // Locate a trampoline for it
-            Target := SyscallTrampoline(Syscall.SyscallNumber);
-            Result := Assigned(Target);
-          end;
-        end,
-        nil
-      );
-
-      Result := Assigned(Trampoline);
-
-      if Result then
-      begin
-        SyscalledEntry := Entry;
-        SyscalledEntry.AlternateTarget := Trampoline;
-      end;
+      Result := Pointer(UIntPtr(Element.IATEntry) and not (PAGE_SIZE - 1));
     end
   );
-end;
 
-procedure AdjustTarget(var AntiHook: TAntiHookEntry; Enable: Boolean);
-begin
-  if AntiHook.Enabled = Enable then
-    Exit;
-
-  AntiHook.Enabled := Enable;
-
-  // TODO: store a backup copy of trampoline address in case someone modifes IAT
-
-  // Swap the target (original vs trampoline)
-  AntiHook.AlternateTarget := AtomicExchange(AntiHook.IAT^,
-    AntiHook.AlternateTarget);
-end;
-
-{ Public }
-
-function RtlxEnforceAntiHookPolicy;
-var
-  i: Integer;
-begin
-  if not Initialized then
+  for i := 0 to High(ImportGroups) do
   begin
-    Result := InitializeAntiHooking;
+    // Make sure the pages with IAT entries are writable
+    Result := NtxProtectMemoryAuto(NtxCurrentProcess, ImportGroups[i].Key,
+      PAGE_SIZE, PAGE_READWRITE, ProtectionReverter);
 
     if not Result.IsSuccess then
       Exit;
 
-    Initialized := True;
+    // Redirect the import
+    for j := 0 to High(ImportGroups[i].Values) do
+      ImportGroups[i].Values[j].IATEntry^ := PByte(TargetModule) +
+        ImportGroups[i].Values[j].TargetRVA;
   end;
-
-  // Process all existing entries
-  for i := 0 to High(AntiHooks) do
-  begin
-    // Clear or skip overrides
-    if ClearOverrides then
-      AntiHooks[i].PolicyOverride := AntiHookUseGlobal
-    else if AntiHooks[i].PolicyOverride <> AntiHookUseGlobal then
-      Exit;
-
-    AdjustTarget(AntiHooks[i], EnableAntiHooking);
-  end;
-
-  GlobalEnabled := EnableAntiHooking;
 end;
 
-function RtlxOverrideAntiHookPolicy;
+function RtlxEnforceExternalImportAntiHooking;
 var
+  CurrentModule: TModuleEntry;
+  UnhookableImport: TArray<TUnhookableImport>;
+  IATEntries: TArray<PPointer>;
   i: Integer;
-  IAT: PPointer;
 begin
-  if not Initialized then
-  begin
-    Result := InitializeAntiHooking;
+  Result := LdrxFindModule(CurrentModule, ContainingAddress(@ImageBase));
 
-    if not Result.IsSuccess then
-      Exit;
-
-    Initialized := True;
-  end;
-
-  Result.Location := 'RtlxOverrideAntiHookPolicy';
-  IAT := ExternalImportTarget(ExternalImport);
-
-  if not Assigned(IAT) then
-  begin
-    // The compiler produced the code we do not expect
-    Result.Status := STATUS_UNSUCCESSFUL;
+  if not Result.IsSuccess then
     Exit;
-  end;
 
-  // Find the anti hook entry
-  for i := 0 to High(AntiHooks) do
-    if AntiHooks[i].IAT = IAT then
+  // Find all imports from the current module that we can unhook
+  Result := RtlxFindUnhookableImport(CurrentModule, UnhookableImport);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Determine IAT entry locations of the specified imports
+  SetLength(IATEntries, Length(ExtenalImports));
+
+  for i := 0 to High(IATEntries) do
+    IATEntries[i] := ExternalImportTarget(ExtenalImports[i]);
+
+  // Leave only the function we were asked to unhook
+  TArray.FilterInline<TUnhookableImport>(UnhookableImport,
+    function (const Import: TUnhookableImport): Boolean
     begin
-      AntiHooks[i].PolicyOverride := Policy;
+      Result := TArray.Contains<PPointer>(IATEntries, Import.IATEntry);
+    end
+  );
 
-      AdjustTarget(AntiHooks[i], (Policy = AntiHookEnabled) or
-        (GlobalEnabled and (Policy = AntiHookUseGlobal)));
+  if Length(UnhookableImport) <> Length(ExtenalImports) then
+  begin
+    // Should not happen as long as the specified functions are imported via the
+    // "extern" keyword.
+    Result.Location := 'RtlxEnforceExternalImportAntiHooking';
+    Result.Status := STATUS_ENTRYPOINT_NOT_FOUND;
+    Exit;
+  end;
 
-      Result.Status := STATUS_SUCCESS;
+  // Adjust IAT targets
+  Result := RtlxEnforceAntiHooking(UnhookableImport, Enable);
+end;
+
+function RtlxEnforceModuleAntiHooking;
+var
+  UnhookableImport: TArray<TUnhookableImport>;
+begin
+  // Find what we can unhook
+  Result := RtlxFindUnhookableImport(Module, UnhookableImport);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Include only the specified names
+  TArray.FilterInline<TUnhookableImport>(UnhookableImport,
+    function (const Import: TUnhookableImport): Boolean
+    begin
+      Result := TArray.Contains<AnsiString>(Functions, Import.FunctionName);
+    end
+  );
+
+  // Adjust IAT targets
+  if Length(UnhookableImport) > 0 then
+    Result := RtlxEnforceAntiHooking(UnhookableImport, Enable)
+  else
+  begin
+    Result.Location := 'RtlxEnforceModuleAntiHookingByName';
+    Result.Status := STATUS_ALREADY_COMPLETE;
+  end;
+end;
+
+function RtlxEnforceGlobalAntiHooking;
+var
+  Module: TModuleEntry;
+begin
+  for Module in LdrxEnumerateModules do
+  begin
+    Result := RtlxEnforceModuleAntiHooking(Module, Functions, Enable);
+
+    if not Result.IsSuccess then
       Exit;
-    end;
-
-  Result.Status := STATUS_ENTRYPOINT_NOT_FOUND;
+  end;
 end;
 
 end.

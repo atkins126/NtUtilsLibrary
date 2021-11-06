@@ -1,36 +1,43 @@
-unit Winapi.Sddl;
+unit Ntapi.Sddl;
 
-{$MINENUMSIZE 4}
+{
+  This file defines functions for converting SIDs from and to SDDL
+  representation.
+}
 
 interface
 
+{$MINENUMSIZE 4}
+
 uses
-  Winapi.WinNt, DelphiApi.Reflection;
+  Ntapi.WinNt, DelphiApi.Reflection;
 
-// Use LocalFree for deallocation
-
+// SDK::sddl.h
 function ConvertSidToStringSidW(
   [in] Sid: PSid;
-  [allocates] out StringSid: PWideChar
+  [allocates('LocalFree')] out StringSid: PWideChar
 ): LongBool; stdcall; external advapi32;
 
+// SDK::sddl.h
 function ConvertStringSidToSidW(
   [in] StringSid: PWideChar;
-  [allocates] out Sid: PSid
+  [allocates('LocalFree')] out Sid: PSid
 ): LongBool; stdcall; external advapi32;
 
+// SDK::sddl.h
 function ConvertSecurityDescriptorToStringSecurityDescriptorW(
   [in] SecurityDescriptor: PSecurityDescriptor;
   RequestedStringSDRevision: Cardinal;
   SecurityInformation: TSecurityInformation;
-  [allocates] out StringSecurityDescriptor: PWideChar;
+  [allocates('LocalFree')] out StringSecurityDescriptor: PWideChar;
   [out, opt] StringSecurityDescriptorLen: PCardinal
 ): LongBool; stdcall; external advapi32;
 
+// SDK::sddl.h
 function ConvertStringSecurityDescriptorToSecurityDescriptorW(
   [in] StringSecurityDescriptor: PWideChar;
   StringSDRevision: Cardinal;
-  [allocates] out SecurityDescriptor: PSecurityDescriptor;
+  [allocates('LocalFree')] out SecurityDescriptor: PSecurityDescriptor;
   [out, opt] SecurityDescriptorSize: PCardinal
 ): LongBool; stdcall; external advapi32;
 

@@ -22,7 +22,7 @@ function SvcxMain(
 implementation
 
 uses
-  Winapi.WinNt, Winapi.Svc, Winapi.WinError, Winapi.WinBase;
+  Ntapi.WinNt, Ntapi.WinSvc, Ntapi.WinError, Ntapi.WinBase;
 
 var
   SvcxName: String;

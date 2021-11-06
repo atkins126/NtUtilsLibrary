@@ -7,7 +7,7 @@ unit NtUtils.Tokens;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntseapi, NtUtils, NtUtils.Objects;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntseapi, NtUtils, NtUtils.Objects;
 
 const
   // Now supported everywhere on all OS versions
@@ -47,6 +47,7 @@ function NtxOpenProcessToken(
 ): TNtxStatus;
 
 // Open a token of a process by ID
+[RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpForBypassingChecks)]
 function NtxOpenProcessTokenById(
   out hxToken: IHandle;
   [Access(PROCESS_QUERY_LIMITED_INFORMATION)] PID: TProcessId;
@@ -64,6 +65,7 @@ function NtxOpenThreadToken(
 ): TNtxStatus;
 
 // Open a token of a thread by ID
+[RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpForBypassingChecks)]
 function NtxOpenThreadTokenById(
   out hxToken: IHandle;
   [Access(THREAD_QUERY_LIMITED_INFORMATION)] TID: TThreadId;
@@ -73,6 +75,7 @@ function NtxOpenThreadTokenById(
 ): TNtxStatus;
 
 // Open an effective token of a thread
+[RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpForBypassingChecks)]
 function NtxOpenEffectiveTokenById(
   out hxToken: IHandle;
   const ClientId: TClientId;
@@ -105,6 +108,7 @@ function NtxDuplicateTokenLocal(
 ): TNtxStatus;
 
 // Filter a token
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
 function NtxFilterToken(
   out hxNewToken: IHandle;
   [Access(TOKEN_DUPLICATE)] hxToken: IHandle;
@@ -115,6 +119,7 @@ function NtxFilterToken(
 ): TNtxStatus;
 
 // Create a new token from scratch. Requires SeCreateTokenPrivilege.
+[RequiredPrivilege(SE_CREATE_TOKEN_PRIVILEGE, rpAlways)]
 function NtxCreateToken(
   out hxToken: IHandle;
   TokenType: TTokenType;
@@ -132,6 +137,7 @@ function NtxCreateToken(
 ): TNtxStatus;
 
 // Create a new token from scratch. Requires SeCreateTokenPrivilege & Win 8+
+[RequiredPrivilege(SE_CREATE_TOKEN_PRIVILEGE, rpAlways)]
 function NtxCreateTokenEx(
   out hxToken: IHandle;
   TokenType: TTokenType;
@@ -158,7 +164,7 @@ function NtxCreateLowBoxToken(
   [Access(TOKEN_DUPLICATE)] hxExistingToken: IHandle;
   [in] Package: PSid;
   [opt] const Capabilities: TArray<TGroup> = nil;
-  [opt] const Handles: TArray<THandle> = nil;
+  [opt] const Handles: TArray<IHandle> = nil;
   [opt] const ObjectAttributes: IObjectAttributes = nil
 ): TNtxStatus;
 
@@ -191,7 +197,7 @@ function NtxAdjustGroups(
 implementation
 
 uses
-  Ntapi.ntstatus, Ntapi.ntpsapi, Winapi.WinError, NtUtils.Tokens.Misc,
+  Ntapi.ntstatus, Ntapi.ntpsapi, Ntapi.WinError, NtUtils.Tokens.Misc,
   NtUtils.Processes, NtUtils.Threads, NtUtils.Ldr, Ntapi.ntpebteb,
   DelphiUtils.AutoObjects;
 
@@ -468,6 +474,7 @@ end;
 function NtxCreateLowBoxToken;
 var
   hToken: THandle;
+  HandleValues: TArray<THandle>;
   CapArray: TArray<TSidAndAttributes>;
   i: Integer;
 begin
@@ -481,6 +488,11 @@ begin
 
   if not Result.IsSuccess then
     Exit;
+
+  SetLength(HandleValues, Length(Handles));
+
+  for i := 0 to High(HandleValues) do
+    HandleValues[i] := Handles[i].Handle;
 
   // Prepare capabilities
   SetLength(CapArray, Length(Capabilities));
@@ -501,8 +513,8 @@ begin
     Package,
     Length(CapArray),
     CapArray,
-    Length(Handles),
-    Handles
+    Length(HandleValues),
+    HandleValues
   );
 
   if Result.IsSuccess then

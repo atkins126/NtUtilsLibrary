@@ -8,7 +8,7 @@ unit NtUtils.Objects;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntdef, Ntapi.ntobapi, NtUtils, DelphiApi.Reflection;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntobapi, NtUtils, DelphiApi.Reflection;
 
 type
   TObjectTypeInfo = record
@@ -180,9 +180,6 @@ begin
     Result.Location := 'NtxSafeClose';
     Result.Status := STATUS_UNHANDLED_EXCEPTION;
   end;
-
-  // Help debugging handle problems
-  DbgBreakOnFailure(Result.Status);
 
   // Prevent future use
   hObject := 0;

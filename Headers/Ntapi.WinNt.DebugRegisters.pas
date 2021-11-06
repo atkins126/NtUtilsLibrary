@@ -1,14 +1,16 @@
-unit Winapi.WinNt.DebugRegisters;
+unit Ntapi.WinNt.DebugRegisters;
 
 {
   The module extends TContext with properties that simplify usage of debug
-  registeres (hardware breakpoints).
+  registers (hardware breakpoints).
 }
 
 interface
 
+{$MINENUMSIZE 4}
+
 uses
-  Winapi.WinNt;
+  Ntapi.WinNt;
 
 type
   // There are four hardware breakpoints: Dr0, Dr1, Dr2, Dr3

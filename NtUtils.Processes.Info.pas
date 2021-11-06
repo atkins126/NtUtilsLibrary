@@ -8,8 +8,8 @@ unit NtUtils.Processes.Info;
 interface
 
 uses
-  Winapi.WinNt, Ntapi.ntpsapi, Ntapi.ntwow64, NtUtils,
-  DelphiApi.Reflection, NtUtils.Version;
+  Ntapi.WinNt, Ntapi.ntpsapi, Ntapi.ntseapi, Ntapi.ntwow64, NtUtils,
+  DelphiApi.Reflection, Ntapi.Versions;
 
 const
   PROCESS_READ_PEB = PROCESS_QUERY_LIMITED_INFORMATION or PROCESS_VM_READ;
@@ -57,6 +57,11 @@ function NtxQueryProcess(
 ): TNtxStatus;
 
 // Set variable-size information
+[RequiredPrivilege(SE_INCREASE_QUOTA_PRIVILEGE, rpSometimes)]
+[RequiredPrivilege(SE_INCREASE_BASE_PRIORITY_PRIVILEGE, rpSometimes)]
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
+[RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
+[RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpSometimes)]
 function NtxSetProcess(
   [Access(PROCESS_SET_INFORMATION)] hProcess: THandle;
   InfoClass: TProcessInfoClass;
@@ -74,6 +79,11 @@ type
     ): TNtxStatus; static;
 
     // Set fixed-size information
+    [RequiredPrivilege(SE_INCREASE_QUOTA_PRIVILEGE, rpSometimes)]
+    [RequiredPrivilege(SE_INCREASE_BASE_PRIORITY_PRIVILEGE, rpSometimes)]
+    [RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
+    [RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
+    [RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpSometimes)]
     class function &Set<T>(
       [Access(PROCESS_SET_INFORMATION)] hProcess: THandle;
       InfoClass: TProcessInfoClass;
@@ -132,11 +142,8 @@ function NtxQueryTelemetryProcess(
   out Telemetry: TProcessTelemetry
 ): TNtxStatus;
 
-{$IFDEF Win32}
 // Fail if the current process is running under WoW64
-// NOTE: you don't run under WoW64 if you are compiled as Win64
 function RtlxAssertNotWoW64(out Status: TNtxStatus): Boolean;
-{$ENDIF}
 
 // Query if a process runs under WoW64
 function NtxQueryIsWoW64Process(
@@ -158,8 +165,7 @@ function RtlxAssertWoW64CompatiblePeb(
 implementation
 
 uses
-  {$IFDEF Win32} Ntapi.ntpebteb, {$ENDIF}
-  Ntapi.ntdef, Ntapi.ntexapi, Ntapi.ntrtl, Ntapi.ntstatus, Ntapi.ntseapi,
+  Ntapi.ntpebteb, Ntapi.ntdef, Ntapi.ntexapi, Ntapi.ntrtl, Ntapi.ntstatus,
   Ntapi.ntobapi, Ntapi.ntioapi, NtUtils.Memory, NtUtils.Security.Sid,
   NtUtils.System, DelphiUtils.AutoObjects;
 
@@ -306,8 +312,7 @@ var
   StringData: TNtUnicodeString;
   Buffer: IWideChar;
 {$IFDEF Win64}
-  WowPointer: Wow64Pointer;
-  ProcessParams32: PRtlUserProcessParameters32;
+  ProcessParams32: Wow64Pointer<PRtlUserProcessParameters32>;
   StringData32: TNtUnicodeString32;
 {$ENDIF}
 begin
@@ -320,38 +325,37 @@ begin
   if Assigned(WoW64Peb) then
   begin
     // Obtain a pointer to WoW64 process parameters
-    Result := NtxMemory.Read(hProcess, @WoW64Peb.ProcessParameters, WowPointer);
+    Result := NtxMemory.Read(hProcess, @WoW64Peb.ProcessParameters,
+      ProcessParams32);
 
     if not Result.IsSuccess then
       Exit;
 
-    ProcessParams32 := Pointer(WowPointer);
-
     // Locate the UNICODE_STRING32 address
     case InfoClass of
       PebStringCurrentDirectory:
-        Address := @ProcessParams32.CurrentDirectory.DosPath;
+        Address := @ProcessParams32.Self.CurrentDirectory.DosPath;
 
       PebStringDllPath:
-        Address := @ProcessParams32.DLLPath;
+        Address := @ProcessParams32.Self.DLLPath;
 
       PebStringImageName:
-        Address := @ProcessParams32.ImagePathName;
+        Address := @ProcessParams32.Self.ImagePathName;
 
       PebStringCommandLine:
-        Address := @ProcessParams32.CommandLine;
+        Address := @ProcessParams32.Self.CommandLine;
 
       PebStringWindowTitle:
-        Address := @ProcessParams32.WindowTitle;
+        Address := @ProcessParams32.Self.WindowTitle;
 
       PebStringDesktop:
-        Address := @ProcessParams32.DesktopInfo;
+        Address := @ProcessParams32.Self.DesktopInfo;
 
       PebStringShellInfo:
-         Address := @ProcessParams32.ShellInfo;
+         Address := @ProcessParams32.Self.ShellInfo;
 
       PebStringRuntimeData:
-        Address := @ProcessParams32.RuntimeData;
+        Address := @ProcessParams32.Self.RuntimeData;
     else
       Result.Location := 'NtxQueryPebStringProcess';
       Result.Status := STATUS_INVALID_INFO_CLASS;
@@ -543,7 +547,6 @@ begin
     end;
 end;
 
-{$IFDEF Win32}
 function RtlxAssertNotWoW64;
 begin
   Result := RtlIsWoW64;
@@ -554,7 +557,6 @@ begin
     Status.Status := STATUS_ASSERTION_FAILURE;
   end;
 end;
-{$ENDIF}
 
 function NtxQueryIsWoW64Process;
 var

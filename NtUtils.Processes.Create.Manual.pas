@@ -34,6 +34,15 @@ function RtlxCreateInitialThread(
 ): TNtxStatus;
 
 // Start a new process via NtCreateProcessEx
+[SupportedOption(spoSuspended)]
+[SupportedOption(spoInheritHandles)]
+[SupportedOption(spoBreakawayFromJob)]
+[SupportedOption(spoEnvironment)]
+[SupportedOption(spoSecurity)]
+[SupportedOption(spoWindowMode)]
+[SupportedOption(spoDesktop)]
+[SupportedOption(spoParentProcess)]
+[SupportedOption(spoSection)]
 function NtxCreateProcessEx(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
@@ -42,10 +51,10 @@ function NtxCreateProcessEx(
 implementation
 
 uses
-  Winapi.WinNt, Ntapi.ntstatus, Ntapi.ntmmapi, Ntapi.ntioapi, Ntapi.ntdbg,
-  NtUtils.Version, NtUtils.Processes, NtUtils.Objects, NtUtils.ImageHlp,
-  NtUtils.Sections, NtUtils.Files, NtUtils.Threads, NtUtils.Memory,
-  NtUtils.Processes.Info, NtUtils.Processes.Create.Native;
+  Ntapi.WinNt, Ntapi.ntstatus, Ntapi.ntmmapi, Ntapi.ntioapi, Ntapi.ntdbg,
+  Ntapi.ImageHlp, Ntapi.Versions, NtUtils.Processes, NtUtils.Objects,
+  NtUtils.ImageHlp, NtUtils.Sections, NtUtils.Files, NtUtils.Threads,
+  NtUtils.Memory, NtUtils.Processes.Info, NtUtils.Processes.Create.Native;
 
 function NtxCreateProcessObject;
 var
@@ -92,7 +101,7 @@ var
   RemoteParameters: IMemory;
   BasicInfo: TProcessBasicInformation;
   Adjustment: UIntPtr;
-  OsVersion: TKnownOsVersion;
+  OsVersion: TWindowsVersion;
   i: Integer;
 begin
   // Prepare process parameters locally

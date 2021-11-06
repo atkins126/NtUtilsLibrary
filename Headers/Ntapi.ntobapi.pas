@@ -1,29 +1,42 @@
 unit Ntapi.ntobapi;
 
-{$WARN SYMBOL_PLATFORM OFF}
-{$MINENUMSIZE 4}
+{
+  This file defines functions for manipulating kernel objects and their handles.
+}
 
 interface
 
+{$WARN SYMBOL_PLATFORM OFF}
+{$MINENUMSIZE 4}
+
 uses
-  Winapi.WinNt, Ntapi.ntdef, NtUtils.Version, DelphiApi.Reflection;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntseapi, Ntapi.Versions,
+  DelphiApi.Reflection;
 
 const
+  // WDK::wdm.h - object directory access masks
   DIRECTORY_QUERY = $0001;
   DIRECTORY_TRAVERSE = $0002;
   DIRECTORY_CREATE_OBJECT = $0004;
   DIRECTORY_CREATE_SUBDIRECTORY = $0008;
   DIRECTORY_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $000f;
 
+  // PHNT::ntobapi.h - boundary descriptor version
+  BOUNDARY_DESCRIPTOR_VERSION = 1;
+
+  // PHNT::ntrtl.h - boundary descriptor flags
+  BOUNDARY_DESCRIPTOR_ADD_APPCONTAINER_SID = $1;
+
+  // WDK::wdm.h - object symlink access masks
   SYMBOLIC_LINK_QUERY = $0001;
   SYMBOLIC_LINK_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $0001;
 
-  // wdm.7536
+  // WDK::wdm.h - handle duplication options
   DUPLICATE_CLOSE_SOURCE = $00000001;
   DUPLICATE_SAME_ACCESS = $00000002;
   DUPLICATE_SAME_ATTRIBUTES = $00000004;
 
-  // rev
+  // rev - kernel type index offset
   OB_TYPE_INDEX_TABLE_TYPE_OFFSET = 2;
 
 type
@@ -43,6 +56,8 @@ type
   [FlagName(SYMBOLIC_LINK_QUERY, 'Query')]
   TSymlinkAccessMask = type TAccessMask;
 
+  // PHNT::ntobapi.h & partially WDK::ntifs.h
+  [SDKName('OBJECT_INFORMATION_CLASS')]
   [NamingStyle(nsCamelCase, 'Object')]
   TObjectInformationClass = (
     ObjectBasicInformation = 0,     // q: TObjectBasicInformaion
@@ -52,6 +67,8 @@ type
     ObjectHandleFlagInformation = 4 // q+s: TObjectHandleFlagInformation
   );
 
+  // PHNT::ntobapi.h - info class 0
+  [SDKName('OBJECT_BASIC_INFORMATION')]
   TObjectBasicInformaion = record
     Attributes: TObjectAttributesFlags;
     GrantedAccess: TAccessMask;
@@ -67,6 +84,8 @@ type
   end;
   PObjectBasicInformaion = ^TObjectBasicInformaion;
 
+  // PHNT::ntobapi.h - info class 2
+  [SDKName('OBJECT_TYPE_INFORMATION')]
   TObjectTypeInformation = record
     TypeName: TNtUnicodeString;
     TotalNumberOfObjects: Cardinal;
@@ -94,25 +113,61 @@ type
   end;
   PObjectTypeInformation = ^TObjectTypeInformation;
 
+  // PHNT::ntobapi.h - info class 3
+  [SDKName('OBJECT_TYPES_INFORMATION')]
   TObjectTypesInformation = record
     NumberOfTypes: Cardinal;
     FirstEntry: TObjectTypeInformation;
-    // + aligned array of [1..NumberOfTypes - 1] of TObjectTypeInformation
+    // + aligned array [0 .. NumberOfTypes - 1] of TObjectTypeInformation
   end;
   PObjectTypesInformation = ^TObjectTypesInformation;
 
+  // PHNT::ntobapi.h - info class 4
+  [SDKName('OBJECT_HANDLE_FLAG_INFORMATION')]
   TObjectHandleFlagInformation = record
     Inherit: Boolean;
     ProtectFromClose: Boolean;
   end;
 
+  // PHNT::ntobapi.h
+  [SDKName('OBJECT_DIRECTORY_INFORMATION')]
   TObjectDirectoryInformation = record
     Name: TNtUnicodeString;
     TypeName: TNtUnicodeString;
   end;
   PObjectDirectoryInformation = ^TObjectDirectoryInformation;
 
-  // ntdef
+  // PHNT::ntobapi.h
+  [SDKName('BOUNDARY_ENTRY_TYPE')]
+  [NamingStyle(nsCamelCase, 'OBNS_')]
+  TBoundaryEntryType = (
+    OBNS_Invalid = 0,
+    OBNS_Name = 1,
+    OBNS_SID = 2,
+    OBNS_IL = 3
+  );
+
+  // PHNT::ntobapi.h
+  [SDKName('OBJECT_BOUNDARY_ENTRY')]
+  TObjectBoundaryEntry = record
+    EntryType: TBoundaryEntryType;
+    [Bytes] EntrySize: Cardinal;
+  end;
+
+  [FlagName(BOUNDARY_DESCRIPTOR_ADD_APPCONTAINER_SID, 'Add AppContainer SID')]
+  TBoundaryDescriptorFlags = type Cardinal;
+
+  // PHNT::ntobapi.h
+  [SDKName('OBJECT_BOUNDARY_DESCRIPTOR')]
+  TObjectBoundaryDescriptor = record
+    [Reserved(BOUNDARY_DESCRIPTOR_VERSION)] Version: Cardinal;
+    [Counter(ctElements)] Items: Cardinal;
+    [Counter(ctBytes)] TotalSize: Cardinal;
+    Flags: TBoundaryDescriptorFlags;
+  end;
+  PObjectBoundaryDescriptor = ^TObjectBoundaryDescriptor;
+
+  // WDK::ntdef.h
   [NamingStyle(nsCamelCase, 'Wait')]
   TWaitType = (
     WaitAll = 0,
@@ -122,6 +177,7 @@ type
 
 { Object }
 
+// WDK::ntifs.h
 function NtQueryObject(
   [Access(0)] ObjectHandle: THandle;
   ObjectInformationClass: TObjectInformationClass;
@@ -130,6 +186,7 @@ function NtQueryObject(
   [out, opt] ReturnLength: PCardinal
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntobapi.h
 function NtSetInformationObject(
   [Access(0)] Handle: THandle;
   ObjectInformationClass: TObjectInformationClass;
@@ -137,6 +194,7 @@ function NtSetInformationObject(
   ObjectInformationLength: Cardinal
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::ntifs.h
 function NtDuplicateObject(
   [Access(PROCESS_DUP_HANDLE)] SourceProcessHandle: THandle;
   SourceHandle: THandle;
@@ -147,34 +205,42 @@ function NtDuplicateObject(
   Options: TDuplicateOptions
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::wdm.h
+[RequiredPrivilege(SE_CREATE_PERMANENT_PRIVILEGE, rpAlways)]
 function NtMakeTemporaryObject(
   [Access(_DELETE)] Handle: THandle
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntobapi.h
+[RequiredPrivilege(SE_CREATE_PERMANENT_PRIVILEGE, rpAlways)]
 function NtMakePermanentObject(
   [Access(_DELETE)] Handle: THandle
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::ntifs.h
 function NtWaitForSingleObject(
   [Access(SYNCHRONIZE)] Handle: THandle;
   Alertable: LongBool;
   [in, opt] Timeout: PLargeInteger
 ): NTSTATUS; stdcall; external ntdll; overload;
 
+// PHNT::ntobapi.h
 function NtWaitForMultipleObjects(
-  Count: Integer;
+  Count: Cardinal;
   [Access(SYNCHRONIZE)] Handles: TArray<THandle>;
   WaitType: TWaitType;
   Alertable: Boolean;
   [in, opt] Timeout: PLargeInteger
 ): NTSTATUS; stdcall; external ntdll; overload;
 
+// WDK::ntifs.h
 function NtSetSecurityObject(
   [Access(OBJECT_WRITE_SECURITY)] Handle: THandle;
   SecurityInformation: TSecurityInformation;
   [in] SecurityDescriptor: PSecurityDescriptor
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::ntifs.h
 function NtQuerySecurityObject(
   [Access(OBJECT_READ_SECURITY)] Handle: THandle;
   SecurityInformation: TSecurityInformation;
@@ -183,10 +249,12 @@ function NtQuerySecurityObject(
   out LengthNeeded: Cardinal
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::ntifs.h
 function NtClose(
   Handle: THandle
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntobapi.h
 [MinOSVersion(OsWin10TH1)]
 function NtCompareObjects(
   [Access(0)] FirstObjectHandle: THandle;
@@ -195,18 +263,21 @@ function NtCompareObjects(
 
 { Directory }
 
+// WDK::wdm.h
 function NtCreateDirectoryObject(
   out DirectoryHandle: THandle;
   DesiredAccess: TDirectoryAccessMask;
   const ObjectAttributes: TObjectAttributes
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::ntifs.h
 function NtOpenDirectoryObject(
   out DirectoryHandle: THandle;
   DesiredAccess: TDirectoryAccessMask;
   const ObjectAttributes: TObjectAttributes
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntobapi.h
 function NtQueryDirectoryObject(
   [Access(DIRECTORY_QUERY)] DirectoryHandle: THandle;
   [out] Buffer: Pointer;
@@ -217,8 +288,32 @@ function NtQueryDirectoryObject(
   [out, opt] ReturnLength: PCardinal
 ): NTSTATUS; stdcall; external ntdll;
 
+{ Private namespace }
+
+// PHNT::ntobapi.h
+function NtCreatePrivateNamespace(
+  out NamespaceHandle: THandle;
+  DesiredAccess: TDirectoryAccessMask;
+  [in, opt] ObjectAttributes: PObjectAttributes;
+  [in] BoundaryDescriptor: PObjectBoundaryDescriptor
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntobapi.h
+function NtOpenPrivateNamespace(
+  out NamespaceHandle: THandle;
+  DesiredAccess: TDirectoryAccessMask;
+  [in, opt] ObjectAttributes: PObjectAttributes;
+  [in] BoundaryDescriptor: PObjectBoundaryDescriptor
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntobapi.h
+function NtDeletePrivateNamespace(
+  NamespaceHandle: THandle
+): NTSTATUS; stdcall; external ntdll;
+
 { Symbolic link }
 
+// PHNT::ntobapi.h
 function NtCreateSymbolicLinkObject(
   out LinkHandle: THandle;
   DesiredAccess: TSymlinkAccessMask;
@@ -226,12 +321,14 @@ function NtCreateSymbolicLinkObject(
   const LinkTarget: TNtUnicodeString
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::wdm.h
 function NtOpenSymbolicLinkObject(
   out LinkHandle: THandle;
   DesiredAccess: TSymlinkAccessMask;
   const ObjectAttributes: TObjectAttributes
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::wdm.h
 function NtQuerySymbolicLinkObject(
   [Access(SYMBOLIC_LINK_QUERY)] LinkHandle: THandle;
   var LinkTarget: TNtUnicodeString;

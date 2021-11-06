@@ -1,11 +1,15 @@
-unit Winapi.WinError;
+unit Ntapi.WinError;
 
-{$MINENUMSIZE 4}
+{
+  This file defines commonly encountered Win32 error codes and HRESULT values.
+}
 
 interface
 
+{$MINENUMSIZE 4}
+
 uses
-  Winapi.WinNt, Ntapi.ntstatus;
+  Ntapi.WinNt, Ntapi.ntstatus;
 
 const
   HRESULT_SEVERITY_MASK = $80000000;
