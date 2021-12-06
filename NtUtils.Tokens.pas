@@ -118,6 +118,16 @@ function NtxFilterToken(
   [opt] const SidsToRestrict: TArray<ISid> = nil
 ): TNtxStatus;
 
+// Filter a token in place
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
+function NtxFilterTokenInline(
+  var hxToken: IHandle;
+  Flags: TTokenFilterFlags;
+  [opt] const SidsToDisable: TArray<ISid> = nil;
+  [opt] const PrivilegesToDelete: TArray<TLuid> = nil;
+  [opt] const SidsToRestrict: TArray<ISid> = nil
+): TNtxStatus;
+
 // Create a new token from scratch. Requires SeCreateTokenPrivilege.
 [RequiredPrivilege(SE_CREATE_TOKEN_PRIVILEGE, rpAlways)]
 function NtxCreateToken(
@@ -162,7 +172,7 @@ function NtxCreateTokenEx(
 function NtxCreateLowBoxToken(
   out hxToken: IHandle;
   [Access(TOKEN_DUPLICATE)] hxExistingToken: IHandle;
-  [in] Package: PSid;
+  const Package: ISid;
   [opt] const Capabilities: TArray<TGroup> = nil;
   [opt] const Handles: TArray<IHandle> = nil;
   [opt] const ObjectAttributes: IObjectAttributes = nil
@@ -377,6 +387,17 @@ begin
     hxNewToken := NtxObject.Capture(hNewToken);
 end;
 
+function NtxFilterTokenInline;
+var
+  hxNewToken: IHandle;
+begin
+  Result := NtxFilterToken(hxNewToken, hxToken, Flags, SidsToDisable,
+    PrivilegesToDelete, SidsToRestrict);
+
+  if Result.IsSuccess then
+    hxToken := hxNewToken;
+end;
+
 function NtxCreateToken;
 var
   hToken: THandle;
@@ -510,7 +531,7 @@ begin
     hxExistingToken.Handle,
     AccessMaskOverride(TOKEN_ALL_ACCESS, ObjectAttributes),
     AttributesRefOrNil(ObjectAttributes),
-    Package,
+    Package.Data,
     Length(CapArray),
     CapArray,
     Length(HandleValues),

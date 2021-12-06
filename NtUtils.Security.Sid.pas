@@ -20,7 +20,7 @@ function RtlxCreateSid(
 
 // Validate the intput buffer and capture a copy as a SID
 function RtlxCopySid(
-  [in] SourceSid: PSid;
+  [in] Buffer: PSid;
   out NewSid: ISid
 ): TNtxStatus;
 
@@ -28,37 +28,37 @@ function RtlxCopySid(
 
 // Retrieve a copy of identifier authority of a SID as UIn64
 function RtlxIdentifierAuthoritySid(
-  [in] Sid: PSid
+  const Sid: ISid
 ): UInt64;
 
 // Retrieve an array of sub-authorities of a SID
 function RtlxSubAuthoritiesSid(
-  [in] Sid: PSid
+  const Sid: ISid
 ): TArray<Cardinal>;
 
 // Retrieve the RID (the last sub-authority) of a SID
 function RtlxRidSid(
-  [in] Sid: PSid;
+  const Sid: ISid;
   Default: Cardinal = 0
 ): Cardinal;
 
 // Construct a child SID (add a sub authority)
 function RtlxMakeChildSid(
   out ChildSid: ISid;
-  [in] ParentSid: PSid;
+  const ParentSid: ISid;
   Rid: Cardinal
 ): TNtxStatus;
 
 // Construct a parent SID (remove the last sub authority)
 function RtlxMakeParentSid(
   out ParentSid: ISid;
-  [in] ChildSid: PSid
+  const ChildSid: ISid
 ): TNtxStatus;
 
 // Construct a sibling SID (change the last sub authority)
 function RtlxMakeSiblingSid(
   out SiblingSid: ISid;
-  [in] SourceSid: PSid;
+  const SourceSid: ISid;
   Rid: Cardinal
 ): TNtxStatus;
 
@@ -66,7 +66,7 @@ function RtlxMakeSiblingSid(
 
 // Convert a SID to its SDDL representation
 function RtlxSidToString(
-  [in] Sid: PSid
+  const Sid: ISid
 ): String;
 
 // Convert SDDL string to a SID
@@ -91,8 +91,8 @@ function RtlxCreateServiceSid(
 
 // Construct a well-known SID
 function SddlxCreateWellKnownSid(
-  out Sid: ISid;
-  WellKnownSidType: TWellKnownSidType
+  WellKnownSidType: TWellKnownSidType;
+  out Sid: ISid
 ): TNtxStatus;
 
 implementation
@@ -122,40 +122,41 @@ end;
 
 function RtlxCopySid;
 begin
-  if not Assigned(SourceSid) or not RtlValidSid(SourceSid) then
+  if not Assigned(Buffer) or not RtlValidSid(Buffer) then
   begin
     Result.Location := 'RtlValidSid';
     Result.Status := STATUS_INVALID_SID;
     Exit;
   end;
 
-  IMemory(NewSid) := Auto.AllocateDynamic(RtlLengthSid(SourceSid));
+  IMemory(NewSid) := Auto.AllocateDynamic(RtlLengthSid(Buffer));
 
   Result.Location := 'RtlCopySid';
-  Result.Status := RtlCopySid(RtlLengthSid(SourceSid), NewSid.Data, SourceSid);
+  Result.Status := RtlCopySid(RtlLengthSid(Buffer), NewSid.Data, Buffer);
 end;
 
  { Information }
 
 function RtlxIdentifierAuthoritySid;
 begin
-  Result := RtlIdentifierAuthoritySid(Sid)^;
+  Result := RtlIdentifierAuthoritySid(Sid.Data)^;
 end;
 
 function RtlxSubAuthoritiesSid;
 var
   i: Integer;
 begin
-  SetLength(Result, RtlSubAuthorityCountSid(Sid)^);
+  SetLength(Result, RtlSubAuthorityCountSid(Sid.Data)^);
 
   for i := 0 to High(Result) do
-    Result[i] := RtlSubAuthoritySid(Sid, i)^;
+    Result[i] := RtlSubAuthoritySid(Sid.Data, i)^;
 end;
 
 function RtlxRidSid;
 begin
-  if RtlSubAuthorityCountSid(Sid)^ > 0 then
-    Result := RtlSubAuthoritySid(Sid, RtlSubAuthorityCountSid(Sid)^ - 1)^
+  if RtlSubAuthorityCountSid(Sid.Data)^ > 0 then
+    Result := RtlSubAuthoritySid(Sid.Data,
+      RtlSubAuthorityCountSid(Sid.Data)^ - 1)^
   else
     Result := Default;
 end;
@@ -163,7 +164,7 @@ end;
 function RtlxMakeChildSid;
 begin
   // Add a new sub authority at the end
-  Result := RtlxCreateSid(ChildSid, RtlIdentifierAuthoritySid(ParentSid)^,
+  Result := RtlxCreateSid(ChildSid, RtlIdentifierAuthoritySid(ParentSid.Data)^,
     Concat(RtlxSubAuthoritiesSid(ParentSid), [Rid]));
 end;
 
@@ -178,8 +179,8 @@ begin
   begin
     // Drop the last one
     Delete(SubAuthorities, High(SubAuthorities), 1);
-    Result := RtlxCreateSid(ParentSid, RtlIdentifierAuthoritySid(ChildSid)^,
-      SubAuthorities);
+    Result := RtlxCreateSid(ParentSid,
+      RtlIdentifierAuthoritySid(ChildSid.Data)^, SubAuthorities);
   end
   else
   begin
@@ -199,8 +200,8 @@ begin
   begin
     // Replace the RID
     SubAuthorities[High(SubAuthorities)] := Rid;
-    Result := RtlxCreateSid(SiblingSid, RtlIdentifierAuthoritySid(SourceSid)^,
-      SubAuthorities);
+    Result := RtlxCreateSid(SiblingSid,
+      RtlIdentifierAuthoritySid(SourceSid.Data)^, SubAuthorities);
   end
   else
   begin
@@ -212,41 +213,31 @@ end;
 
  { SDDL }
 
-function RtlxpApplySddlOverrides([in] Sid: PSid; var SDDL: String): Boolean;
-begin
-  Result := False;
-
-  // We override convertion of some SIDs to strings for the sake of readability.
-  // The results are still valid SDDLs.
-
-  case RtlxIdentifierAuthoritySid(SID) of
-
-    // Integrity: S-1-16-x
-    SECURITY_MANDATORY_LABEL_AUTHORITY_ID:
-      if RtlSubAuthorityCountSid(SID)^ = 1 then
-      begin
-        SDDL := 'S-1-16-' + RtlxUIntToStr(RtlSubAuthoritySid(SID, 0)^, 16, 4);
-        Result := True;
-      end;
-
-  end;
-end;
-
 function RtlxSidToString;
 var
   SDDL: TNtUnicodeString;
   Buffer: array [0 .. SECURITY_MAX_SID_STRING_CHARACTERS - 1] of WideChar;
 begin
-  Result := '';
+  case RtlxIdentifierAuthoritySid(SID) of
 
-  if RtlxpApplySddlOverrides(SID, Result) then
-    Exit;
+    // Integrity: S-1-16-x
+    SECURITY_MANDATORY_LABEL_AUTHORITY:
+      if RtlSubAuthorityCountSid(SID.Data)^ = 1 then
+        Exit('S-1-16-' + RtlxUIntToStr(RtlSubAuthoritySid(SID.Data, 0)^,
+          16, 4));
+
+    // Trust: S-1-19-X-X
+    SECURITY_PROCESS_TRUST_AUTHORITY:
+      if RtlSubAuthorityCountSid(SID.Data)^ = 2 then
+        Exit('S-1-19-' + RtlxUIntToStr(RtlSubAuthoritySid(SID.Data, 0)^,
+          16, 3) + '-' + RtlxUIntToStr(RtlSubAuthoritySid(SID.Data, 1)^, 16, 4));
+  end;
 
   SDDL.Length := 0;
   SDDL.MaximumLength := SizeOf(Buffer);
   SDDL.Buffer := Buffer;
 
-  if NT_SUCCESS(RtlConvertSidToUnicodeString(SDDL, Sid, False)) then
+  if NT_SUCCESS(RtlConvertSidToUnicodeString(SDDL, Sid.Data, False)) then
     Result := SDDL.ToString
   else
     Result := '(invalid SID)';
@@ -264,6 +255,55 @@ begin
 
   Val(S, Value, E);
   Result := (E = 0);
+end;
+
+function TryParseLogonIDs(
+  StringSid: String;
+  out Sid: ISid
+): Boolean;
+const
+  FULL_PREFIX = 'NT AUTHORITY\LogonSessionId_';
+  SHORT_PREFIX = 'LogonSessionId_';
+var
+  SplitIndex: Integer;
+  LogonIdHighString, LogonIdLowString: String;
+  LogonIdHigh, LogonIdLow: Cardinal;
+  i: Integer;
+begin
+  // Check if the string has the logon SID prefix and strip it
+  if RtlxPrefixString(FULL_PREFIX, StringSid) then
+    StringSid := Copy(StringSid, Length(FULL_PREFIX) + 1, Length(StringSid))
+  else if RtlxPrefixString(SHORT_PREFIX, StringSid) then
+    StringSid := Copy(StringSid, Length(SHORT_PREFIX) + 1, Length(StringSid))
+  else
+    Exit(False);
+
+  // Find the underscore between high and low parts
+  SplitIndex := -1;
+
+  for i := Low(StringSid) to High(StringSid) do
+    if StringSid[i] = '_' then
+    begin
+      SplitIndex := i;
+      Break;
+    end;
+
+  if SplitIndex < 0 then
+    Exit(False);
+
+  // Split the string
+  LogonIdHighString := Copy(StringSid, 1, SplitIndex - Low(String));
+  LogonIdLowString := Copy(StringSid, SplitIndex - Low(String) + 2,
+    Length(StringSid) - SplitIndex + Low(String));
+
+  // Parse and construct the SID
+  Result :=
+    (Length(LogonIdHighString) > 0) and
+    (Length(LogonIdLowString) > 0) and
+    RtlxStrToUInt(LogonIdHighString, LogonIdHigh) and
+    RtlxStrToUInt(LogonIdLowString, LogonIdLow) and
+    RtlxCreateSid(Sid, SECURITY_NT_AUTHORITY,
+      [SECURITY_LOGON_IDS_RID, LogonIdHigh, LogonIdLow]).IsSuccess;
 end;
 
 function RtlxStringToSid;
@@ -284,18 +324,28 @@ begin
     and (IdAuthority < UInt64(1) shl 48) then
   begin
     Result := RtlxCreateSid(Sid, IdAuthority);
-  end
-  else
-  begin
-    // Usual SDDL conversion
-    Result.Location := 'ConvertStringSidToSidW';
-    Result.Win32Result := ConvertStringSidToSidW(PWideChar(SDDL), Buffer);
+    Exit;
+  end;
 
-    if Result.IsSuccess then
-    begin
-      Result := RtlxCopySid(Buffer, Sid);
-      LocalFree(Buffer);
-    end;
+  // LSA lookup functions automatically convert S-1-5-5-X-Y to
+  // NT AUTHORITY\LogonSessionId_X_Y and then refuse to parse it back.
+  // While this issue is not technically related to SDDL, we fix it here
+  // since that's the place where we already use similar parsing logic.
+
+  if TryParseLogonIDs(SDDL, Sid) then
+  begin
+    Result.Status := STATUS_SUCCESS;
+    Exit;
+  end;
+
+  // Usual SDDL conversion
+  Result.Location := 'ConvertStringSidToSidW';
+  Result.Win32Result := ConvertStringSidToSidW(PWideChar(SDDL), Buffer);
+
+  if Result.IsSuccess then
+  begin
+    Result := RtlxCopySid(Buffer, Sid);
+    LocalFree(Buffer);
   end;
 end;
 

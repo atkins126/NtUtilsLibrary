@@ -11,6 +11,7 @@ uses
 
 type
   TTranslatedName = record
+    SID: ISid;
     DomainName, UserName: String;
     SidType: TSidNameUse;
     function IsValid: Boolean;
@@ -19,27 +20,27 @@ type
 
 // Convert a SID to an account name
 function LsaxLookupSid(
-  [in] Sid: PSid;
+  const Sid: ISid;
   out Name: TTranslatedName;
   [opt, Access(POLICY_LOOKUP_NAMES)] const hxPolicy: ILsaHandle = nil
 ): TNtxStatus;
 
 // Convert multiple SIDs to a account names
 function LsaxLookupSids(
-  const Sids: TArray<PSid>;
+  const Sids: TArray<ISid>;
   out Names: TArray<TTranslatedName>;
   [opt, Access(POLICY_LOOKUP_NAMES)] hxPolicy: ILsaHandle = nil
 ): TNtxStatus;
 
 // Convert a SID to full account name or at least to SDDL
 function LsaxSidToString(
-  [in] Sid: PSid;
+  const Sid: ISid;
   [opt, Access(POLICY_LOOKUP_NAMES)] const hxPolicy: ILsaHandle = nil
 ): String;
 
 // Convert an account's name to a SID
 function LsaxLookupName(
-  const AccountName: String;
+  AccountName: String;
   out Sid: ISid;
   [opt, Access(POLICY_LOOKUP_NAMES)] hxPolicy: ILsaHandle = nil
 ): TNtxStatus;
@@ -80,7 +81,7 @@ function LsaxGetFullUserName(
 function LsaxAddSidNameMapping(
   const Domain: String;
   const User: String;
-  [in] Sid: PSid
+  const Sid: ISid
 ): TNtxStatus;
 
 // Revoke a name from an SID
@@ -118,7 +119,7 @@ end;
 
 function LsaxLookupSid;
 var
-  Sids: TArray<PSid>;
+  Sids: TArray<ISid>;
   Names: TArray<TTranslatedName>;
 begin
   SetLength(Sids, 1);
@@ -132,18 +133,31 @@ end;
 
 function LsaxLookupSids;
 var
+  SidData: TArray<PSid>;
   BufferDomains: PLsaReferencedDomainList;
   BufferNames: PLsaTranslatedNameArray;
   i: Integer;
 begin
+  if Length(Sids) = 0 then
+  begin
+    Result.Status := STATUS_SUCCESS;
+    Names := nil;
+    Exit;
+  end;
+
   Result := LsaxpEnsureConnected(hxPolicy, POLICY_LOOKUP_NAMES);
 
   if not Result.IsSuccess then
     Exit;
 
+  SetLength(SidData, Length(Sids));
+
+  for i := 0 to High(SidData) do
+    SidData[i] := Sids[i].Data;
+
   // Request translation for all SIDs at once
   Result.Location := 'LsaLookupSids';
-  Result.Status := LsaLookupSids(hxPolicy.Handle, Length(Sids), Sids,
+  Result.Status := LsaLookupSids(hxPolicy.Handle, Length(SidData), SidData,
     BufferDomains, BufferNames);
 
   // Even without mapping we get to know SID types
@@ -157,6 +171,7 @@ begin
 
   for i := 0 to High(Sids) do
   begin
+    Names[i].SID := Sids[i];
     Names[i].SidType := BufferNames{$R-}[i]{$R+}.Use;
 
     // Note: for some SID types LsaLookupSids might return SID's SDDL
@@ -191,6 +206,8 @@ begin
 end;
 
 function LsaxLookupName;
+const
+  APP_PACKAGE_DOMAIN = 'APPLICATION PACKAGE AUTHORITY\';
 var
   BufferDomain: PLsaReferencedDomainList;
   BufferTranslatedSid: PLsaTranslatedSid2Array;
@@ -200,6 +217,11 @@ begin
 
   if not Result.IsSuccess then
     Exit;
+
+  // Fix LSA's lookup for package-related SIDs
+  if RtlxPrefixString(APP_PACKAGE_DOMAIN, AccountName) then
+    AccountName := Copy(AccountName, Length(APP_PACKAGE_DOMAIN),
+      Length(AccountName));
 
   // Request translation of one name
   Result.Location := 'LsaLookupNames2';
@@ -247,7 +269,7 @@ begin
     Exit;
 
   // Convert the SID back to an account name name
-  Result := LsaxLookupSid(Sid.Data, CanonicalName, hxPolicy);
+  Result := LsaxLookupSid(Sid, CanonicalName, hxPolicy);
 
   if not Result.IsSuccess then
     Exit;
@@ -353,7 +375,7 @@ begin
 
   Input.AddInput.DomainName := TLsaUnicodeString.From(Domain);
   Input.AddInput.AccountName := TLsaUnicodeString.From(User);
-  Input.AddInput.Sid := Sid;
+  Input.AddInput.Sid := Sid.Data;
   Input.AddInput.Flags := 0;
 
   Result := LsaxManageSidNameMapping(LsaSidNameMappingOperation_Add, Input);

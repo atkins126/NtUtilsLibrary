@@ -15,6 +15,7 @@ const
 
   // From ntapi.ntstatus
   STATUS_SUCCESS = NTSTATUS(0);
+  MAX_STACK_TRACE_DEPTH = 32;
 
 var
   // Controls whether TNtxStatus should capture stack traces on failure.
@@ -83,6 +84,10 @@ type
   TGroup = record
     Sid: ISid;
     Attributes: TGroupAttributes;
+    class function From(
+      const Sid: ISid;
+      Attributes: TGroupAttributes
+    ): TGroup; static;
   end;
 
   { Error Handling }
@@ -131,6 +136,7 @@ type
     function GetLocation: String;
 
     procedure FromWin32Error(const Value: TWin32Error);
+    procedure FromWin32ErrorOrSuccess(const Value: TWin32Error);
     procedure FromLastWin32Error(const RetValue: Boolean);
     procedure FromHResult(const Value: HResult);
     procedure FromHResultAllowFalse(const Value: HResult);
@@ -146,9 +152,10 @@ type
     function IsWin32: Boolean;
     function IsHResult: Boolean;
 
-    // Integration
+    // Conversion
     property Status: NTSTATUS read FStatus write FromStatus;
     property Win32Error: TWin32Error read GetWin32Error write FromWin32Error;
+    property Win32ErrorOrSuccess: TWin32Error write FromWin32ErrorOrSuccess;
     property HResult: HResult read GetHResult write FromHResult;
     property HResultAllowFalse: HResult write FromHResultAllowFalse;
     property Win32Result: Boolean write FromLastWin32Error;
@@ -173,11 +180,12 @@ function Grow12Percent(
   Required: NativeUInt
 ): NativeUInt;
 
+// Re-allocate the buffer according to the required size
 function NtxExpandBufferEx(
   var Status: TNtxStatus;
   var Memory: IMemory;
   Required: NativeUInt;
-  GrowthMetod: TBufferGrowthMethod
+  [opt] GrowthMetod: TBufferGrowthMethod
 ): Boolean;
 
 { Object Attributes }
@@ -197,7 +205,7 @@ function AttributesRefOrNil(
   [opt] const ObjAttributes: IObjectAttributes
 ): PObjectAttributes;
 
-// Let the caller override a default access mask via Object Attributes when
+// Let the caller override the default access mask via Object Attributes when
 // creating kernel objects.
 function AccessMaskOverride(
   DefaultAccess: TAccessMask;
@@ -252,11 +260,10 @@ end;
 { TLastCallInfo }
 
 procedure TLastCallInfo.CaptureStackTrace;
-const
-  MAX_DEPTH = 32;
 begin
-  SetLength(StackTrace, MAX_DEPTH);
-  SetLength(StackTrace, RtlCaptureStackBackTrace(2, MAX_DEPTH, StackTrace, nil))
+  SetLength(StackTrace, MAX_STACK_TRACE_DEPTH);
+  SetLength(StackTrace, RtlCaptureStackBackTrace(2, MAX_STACK_TRACE_DEPTH,
+    StackTrace, nil));
 end;
 
 procedure TLastCallInfo.Expects<T>;
@@ -339,7 +346,15 @@ end;
 
 procedure TNtxStatus.FromWin32Error;
 begin
-  Status := Win32Error.ToNtStatus;
+  Status := Value.ToNtStatus;
+end;
+
+procedure TNtxStatus.FromWin32ErrorOrSuccess;
+begin
+  if Value = ERROR_SUCCESS then
+    Status := STATUS_SUCCESS
+  else
+    Status := Value.ToNtStatus;
 end;
 
 function TNtxStatus.GetHResult;
@@ -400,6 +415,14 @@ procedure TNtxStatus.SetLocation;
 begin
   LastCall := Default(TLastCallInfo);
   LastCall.Location := Value;
+end;
+
+{ TGroup }
+
+class function TGroup.From;
+begin
+  Result.Sid := Sid;
+  Result.Attributes := Attributes;
 end;
 
 { Functions }
