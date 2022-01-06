@@ -101,6 +101,7 @@ const
   OBJECT_WRITE_SECURITY = WRITE_DAC or WRITE_OWNER or ACCESS_SYSTEM_SECURITY;
 
   // SID structure consts
+  SID_REVISION = 1;
   SID_MAX_SUB_AUTHORITIES = 15;
   SECURITY_MAX_SID_SIZE = 8 + SID_MAX_SUB_AUTHORITIES * SizeOf(Cardinal);
   SECURITY_MAX_SID_STRING_CHARACTERS = 187;
@@ -211,6 +212,9 @@ const
   SECURITY_MIN_BASE_RID = $050; // S-1-5-80
   SECURITY_MAX_BASE_RID = $06F; // S-1-5-111
 
+  SECURITY_LOCAL_ACCOUNT_RID = $00000071;           // S-1-5-113 (NT AUTHORITY\Local account)
+  SECURITY_LOCAL_ACCOUNT_AND_ADMIN_RID = $00000072; // S-1-5-114 (NT AUTHORITY\Local account and member of Administrators group)
+
   SECURITY_APP_PACKAGE_AUTHORITY = 15;          // S-1-15 (APPLICATION PACKAGE AUTHORITY)
 
   SECURITY_APP_PACKAGE_BASE_RID = $00000002;    // S-1-15-2
@@ -275,6 +279,7 @@ const
 
   // ACL
   ACL_REVISION = 2;
+  ACL_REVISION_DS = 4;
   MAX_ACL_SIZE = High(Word) and not (SizeOf(Cardinal) - 1);
 
   // ACE flags
@@ -287,6 +292,10 @@ const
   SUCCESSFUL_ACCESS_ACE_FLAG = $40;      // for audit and alarm aces
   FAILED_ACCESS_ACE_FLAG = $80;          // for audit and alarm aces
   TRUST_PROTECTED_FILTER_ACE_FLAG = $40; // for access filter ace
+
+  // Object ACE flags
+  ACE_OBJECT_TYPE_PRESENT = $1;
+  ACE_INHERITED_OBJECT_TYPE_PRESENT = $2;
 
   // Mandatory policy flags
   SYSTEM_MANDATORY_LABEL_NO_WRITE_UP = $1;
@@ -674,7 +683,7 @@ type
   PAcl = ^TAcl;
 
   {$MINENUMSIZE 1}
-  [NamingStyle(nsSnakeCase, '', 'ACE_TYPE')]
+  [NamingStyle(nsSnakeCase, 'SYSTEM', 'ACE_TYPE')]
   TAceType = (
     ACCESS_ALLOWED_ACE_TYPE = 0,
     ACCESS_DENIED_ACE_TYPE = 1,
@@ -725,6 +734,7 @@ type
     AceType: TAceType;
     AceFlags: TAceFlags;
     [Bytes] AceSize: Word;
+    function Revision: Cardinal;
   end;
   PAceHeader = ^TAceHeader;
 
@@ -741,15 +751,26 @@ type
   [SDKName('ACCESS_DENIED_CALLBACK_ACE')]
   [SDKName('SYSTEM_AUDIT_CALLBACK_ACE')]
   [SDKName('SYSTEM_ALARM_CALLBACK_ACE')]
-  TAce_Internal = record
+  TNonObjectAce = record
     Header: TAceHeader;
     Mask: TAccessMask;
   private
     SidStart: Cardinal;
   public
     function Sid: PSid;
+    function ExtraData: Pointer;
+    function ExtraDataSize: Word;
   end;
-  PAce = ^TAce_Internal;
+  PNonObjectAce = ^TNonObjectAce;
+
+  [FlagName(SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, 'No-Write-Up')]
+  [FlagName(SYSTEM_MANDATORY_LABEL_NO_READ_UP, 'No-Read-Up')]
+  [FlagName(SYSTEM_MANDATORY_LABEL_NO_EXECUTE_UP, 'No-Execute-Up')]
+  TMandatoryLabelMask = type TAccessMask;
+
+  [FlagName(ACE_OBJECT_TYPE_PRESENT, 'Object Type Present')]
+  [FlagName(ACE_INHERITED_OBJECT_TYPE_PRESENT, 'Inherited Object Type Present')]
+  TObjectAceFlags = type Cardinal;
 
   [SDKName('ACCESS_ALLOWED_OBJECT_ACE')]
   [SDKName('ACCESS_DENIED_OBJECT_ACE')]
@@ -759,18 +780,28 @@ type
   [SDKName('ACCESS_DENIED_CALLBACK_OBJECT_ACE')]
   [SDKName('SYSTEM_AUDIT_CALLBACK_OBJECT_ACE')]
   [SDKName('SYSTEM_ALARM_CALLBACK_OBJECT_ACE')]
-  TObjectAce_Internal = record
+  TObjectAce = record
     Header: TAceHeader;
     Mask: TAccessMask;
-    [Hex] Flags: Cardinal;
+    Flags: TObjectAceFlags;
     ObjectType: TGuid;
     InheritedObjectType: TGuid;
   private
     SidStart: Cardinal;
   public
     function Sid: PSid;
+    function ExtraData: Pointer;
+    function ExtraDataSize: Word;
   end;
-  PObjectAce = ^TObjectAce_Internal;
+  PObjectAce = ^TObjectAce;
+
+  TAce_Internal = record
+  case Integer of
+    0: (Header: TAceHeader);
+    1: (NonObjectAce: TNonObjectAce);
+    2: (ObjectAce: TObjectAce);
+  end;
+  PAce = ^TAce_Internal;
 
   [SDKName('ACL_INFORMATION_CLASS')]
   [NamingStyle(nsCamelCase, 'Acl'), Range(1)]
@@ -1100,6 +1131,9 @@ function SecurityWriteAccess(Info: TSecurityInformation): TAccessMask;
 
 implementation
 
+uses
+  Ntapi.ntrtl;
+
 { TSidIdentifierAuthority }
 
 class operator TSidIdentifierAuthority.Implicit(
@@ -1124,16 +1158,48 @@ begin
   Result.Value[5] := Byte(Source shr 0);
 end;
 
+{ TAceHeader }
+
+function TAceHeader.Revision;
+begin
+  if AceType in ObjectAces then
+    Result := ACL_REVISION_DS
+  else
+    Result := ACL_REVISION;
+end;
+
 { TAce_Internal }
 
-function TAce_Internal.Sid;
+function TNonObjectAce.ExtraData;
+begin
+  Pointer(Result) := PByte(@Self.SidStart) + RtlLengthSid(Sid);
+end;
+
+function TNonObjectAce.ExtraDataSize;
+begin
+  Result := Header.AceSize + SizeOf(Cardinal) - Cardinal(SizeOf(TNonObjectAce))
+    - RtlLengthSid(Sid);
+end;
+
+function TNonObjectAce.Sid;
 begin
   Pointer(Result) := @Self.SidStart;
 end;
 
 { TObjectAce_Internal }
 
-function TObjectAce_Internal.Sid;
+function TObjectAce.ExtraData;
+begin
+  Pointer(Result) := PByte(@Self.SidStart) + RtlLengthSid(Sid);
+end;
+
+function TObjectAce.ExtraDataSize;
+begin
+  Result := Header.AceSize + SizeOf(Cardinal) - Cardinal(SizeOf(TObjectAce)) -
+    RtlLengthSid(Sid);
+end;
+
+function TObjectAce.Sid;
 begin
   Pointer(Result) := @Self.SidStart;
 end;

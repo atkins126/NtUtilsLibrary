@@ -15,6 +15,11 @@ uses
 type
   TSecurityAttribute = NtUtils.Tokens.TSecurityAttribute;
 
+  TBnoIsolation = record
+    Enabled: Boolean;
+    Prefix: String;
+  end;
+
 // Make sure pseudo-handles are supported for querying on all OS versions
 function NtxpExpandTokenForQuery(
   var hxToken: IHandle;
@@ -68,6 +73,13 @@ function NtxQuerySidToken(
   out Sid: ISid
 ): TNtxStatus;
 
+// Set a SID (Owner, Primary group)
+function NtxSetSidToken(
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
+  InfoClass: TTokenInformationClass;
+  const Sid: ISid
+): TNtxStatus;
+
 // Query a SID and attributes (User, Integrity, ...)
 function NtxQueryGroupToken(
   [Access(TOKEN_QUERY)] const hxToken: IHandle;
@@ -95,6 +107,7 @@ function NtxQueryPrivilegesToken(
 ): TNtxStatus;
 
 // Query default DACL
+// NOTE: the function might return NULL
 function NtxQueryDefaultDaclToken(
   [Access(TOKEN_QUERY)] const hxToken: IHandle;
   out DefaultDacl: IAcl
@@ -106,6 +119,12 @@ function NtxSetDefaultDaclToken(
   [opt] const DefaultDacl: IAcl
 ): TNtxStatus;
 
+// Prepare a canonical default DACL for a user token
+function NtxMakeDefaultDaclToken(
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
+  out DefaultDacl: IAcl
+): TNtxStatus;
+
 // Query token flags
 function NtxQueryFlagsToken(
   [Access(TOKEN_QUERY)] const hxToken: IHandle;
@@ -115,14 +134,20 @@ function NtxQueryFlagsToken(
 // Query integrity level of a token. For integrity SID use NtxQueryGroupToken.
 function NtxQueryIntegrityToken(
   [Access(TOKEN_QUERY)] const hxToken: IHandle;
-  out IntegrityLevel: TIntegriyRid
+  out IntegrityLevel: TIntegrityRid
 ): TNtxStatus;
 
 // Set integrity level of a token
 [RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
 function NtxSetIntegrityToken(
   [Access(TOKEN_ADJUST_DEFAULT)] const hxToken: IHandle;
-  IntegrityLevel: TIntegriyRid
+  IntegrityLevel: TIntegrityRid
+): TNtxStatus;
+
+// Query token Base Named Objects isolation
+function NtxQueryBnoIsolationToken(
+  [Access(TOKEN_QUERY)] const hxToken: IHandle;
+  out Isolation: TBnoIsolation
 ): TNtxStatus;
 
 // Query all security attributes of a token
@@ -271,6 +296,14 @@ begin
     Result := RtlxCopySid(xMemory.Data.Sid, Sid);
 end;
 
+function NtxSetSidToken;
+var
+  Buffer: TTokenSidInformation;
+begin
+  Buffer.Sid := Sid.Data;
+  Result := NtxToken.Set(hxToken, InfoClass, Buffer);
+end;
+
 function NtxQueryGroupToken;
 var
   xMemory: IMemory<PSidAndAttributes>;
@@ -353,7 +386,7 @@ begin
   Result := NtxQueryToken(hxToken, TokenDefaultDacl, IMemory(xMemory));
 
   if Result.IsSuccess and Assigned(xMemory.Data.DefaultDacl) then
-    Result := RtlxCopyAcl(xMemory.Data.DefaultDacl, DefaultDacl)
+    Result := RtlxCopyAcl(DefaultDacl, xMemory.Data.DefaultDacl)
   else
     DefaultDacl := nil;
 end;
@@ -362,12 +395,35 @@ function NtxSetDefaultDaclToken;
 var
   Dacl: TTokenDefaultDacl;
 begin
-  if Assigned(DefaultDacl) then
-    Dacl.DefaultDacl := DefaultDacl.Data
-  else
-    Dacl.DefaultDacl := nil;
-
+  Dacl.DefaultDacl := Auto.RefOrNil<PAcl>(DefaultDacl);
   Result := NtxToken.Set(hxToken, TokenDefaultDacl, Dacl);
+end;
+
+function NtxMakeDefaultDaclToken;
+var
+  Owner: TGroup;
+  LogonSids: TArray<TGroup>;
+  Aces: TArray<TAceData>;
+begin
+  Result := NtxQueryGroupToken(hxToken, TokenOwner, Owner);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Add GENERIC_ALL for the owner and SYSTEM
+  Aces := [
+    TAceData.New(ACCESS_ALLOWED_ACE_TYPE, 0, GENERIC_ALL, Owner.Sid),
+    TAceData.New(ACCESS_ALLOWED_ACE_TYPE, 0, GENERIC_ALL,
+      RtlxMakeSid(SECURITY_NT_AUTHORITY, [SECURITY_LOCAL_SYSTEM_RID]))
+  ];
+
+  // Add GR + GE for the logon SID
+  if NtxQueryGroupsToken(hxToken, TokenLogonSid, LogonSids).IsSuccess and
+    (Length(LogonSids) > 0) then
+    Aces := Aces + [TAceData.New(ACCESS_ALLOWED_ACE_TYPE, 0, GENERIC_READ or
+      GENERIC_EXECUTE, LogonSids[0].Sid)];
+
+  Result := RtlxBuildAcl(DefaultDacl, Aces);
 end;
 
 function NtxQueryFlagsToken;
@@ -413,6 +469,19 @@ begin
   MandatoryLabel.Attributes := SE_GROUP_INTEGRITY_ENABLED;
 
   Result := NtxToken.Set(hxToken, TokenIntegrityLevel, MandatoryLabel);
+end;
+
+function NtxQueryBnoIsolationToken;
+var
+  Buffer: IMemory<PTokenBnoIsolationInformation>;
+begin
+  Result := NtxQueryToken(hxToken, TokenBnoIsolation, IMemory(Buffer));
+
+  if Result.IsSuccess then
+  begin
+    Isolation.Enabled := Buffer.Data.IsolationEnabled;
+    Isolation.Prefix := String(Buffer.Data.IsolationPrefix);
+  end;
 end;
 
 function NtxQueryAttributesToken;

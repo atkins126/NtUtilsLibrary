@@ -18,6 +18,12 @@ function RtlxCreateSid(
   [opt] const SubAuthouritiesArray: TArray<Cardinal> = nil
 ): TNtxStatus;
 
+// Build a new SID without failing
+function RtlxMakeSid(
+  const IdentifyerAuthority: TSidIdentifierAuthority;
+  [opt] const SubAuthouritiesArray: TArray<Cardinal> = nil
+): ISid;
+
 // Validate the intput buffer and capture a copy as a SID
 function RtlxCopySid(
   [in] Buffer: PSid;
@@ -35,6 +41,12 @@ function RtlxIdentifierAuthoritySid(
 function RtlxSubAuthoritiesSid(
   const Sid: ISid
 ): TArray<Cardinal>;
+
+// Check if two SIDs are equal
+function RtlxEqualSids(
+  const Sid1: ISid;
+  const Sid2: ISid
+): Boolean;
 
 // Retrieve the RID (the last sub-authority) of a SID
 function RtlxRidSid(
@@ -99,7 +111,7 @@ implementation
 
 uses
   Ntapi.ntdef, Ntapi.ntrtl, Ntapi.ntstatus, Ntapi.WinBase, Ntapi.Sddl,
-  NtUtils.SysUtils;
+  NtUtils.SysUtils, NtUtils.Errors;
 
  { Construction }
 
@@ -118,6 +130,27 @@ begin
   if Result.IsSuccess then
     for i := 0 to High(SubAuthouritiesArray) do
       RtlSubAuthoritySid(Sid.Data, i)^ := SubAuthouritiesArray[i];
+end;
+
+function RtlxMakeSid;
+var
+  i: Integer;
+begin
+  IMemory(Result) := Auto.AllocateDynamic(
+    RtlLengthRequiredSid(Length(SubAuthouritiesArray)));
+
+  if not RtlInitializeSid(Result.Data, @IdentifyerAuthority,
+    Length(SubAuthouritiesArray)).IsSuccess then
+  begin
+    // Construct manually on failure
+    Result.Data.Revision := SID_REVISION;
+    Result.Data.SubAuthorityCount := Length(SubAuthouritiesArray);
+    Result.Data.IdentifierAuthority := IdentifyerAuthority;
+  end;
+
+  // Fill in the sub authorities
+  for i := 0 to High(SubAuthouritiesArray) do
+    RtlSubAuthoritySid(Result.Data, i)^ := SubAuthouritiesArray[i];
 end;
 
 function RtlxCopySid;
@@ -150,6 +183,11 @@ begin
 
   for i := 0 to High(Result) do
     Result[i] := RtlSubAuthoritySid(Sid.Data, i)^;
+end;
+
+function RtlxEqualSids;
+begin
+  Result := RtlEqualSid(Sid1.Data, Sid2.Data);
 end;
 
 function RtlxRidSid;

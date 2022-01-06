@@ -162,7 +162,7 @@ function LsaxQueryPrivilege(
 // Get the minimal integrity level required to use a specific privilege
 function LsaxQueryIntegrityPrivilege(
   const Luid: TLuid
-): TIntegriyRid;
+): TIntegrityRid;
 
 { ------------------------------- Logon Process ----------------------------- }
 
@@ -191,7 +191,7 @@ function LsaxLookupAuthPackage(
 function LsaxQuerySecurityObject(
   [Access(OBJECT_READ_SECURITY)] LsaHandle: TLsaHandle;
   Info: TSecurityInformation;
-  out SD: ISecDesc
+  out SD: ISecurityDescriptor
 ): TNtxStatus;
 
 // Set security descriptor on a LSA object

@@ -20,7 +20,7 @@ implementation
 uses
   Ntapi.WinNt, Ntapi.ntsam, Ntapi.ntseapi, Ntapi.WinSvc, NtUtils.Security.Sid,
   NtUtils.Lsa.Sid, NtUtils.Sam, NtUtils.Svc, NtUtils.WinUser, NtUtils.Tokens,
-  NtUtils.Tokens.Info, NtUtils.SysUtils, DelphiUtils.Arrays,
+  NtUtils.Tokens.Info, NtUtils.SysUtils, DelphiUtils.Arrays, Ntapi.Versions,
   DelphiUtils.AutoObjects;
 
 // Prepare well-known SIDs from constants
@@ -97,6 +97,8 @@ begin
     [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_SCHANNEL_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_DIGEST_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_SERVICE_ID_BASE_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_LOCAL_ACCOUNT_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_LOCAL_ACCOUNT_AND_ADMIN_RID],
     [SECURITY_APP_PACKAGE_AUTHORITY, SECURITY_APP_PACKAGE_BASE_RID, SECURITY_BUILTIN_PACKAGE_ANY_PACKAGE],
     [SECURITY_APP_PACKAGE_AUTHORITY, SECURITY_APP_PACKAGE_BASE_RID, SECURITY_BUILTIN_PACKAGE_ANY_RESTRICTED_PACKAGE],
     [SECURITY_APP_PACKAGE_AUTHORITY, SECURITY_CAPABILITY_BASE_RID,SECURITY_CAPABILITY_INTERNET_CLIENT],
@@ -217,11 +219,16 @@ end;
 // Enumerate service SIDs
 function EnumerateKnownServices: TArray<ISid>;
 var
+  ServiceTypes: TServiceType;
   Status: TNtxStatus;
   Services: TArray<TServiceEntry>;
 begin
-  Status := ScmxEnumerateServices(Services, SERVICE_TYPE_ALL
-    and not SERVICE_DRIVER and not SERVICE_ADAPTER);
+  ServiceTypes := SERVICE_WIN32;
+
+  if RtlOsVersionAtLeast(OsWin10) then
+    ServiceTypes := ServiceTypes or SERVICE_USER_SERVICE;
+
+  Status := ScmxEnumerateServices(Services, ServiceTypes);
 
   if not Status.IsSuccess then
     Exit(nil);
