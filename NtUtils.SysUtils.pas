@@ -141,21 +141,25 @@ function RtlxGuidToString(
 
 // Paths
 
-// Convert a filename from a Native format to Win32
-function RtlxNtPathToDosPath(
+// Split the path into the parent (directory) and child (filename) components
+function RtlxSplitPath(
+  const Path: String;
+  out ParentName: String;
+  out ChildName: String
+): Boolean;
+
+// Extract a parent component from a path
+function RtlxExtractRootPath(
   const Path: String
 ): String;
 
-// Extract a path from a filename
-function RtlxExtractPath(
-  const FileName: String
+// Extract a child component from a path
+function RtlxExtractNamePath(
+  const Path: String
 ): String;
 
-// Extract a name from a filename with a path
-function RtlxExtractName(
-  const FileName: String
-): String;
-
+// Check if one path is under another path
+// NOTE: only use on normized & final paths
 function RtlxIsPathUnderRoot(
   const Path: String;
   const Root: String
@@ -434,52 +438,41 @@ begin
     Result := '';
 end;
 
-function RtlxNtPathToDosPath;
-const
-  DOS_DEVICES = '\??\';
-  SYSTEM_ROOT = '\SystemRoot';
+function RtlxSplitPath;
+var
+  i: Integer;
 begin
+  for i := High(Path) downto Low(Path) do
+    if Path[i] = '\' then
+    begin
+      ParentName := Copy(Path, 1, i - Low(Path));
+      ChildName := Copy(Path, i + Low(Path), Length(Path));
+      Exit(True);
+    end;
+
+  Result := False;
+end;
+
+function RtlxExtractRootPath;
+var
+  i: Integer;
+begin
+  for i := High(Path) downto Low(Path) do
+    if Path[i] = '\' then
+      Exit(Copy(Path, 1, i - Low(Path)));
+
   Result := Path;
-
-  // Remove the DOS devices prefix
-  if RtlxPrefixString(DOS_DEVICES, Result) then
-    Delete(Result, Low(String), Length(DOS_DEVICES))
-
-  // Expand the SystemRoot symlink
-  else if RtlxPrefixString(SYSTEM_ROOT, Result) then
-    Result := USER_SHARED_DATA.NtSystemRoot + Copy(Result,
-      Succ(Length(SYSTEM_ROOT)), Length(Result))
-
-  // Otherwise, follow the symlink to the global root of the namespace
-  else Result := '\\.\Global\GLOBALROOT' + Path;
 end;
 
-function RtlxExtractPath;
+function RtlxExtractNamePath;
 var
-  pFileName, pDelimiter: PWideChar;
+  i: Integer;
 begin
-  pFileName := PWideChar(FileName);
-  pDelimiter := wcsrchr(pFileName, '\');
+  for i := High(Path) downto Low(Path) do
+    if Path[i] = '\' then
+      Exit(Copy(Path, i + Low(Path), Length(Path)));
 
-  if Assigned(pDelimiter) then
-    Result := Copy(FileName, 0, (UIntPtr(pDelimiter) - UIntPtr(pFileName)) div
-      SizeOf(WideChar))
-  else
-    Result := FileName;
-end;
-
-function RtlxExtractName;
-var
-  pFileName, pDelimiter: PWideChar;
-begin
-  pFileName := PWideChar(FileName);
-  pDelimiter := wcsrchr(pFileName, '\');
-
-  if Assigned(pDelimiter) then
-    Result := Copy(FileName, (UIntPtr(pDelimiter) - UIntPtr(pFileName)) div
-      SizeOf(WideChar) + Cardinal(Low(String)) + 1, Length(FileName))
-  else
-    Result := FileName;
+  Result := Path;
 end;
 
 function RtlxIsPathUnderRoot;

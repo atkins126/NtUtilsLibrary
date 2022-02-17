@@ -121,13 +121,13 @@ begin
   if poNativePath in Flags then
     Result := Application
   else
-    RtlxDosPathToNtPath(Application, Result);
+    Result := RtlxDosPathToNativePath(Application);
 end;
 
 function TCreateProcessOptions.ApplicationWin32;
 begin
   if poNativePath in Flags then
-    Result := RtlxNtPathToDosPath(Application)
+    Result := RtlxNativePathToDosPath(Application)
   else
     Result := Application;
 end;

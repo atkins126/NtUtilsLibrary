@@ -72,6 +72,8 @@ const
   EXCEPTION_UNWIND = EXCEPTION_UNWINDING or EXCEPTION_EXIT_UNWIND or
     EXCEPTION_TARGET_UNWIND or EXCEPTION_COLLIDED_UNWIND;
 
+  EXCEPTION_MAXIMUM_PARAMETERS = 15;
+
   // Access masks
   _DELETE = $00010000;      // SDDL: DE
   READ_CONTROL = $00020000; // SDDL: RC
@@ -603,9 +605,6 @@ type
   PExceptionRecord = ^TExceptionRecord;
   [SDKName('EXCEPTION_RECORD')]
   TExceptionRecord = record
-  const
-    EXCEPTION_MAXIMUM_PARAMETERS = 15;
-  var
     [Hex] ExceptionCode: Cardinal;
     ExceptionFlags: TExceptionFlags;
     ExceptionRecord: PExceptionRecord;
@@ -614,6 +613,13 @@ type
     ExceptionInformation: array [0 .. EXCEPTION_MAXIMUM_PARAMETERS - 1] of
       NativeUInt;
   end;
+
+  [SDKName('EXCEPTION_POINTERS')]
+  TExceptionPointers = record
+    ExceptionRecord: PExceptionRecord;
+    ContextRecord: PContext;
+  end;
+  PExceptionPointers = ^TExceptionPointers;
 
   [FriendlyName('object'), ValidMask($FFFFFFFF)]
   [FlagName(READ_CONTROL, 'Read Permissions')]
@@ -1127,14 +1133,17 @@ const
     ACCESS_DENIED_OBJECT_ACE_TYPE, ACCESS_DENIED_CALLBACK_ACE_TYPE,
     ACCESS_DENIED_CALLBACK_OBJECT_ACE_TYPE];
 
+  SECONDS_PER_DAY = 86400;
   MILLISEC_PER_DAY = 86400000;
 
-  DAYS_FROM_1601 = 109205; // difference with Delphi's zero time in days
+  DAYS_FROM_1601 = 109205; // difference between native & Delphi's zero time
   NATIVE_TIME_DAY = 864000000000; // 100ns in 1 day
   NATIVE_TIME_HOUR = 36000000000; // 100ns in 1 hour
   NATIVE_TIME_MINUTE = 600000000; // 100ns in 1 minute
   NATIVE_TIME_SECOND =  10000000; // 100ns in 1 sec
   NATIVE_TIME_MILLISEC =   10000; // 100ns in 1 millisec
+
+  DAYS_FROM_1970 = 25569; // difference Unix & Delphi's zero time
 
   INFINITE_FUTURE = TLargeInteger(-1);
 
@@ -1142,8 +1151,13 @@ function TimeoutToLargeInteger(
   const [ref] Timeout: Int64
 ): PLargeInteger; inline;
 
+// Native time
 function DateTimeToLargeInteger(DateTime: TDateTime): TLargeInteger;
 function LargeIntegerToDateTime(QuadPart: TLargeInteger): TDateTime;
+
+// Unix time
+function DateTimeToUnixTime(DateTime: TDateTime): TUnixTime;
+function UnixTimeToDateTime(UnixTime: TUnixTime): TDateTime;
 
 // Expected access masks when accessing security
 function SecurityReadAccess(Info: TSecurityInformation): TAccessMask;
@@ -1258,6 +1272,25 @@ function LargeIntegerToDateTime;
 begin
   {$Q-}Result := (QuadPart - USER_SHARED_DATA.TimeZoneBias.QuadPart) /
     NATIVE_TIME_DAY - DAYS_FROM_1601;{$Q+}
+end;
+
+function TimeZoneBias: TLargeInteger;
+begin
+  // Workaround "Internal Error X64TAB2051" in Delphi compiler by extracting
+  // this expression from the function below... wtf was that?
+  Result := USER_SHARED_DATA.TimeZoneBias.QuadPart;
+end;
+
+function DateTimeToUnixTime;
+begin
+  Result := Trunc((DateTime - DAYS_FROM_1970) * SECONDS_PER_DAY) +
+    TimeZoneBias div NATIVE_TIME_SECOND;
+end;
+
+function UnixTimeToDateTime;
+begin
+  Result := (UnixTime - USER_SHARED_DATA.TimeZoneBias.QuadPart /
+    NATIVE_TIME_SECOND) / SECONDS_PER_DAY + DAYS_FROM_1970;
 end;
 
 function SecurityReadAccess;
