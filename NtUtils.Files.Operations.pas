@@ -59,16 +59,18 @@ function NtxDeleteFile(
 function NtxRenameFile(
   [Access(_DELETE)] hFile: THandle;
   const NewName: String;
-  ReplaceIfExists: Boolean = False;
-  [opt] RootDirectory: THandle = 0
+  Flags: TFileRenameFlags = 0;
+  [opt] RootDirectory: THandle = 0;
+  InfoClass: TFileInformationClass = FileRenameInformation
 ): TNtxStatus;
 
 // Creare a hardlink for a file
 function NtxHardlinkFile(
   [Access(0)] hFile: THandle;
   const NewName: String;
-  ReplaceIfExists: Boolean = False;
-  [opt] RootDirectory: THandle = 0
+  Flags: TFileLinkFlags = 0;
+  [opt] RootDirectory: THandle = 0;
+  InfoClass: TFileInformationClass = FileLinkInformation
 ): TNtxStatus;
 
 { Information }
@@ -112,6 +114,12 @@ function NtxQueryNameFile(
   [Access(0)] hFile: THandle;
   out Name: String;
   InfoClass: TFileInformationClass = FileNameInformation
+): TNtxStatus;
+
+// Modify a short (alternative) name of a file
+function NtxSetShortNameFile(
+  [Access(_DELETE)] hFile: THandle;
+  const ShortName: String
 ): TNtxStatus;
 
 { Enumeration }
@@ -214,18 +222,18 @@ end;
 function NtxpSetRenameInfoFile(
   hFile: THandle;
   TargetName: String;
-  ReplaceIfExists: Boolean;
+  Flags: Cardinal;
   RootDirectory: THandle;
   InfoClass: TFileInformationClass
 ): TNtxStatus;
 var
-  xMemory: IMemory<PFileRenameInformation>; // aka PFileLinkInformation
+  xMemory: IMemory<PFileRenameInformationEx>; // aka PFileLinkInformationEx
 begin
   IMemory(xMemory) := Auto.AllocateDynamic(SizeOf(TFileRenameInformation) +
     Length(TargetName) * SizeOf(WideChar));
 
   // Prepare a variable-length buffer for rename or hardlink operations
-  xMemory.Data.ReplaceIfExists := ReplaceIfExists;
+  xMemory.Data.Flags := Flags;
   xMemory.Data.RootDirectory := RootDirectory;
   xMemory.Data.FileNameLength := Length(TargetName) * SizeOf(WideChar);
   Move(PWideChar(TargetName)^, xMemory.Data.FileName,
@@ -239,15 +247,15 @@ begin
   // Note: if you get sharing violation when using RootDirectory, open it with
   // FILE_TRAVERSE | FILE_READ_ATTRIBUTES access.
 
-  Result := NtxpSetRenameInfoFile(hFile, NewName, ReplaceIfExists,
-    RootDirectory, FileRenameInformation);
+  Result := NtxpSetRenameInfoFile(hFile, NewName, Flags,
+    RootDirectory, InfoClass);
   Result.LastCall.Expects<TFileAccessMask>(_DELETE);
 end;
 
 function NtxHardlinkFile;
 begin
-  Result := NtxpSetRenameInfoFile(hFile, NewName, ReplaceIfExists,
-    RootDirectory, FileLinkInformation);
+  Result := NtxpSetRenameInfoFile(hFile, NewName, Flags,
+    RootDirectory, InfoClass);
 end;
 
 { Information }
@@ -340,6 +348,20 @@ begin
   if Result.IsSuccess then
     SetString(Name, xMemory.Data.FileName, xMemory.Data.FileNameLength div
       SizeOf(WideChar));
+end;
+
+function NtxSetShortNameFile;
+var
+  Buffer: IMemory<PFileNameInformation>;
+begin
+  IMemory(Buffer) := Auto.AllocateDynamic(SizeOf(TFileNameInformation) +
+    Length(ShortName) * SizeOf(WideChar));
+
+  Buffer.Data.FileNameLength := Length(ShortName) * SizeOf(WideChar);
+  Move(PWideChar(ShortName)^, Buffer.Data.FileName, Buffer.Data.FileNameLength);
+
+  Result := NtxSetFile(hFile, FileShortNameInformation, Buffer.Data,
+    Buffer.Size);
 end;
 
 { Enumeration }
