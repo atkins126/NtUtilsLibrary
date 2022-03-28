@@ -18,9 +18,11 @@ function ShlxEnableSidSuggestions(
 implementation
 
 uses
-  Ntapi.WinNt, Ntapi.ntsam, Ntapi.ntseapi, Ntapi.WinSvc, NtUtils.Security.Sid,
+  Ntapi.WinNt, Ntapi.ntsam, Ntapi.ntseapi, Ntapi.WinSvc, Ntapi.ntrtl,
+  Ntapi.ntioapi, Ntapi.ntpebteb, Ntapi.Versions, NtUtils.Security.Sid,
   NtUtils.Lsa.Sid, NtUtils.Sam, NtUtils.Svc, NtUtils.WinUser, NtUtils.Tokens,
-  NtUtils.Tokens.Info, NtUtils.SysUtils, DelphiUtils.Arrays, Ntapi.Versions,
+  NtUtils.Tokens.Info, NtUtils.SysUtils, NtUtils.Files, NtUtils.Files.Open,
+  NtUtils.Files.Folders, NtUtils.WinStation, DelphiUtils.Arrays,
   DelphiUtils.AutoObjects;
 
 // Prepare well-known SIDs from constants
@@ -96,7 +98,14 @@ begin
     [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_NTLM_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_SCHANNEL_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_DIGEST_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_CRED_TYPE_BASE_RID, SECURITY_CRED_TYPE_THIS_ORG_CERT_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_NTLM_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_SCHANNEL_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_DIGEST_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_SERVICE_ID_BASE_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_VIRTUALSERVER_ID_BASE_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_VIRTUALSERVER_ID_BASE_RID, SECURITY_VIRTUALSERVER_ID_GROUP_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_TASK_ID_BASE_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_LOCAL_ACCOUNT_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_LOCAL_ACCOUNT_AND_ADMIN_RID],
     [SECURITY_APP_PACKAGE_AUTHORITY, SECURITY_APP_PACKAGE_BASE_RID, SECURITY_BUILTIN_PACKAGE_ANY_PACKAGE],
@@ -119,7 +128,13 @@ begin
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_MEDIUM_PLUS_RID],
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_HIGH_RID],
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_SYSTEM_RID],
-    [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_PROTECTED_PROCESS_RID]
+    [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_PROTECTED_PROCESS_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_AUTHORITY_ASSERTED_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_SERVICE_ASSERTED_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_FRESH_KEY_AUTH_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_KEY_TRUST_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_KEY_PROPERTY_MFA_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_KEY_PROPERTY_ATTESTATION_RID]
   ];
 
   Result := TArray.Convert<TArray<Cardinal>, ISid>(KnownDefinitions,
@@ -139,6 +154,7 @@ function EnumerateRuntimeSIDs: TArray<ISid>;
 var
   Sid: ISid;
   Groups: TArray<TGroup>;
+  Sessions: TArray<TSessionIdW>;
 begin
   Result := nil;
 
@@ -159,6 +175,36 @@ begin
         Result := Group.Sid;
       end
     );
+
+  // Add per-session SIDs
+  if RtlOsVersionAtLeast(OsWin8) then
+  begin
+    // Lookup all sessions when possible
+    if not WsxEnumerateSessions(Sessions).IsSuccess then
+    begin
+      SetLength(Sessions, 2);
+      Sessions[0].SessionID := 0;
+      Sessions[0].SessionID := RtlGetCurrentPeb.SessionID;
+    end;
+
+    // Font Driver Host\UMFD-X
+    Result := Result + TArray.Map<TSessionIdW, ISid>(Sessions,
+      function (const Session: TSessionIdW): ISid
+      begin
+        Result := RtlxMakeSid(SECURITY_NT_AUTHORITY,
+          [SECURITY_UMFD_BASE_RID, 0, Session.SessionID]);
+      end
+    );
+
+    // Window Manager\DWM-X
+    Result := Result + TArray.Map<TSessionIdW, ISid>(Sessions,
+      function (const Session: TSessionIdW): ISid
+      begin
+        Result := RtlxMakeSid(SECURITY_NT_AUTHORITY,
+          [SECURITY_WINDOW_MANAGER_BASE_RID, 0, Session.SessionID]);
+      end
+    );
+  end;
 end;
 
 // Enumerate domains registered in SAM
@@ -241,6 +287,86 @@ begin
   );
 end;
 
+// Enumerate scheduled task SIDs
+function EnumerateKnownTasks: TArray<ISid>;
+const
+  TASK_ROOT = '\SystemRoot\system32\Tasks';
+var
+  Status: TNtxStatus;
+  TaskPrefix: String;
+  OpenParameters: IFileOpenParameters;
+  Tasks: TArray<ISid>;
+  hxTaskDirecty: IHandle;
+begin
+  Result := nil;
+  TaskPrefix := '';
+  OpenParameters := FileOpenParameters
+    .UseAccess(FILE_DIRECTORY_FILE)
+    .UseOpenOptions(FILE_DIRECTORY_FILE or FILE_SYNCHRONOUS_IO_NONALERT);
+
+  // Try opening the root of all scheduled tasks
+  Status := NtxOpenFile(hxTaskDirecty, OpenParameters.UseFileName(TASK_ROOT));
+
+  if not Status.IsSuccess then
+  begin
+    TaskPrefix := 'Microsoft';
+
+    // Retry with tasks that might not require admin rights to enumerate
+    Status := NtxOpenFile(hxTaskDirecty, OpenParameters
+      .UseFileName(TASK_ROOT + '\' + TaskPrefix));
+  end;
+
+  if not Status.IsSuccess then
+    Exit;
+
+  Tasks := nil;
+
+  // Traverse the tasks and collect their names
+  Status := NtxTraverseFolder(hxTaskDirecty, OpenParameters,
+    function(
+      const FileInfo: TFolderContentInfo;
+      const Root: IHandle;
+      const RootName: String;
+      var ContinuePropagation: Boolean
+    ): TNtxStatus
+    var
+      TaskName: String;
+      TaskSid: ISid;
+      i: Integer;
+    begin
+      TaskName := TaskPrefix + RootName + '\' + FileInfo.Name;
+
+      // Remove leading directory prefix
+      if TaskName[Low(String)] = '\' then
+        Delete(TaskName, 1, 1);
+
+      // Tasks names use dashes instead of back slashes
+      for i := Low(TaskName) to High(TaskName) do
+        if TaskName[i] = '\' then
+          TaskName[i] := '-';
+
+      // Derive service SID from the name since it uses the same algorithm
+      Result := RtlxCreateServiceSid(TaskName, TaskSid);
+
+      if Result.IsSuccess then
+      begin
+        // Switch the domain to NT TASK
+        if RtlSubAuthorityCountSid(TaskSid.Data)^ > 0 then
+          RtlSubAuthoritySid(TaskSid.Data, 0)^ := SECURITY_TASK_ID_BASE_RID;
+
+        SetLength(Tasks, Length(Tasks) + 1);
+        Tasks[High(Tasks)] := TaskSid;
+      end;
+    end,
+    [ftInvokeOnFiles, ftIgnoreCallbackFailures,
+      ftIgnoreTraverseFailures, ftSkipReparsePoints],
+    8
+  );
+
+  if Status.IsSuccess then
+    Result := Tasks;
+end;
+
 type
   // An interface analog of anonymous completion suggestion callback
   ISuggestionProvider = interface (IAutoReleasable)
@@ -314,6 +440,10 @@ begin
     // Include service accounts
     if RtlxEqualStrings('NT SERVICE\', Root) then
       Suggestions := Suggestions + PerformLookup(EnumerateKnownServices);
+
+    // Enumerate schedule task accounts
+    if RtlxEqualStrings('NT TASK\', Root) then
+      Suggestions := Suggestions + PerformLookup(EnumerateKnownTasks);
   end;
 
   // Clean-up duplicates
