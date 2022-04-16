@@ -133,7 +133,7 @@ begin
   );
 
   if Result.IsSuccess then
-    hxDebugObj := NtxObject.Capture(hDebugObj);
+    hxDebugObj := Auto.CaptureHandle(hDebugObj);
 end;
 
 function NtxOpenDebugObjectProcess;
@@ -143,7 +143,7 @@ begin
   Result := NtxProcess.Query(hProcess, ProcessDebugObjectHandle, hDebugObj);
 
   if Result.IsSuccess then
-    hxDebugObj := NtxObject.Capture(hDebugObj);
+    hxDebugObj := Auto.CaptureHandle(hDebugObj);
 end;
 
 function NtxSetDebugKillOnExit;
@@ -191,32 +191,34 @@ begin
   Result.Status := NtWaitForDebugEvent(hDebugObj, Alertable,
     TimeoutToLargeInteger(Timeout), WaitStateChange);
 
-  // Capture opened handles to prevent resource leaks
-  if Result.IsSuccess and (Result.Status <> STATUS_TIMEOUT) then
-    with WaitStateChange do
-      case NewState of
+  if not Result.IsSuccess or (Result.Status = STATUS_TIMEOUT) then
+    Exit;
 
-        // A handles to a thread was opened
-        DbgCreateThreadStateChange:
-          Handles.hxThread := NtxObject.Capture(CreateThread.HandleToThread);
+  Handles := Default(TDbgxHandles);
 
-        // A handle to a dll file was opened
-        DbgLoadDllStateChange:
-          Handles.hxThread := NtxObject.Capture(LoadDll.FileHandle);
+  // Capture opened handles
+  with WaitStateChange do
+    case NewState of
+      DbgCreateThreadStateChange:
+        Handles.hxThread := Auto.CaptureHandle(CreateThread.HandleToThread);
 
-        // 3 new handles were opened: a process, a thread, and an image file
-        DbgCreateProcessStateChange:
-          begin
-            Handles.hxProcess := NtxObject.Capture(
-              CreateProcessInfo.HandleToProcess);
+      DbgLoadDllStateChange:
+        if LoadDll.FileHandle <> 0 then
+          Handles.hxFile := Auto.CaptureHandle(LoadDll.FileHandle);
 
-            Handles.hxThread := NtxObject.Capture(
-              CreateProcessInfo.HandleToThread);
+      DbgCreateProcessStateChange:
+      begin
+        Handles.hxProcess := Auto.CaptureHandle(
+          CreateProcessInfo.HandleToProcess);
 
-            Handles.hxFile := NtxObject.Capture(
-              CreateProcessInfo.NewProcess.FileHandle);
-          end;
+        Handles.hxThread := Auto.CaptureHandle(
+          CreateProcessInfo.HandleToThread);
+
+        if CreateProcessInfo.NewProcess.FileHandle <> 0 then
+          Handles.hxFile := Auto.CaptureHandle(
+            CreateProcessInfo.NewProcess.FileHandle);
       end;
+    end;
 end;
 
 function NtxDebugContinue;
