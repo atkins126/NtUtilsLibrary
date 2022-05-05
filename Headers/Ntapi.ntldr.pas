@@ -38,6 +38,10 @@ const
   LDRP_MM_LOADED = $40000000;
   LDRP_COMPAT_DATABASE_PROCESSED = $80000000;
 
+  // Flags inside pointers to mapped files
+  LDR_MAPPED_AS_DATAFILE = $01;
+  LDR_MAPPED_AS_IMAGEMAPPING = $02;
+
   // PHNT::ntldr.h - loader lock acquiring options
   LDR_LOCK_LOADER_LOCK_FLAG_RAISE_ON_ERRORS =  $00000001;
   LDR_LOCK_LOADER_LOCK_FLAG_TRY_ONLY = $00000002;
@@ -163,6 +167,23 @@ type
     LDR_LOCK_LOADER_LOCK_DISPOSITION_LOCK_NOT_ACQUIRED = 2
   );
   PLdrLoaderLockDisposition = ^TLdrLoaderLockDisposition;
+
+  // PHNT::ntldr.h
+  [SDKName('LDR_RESOURCE_INFO')]
+  TLdrResourceInfo = record
+    ResourceType: PWideChar;
+    Name: PWideChar;
+    Language: UIntPtr;
+  end;
+
+  // PHNT::ntldr.h
+  [NamingStyle(nsSnakeCase, 'Resource', 'Level')]
+  TResourceLevel = (
+    RESOURCE_TYPE_LEVEL = 0,
+    RESOURCE_NAME_LEVEL = 1,
+    RESOURCE_LANGUAGE_LEVEL = 2,
+    RESOURCE_DATA_LEVEL = 3
+  );
 
   // MSDocs::win32/desktop-src/DevNotes/LdrDllNotification.md
   [NamingStyle(nsSnakeCase, 'LDR_DLL_NOTIFICATION_REASON'), Range(1)]
@@ -310,6 +331,39 @@ function LdrUnlockLoaderLock(
   Cookie: NativeUInt
 ): NTSTATUS; stdcall; external ntdll;
 
+// PHNT::ntldr.h
+function LdrAddLoadAsDataTable(
+  [in] Module: Pointer;
+  [in] FilePath: PWideChar;
+  Size: NativeUInt;
+  Handle: THandle;
+  [opt] ActCtx: THandle
+): NTSTATUS; stdcall external ntdll;
+
+// PHNT::ntldr.h
+function LdrRemoveLoadAsDataTable(
+  [in] InitModule: Pointer;
+  [out, opt] BaseModule: PPointer;
+  [out, opt] Size: PNativeUInt;
+  Flags: Cardinal
+): NTSTATUS; stdcall external ntdll;
+
+// PHNT::ntldr.h
+function LdrFindResource_U(
+  [in] DllHandle: PDllBase;
+  const ResourceInfo: TLdrResourceInfo;
+  Level: TResourceLevel;
+  out ResourceDataEntry: PImageResourceDataEntry
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntldr.h
+function LdrAccessResource(
+  [in] DllHandle: PDllBase;
+  [in] ResourceDataEntry: PImageResourceDataEntry;
+  [out, opt] ResourceBuffer: PPointer;
+  [out, opt] ResourceLength: PCardinal
+): NTSTATUS; stdcall; external ntdll;
+
 // MSDocs::win32/desktop-src/DevNotes/LdrRegisterDllNotification.md
 function LdrRegisterDllNotification(
   [Reserved] Flags: Cardinal;
@@ -324,7 +378,8 @@ function LdrUnregisterDllNotification(
 ): NTSTATUS; stdcall; external ntdll;
 
 // MSDocs::win32/desktop-src/DevNotes/LdrFastFailInLoaderCallout.md
-procedure LdrFastFailInLoaderCallout; stdcall; external ntdll;
+procedure LdrFastFailInLoaderCallout(
+); stdcall; external ntdll;
 
 // PHNT::ntldr.h
 function LdrFindEntryForAddress(

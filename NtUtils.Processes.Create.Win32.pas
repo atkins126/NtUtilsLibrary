@@ -13,6 +13,7 @@ uses
 [SupportedOption(spoSuspended)]
 [SupportedOption(spoInheritHandles)]
 [SupportedOption(spoBreakawayFromJob)]
+[SupportedOption(spoForceBreakaway)]
 [SupportedOption(spoNewConsole)]
 [SupportedOption(spoRunAsInvoker)]
 [SupportedOption(spoIgnoreElevation)]
@@ -29,6 +30,7 @@ uses
 [SupportedOption(spoLPAC)]
 [SupportedOption(spoAppContainer)]
 [RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
+[RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
 function AdvxCreateProcess(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
@@ -452,6 +454,9 @@ begin
 
   if Assigned(Options.hxJob) then
     Result.LastCall.Expects<TJobObjectAccessMask>(JOB_OBJECT_ASSIGN_PROCESS);
+
+  if poForceBreakaway in Options.Flags then
+    Result.LastCall.ExpectedPrivilege := SE_TCB_PRIVILEGE;
 
   Result.Win32Result := CreateProcessAsUserW(
     HandleOrDefault(hxExpandedToken),

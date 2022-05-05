@@ -21,10 +21,27 @@ const
   MAX_HANDLE = $FFFFFF; // handle table maximum
   MAX_UINT = $FFFFFFFF;
 
+  // SDK::minwindef.h
+  MAX_PATH = 260;
+
   MAXIMUM_WAIT_OBJECTS = 64;
 
   NT_INFINITE = $8000000000000000; // maximum possible relative timeout
   MILLISEC = -10000; // 100ns in 1 ms in relative time
+
+  LANG_NEUTRAL = $00;
+  LANG_INVARIANT = $7F;
+
+  SUBLANG_NEUTRAL = $00;
+  SUBLANG_DEFAULT = $01;
+  SUBLANG_SYS_DEFAULT = $02;
+  SUBLANG_CUSTOM_DEFAULT = $03;
+  SUBLANG_CUSTOM_UNSPECIFIED = $04;
+  SUBLANG_UI_CUSTOM_DEFAULT = $05;
+
+  // Use MAKELANGID => (LANG_* or (SUBLANG_* shl SUBLANGID_SHIFT))
+  PRIMARYLANGID_MASK = $3ff;
+  SUBLANGID_SHIFT = 10;
 
   // Thread context geting/setting flags
   CONTEXT_i386 = $00010000;
@@ -228,6 +245,8 @@ const
   SECURITY_UMFD_BASE_RID = $00000060; // S-1-5-96 (Font Driver Host)
   SECURITY_UMFD_ID_RID_COUNT = 2;     // S-1-5-96-0-X (UMFD-X)
 
+  SECURITY_VIRTUALACCOUNT_ID_RID_COUNT = 6; // S-1-5-X-X-X-X-X-X
+
   SECURITY_MIN_BASE_RID = $050; // S-1-5-80
   SECURITY_MAX_BASE_RID = $06F; // S-1-5-111
 
@@ -428,7 +447,10 @@ type
     property Content: T read GetContent;
   end;
 
-  PMultiSzWideChar = type PWideChar;
+  MAKEINTRESOURCE = PWideChar;
+
+  PAnsiMultiSz = type PAnsiChar;
+  PWideMultiSz = type PWideChar;
 
   TWin32Error = type Cardinal;
 
@@ -1008,6 +1030,9 @@ type
     PF_RESERVED61, PF_RESERVED62, PF_RESERVED63
   );
 
+  [SDKName('PRTL_CRITICAL_SECTION')]
+  PRtlCriticalSection = type Pointer;
+
   [SubEnum(MAX_UINT, DLL_PROCESS_DETACH, 'Process Detach')]
   [SubEnum(MAX_UINT, DLL_PROCESS_ATTACH, 'Process Attach')]
   [SubEnum(MAX_UINT, DLL_THREAD_ATTACH, 'Thread Attach')]
@@ -1136,6 +1161,11 @@ type
 
 const
   USER_SHARED_DATA = PKUSER_SHARED_DATA($7ffe0000);
+
+  VALID_SID_TYPES = [
+    SidTypeUser..SidTypeDeletedAccount,
+    SidTypeComputer..SidTypeLogonSession
+  ];
 
   INVALID_SID_TYPES = [SidTypeUndefined, SidTypeInvalid, SidTypeUnknown];
 

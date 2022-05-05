@@ -899,6 +899,18 @@ function RtlValidateHeap(
   [in, opt] BaseAddress: Pointer
 ): Boolean; stdcall; external ntdll;
 
+// Activation Contexts
+
+// rev
+function RtlGetActiveActivationContext(
+  out ActCtx: THandle
+): NTSTATUS; stdcall external ntdll;
+
+// rev
+procedure RtlReleaseActivationContext(
+  ActCtx: THandle
+); stdcall external ntdll;
+
 // Messages
 
 // PHNT::ntrtl.h
@@ -909,6 +921,18 @@ function RtlFindMessage(
   MessageId: Cardinal;
   out MessageEntry: PMessageResourceEntry
 ): NTSTATUS; stdcall; external ntdll;
+
+// rev
+function RtlLoadString(
+  [in] DllHandle: Pointer;
+  StringId: Cardinal;
+  [in] StringLanguage: PWideChar;
+  Flags: Cardinal;
+  out ReturnString: PWideChar;
+  [opt] out ReturnStringLen: Word;
+  [out, opt] ReturnLanguageName: PWideChar;
+  [in, out, opt] ReturnLanguageLen: PCardinal
+): NTSTATUS; stdcall external ntdll;
 
 // Errors
 
@@ -1084,6 +1108,14 @@ function RtlCreateServiceSid(
   var ServiceSidLength: Cardinal
 ): NTSTATUS; stdcall; external ntdll;
 
+// WDK::ntifs.h
+function RtlCreateVirtualAccountSid(
+  const Name: TNtUnicodeString;
+  BaseSubAuthority: Cardinal;
+  [out] ServiceSid: PSid;
+  var ServiceSidLength: Cardinal
+): NTSTATUS; stdcall; external ntdll;
+
 // PHNT::ntrtl.h
 function RtlLengthSidAsUnicodeString(
   [in] Sid: PSid;
@@ -1119,7 +1151,7 @@ function RtlSidIsHigherLevel(
 ): NTSTATUS; stdcall; external ntdll;
 
 // PHNT::ntrtl.h
-[MinOSVersion(OsWin10RS2)]
+[MinOSVersion(OsWin10TH1)]
 function RtlDeriveCapabilitySidsFromName(
   const CapabilityName: TNtUnicodeString;
   [out] CapabilityGroupSid: PSid;
@@ -1431,6 +1463,12 @@ function RtlGetAppContainerParent(
   [in] AppContainerSid: PSid;
   [allocates('RtlFreeSid')] out AppContainerSidParent: PSid
 ): NTSTATUS; stdcall; external ntdll delayed;
+
+// PHNT::ntrtl.h
+[MinOSVersion(OsWin8)]
+function RtlIsCapabilitySid(
+  [in] Sid: PSid
+): BOOLEAN; stdcall; external ntdll delayed;
 
 // PHNT::ntrtl.h
 [MinOSVersion(OsWin8)]

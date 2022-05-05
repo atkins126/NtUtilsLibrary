@@ -7,7 +7,8 @@ unit NtUtils.Ldr;
 interface
 
 uses
-  Ntapi.WinNt, Ntapi.ntldr, NtUtils, Ntapi.Versions, DelphiApi.Reflection;
+  Ntapi.WinNt, Ntapi.ntldr, Ntapi.ntrtl, Ntapi.Versions, DelphiApi.Reflection,
+  NtUtils;
 
 const
   // Artificial limitation to prevent accidental infinite loops
@@ -72,6 +73,35 @@ function LdrxGetProcedureAddress(
   out Address: Pointer
 ): TNtxStatus;
 
+{ Resources }
+
+// Locate resource data in a DLL
+function LdrxFindResourceData(
+  [in] DllBase: PDllBase;
+  ResourceName: String;
+  ResourceType: PWideChar;
+  ResourceLanguage: Cardinal;
+  out Buffer: Pointer;
+  out Size: Cardinal
+): TNtxStatus;
+
+// Retrieve a message from a DLL resource
+function RtlxFindMessage(
+  out MessageString: String;
+  [in] DllBase: Pointer;
+  MessageId: Cardinal;
+  MessageLanguageId: Cardinal = LANG_NEUTRAL;
+  MessageTableId: Cardinal = RT_MESSAGETABLE
+): TNtxStatus;
+
+// Load a string from a DLL resource
+function RtlxLoadString(
+  out ResourseString: String;
+  [in] DllBase: Pointer;
+  StringId: Cardinal;
+  [in, opt] StringLanguage: PWideChar = nil
+): TNtxStatus;
+
 { Low-level Access }
 
 // Subscribe for DLL loading and unloading events.
@@ -113,8 +143,8 @@ function LdrSystemDllInitBlock: PPsSystemDllInitBlock;
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntpebteb, Ntapi.ntdbg, Ntapi.ntstatus, NtUtils.SysUtils,
-  DelphiUtils.AutoObjects, DelphiUtils.ExternalImport;
+  Ntapi.ntdef, Ntapi.ntpebteb, Ntapi.ntdbg, Ntapi.ntstatus, Ntapi.ImageHlp,
+  NtUtils.SysUtils, DelphiUtils.AutoObjects, DelphiUtils.ExternalImport;
 
 { Delayed Import Checks }
 
@@ -173,6 +203,68 @@ begin
   Result.Location := 'LdrGetProcedureAddress("' + String(ProcedureName) + '")';
   Result.Status := LdrGetProcedureAddress(DllBase,
     TNtAnsiString.From(ProcedureName), 0, Address);
+end;
+
+{ Resources }
+
+function LdrxFindResourceData;
+var
+  Info: TLdrResourceInfo;
+  Data: PImageResourceDataEntry;
+begin
+  Info.ResourceType := ResourceType;
+  Info.Name := PWideChar(ResourceName);
+  Info.Language := ResourceLanguage;
+
+  Result.Location := 'LdrFindResource_U';
+  Result.Status := LdrFindResource_U(Pointer(@ImageBase), Info,
+    RESOURCE_DATA_LEVEL, Data);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result.Location := 'LdrAccessResource';
+  Result.Status := LdrAccessResource(Pointer(@ImageBase), Data, @Buffer, @Size);
+end;
+
+function RtlxFindMessage;
+var
+  MessageEntry: PMessageResourceEntry;
+begin
+  // Perhaps, we can later implement the same language selection logic as
+  // FormatMessage, i.e:
+  //  1. Neutral => MAKELANGID(LANG_NEUTRAL, SUBLANG_NEUTRAL)
+  //  2. Current => NtCurrentTeb.CurrentLocale
+  //  3. User    => MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT)
+  //  4. System  => MAKELANGID(LANG_NEUTRAL, SUBLANG_SYS_DEFAULT)
+  //  5. English => MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT)
+
+  Result.Location := 'RtlFindMessage';
+  Result.Status := RtlFindMessage(DllBase, MessageTableId, MessageLanguageId,
+    MessageId, MessageEntry);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  if BitTest(MessageEntry.Flags and MESSAGE_RESOURCE_UNICODE) then
+    MessageString := String(PWideChar(@MessageEntry.Text))
+  else if BitTest(MessageEntry.Flags and MESSAGE_RESOURCE_UTF8) then
+    MessageString := String(UTF8String(PAnsiChar(@MessageEntry.Text)))
+  else
+    MessageString := String(PAnsiChar(@MessageEntry.Text));
+end;
+
+function RtlxLoadString;
+var
+  Buffer: PWideChar;
+  BufferLength: Word;
+begin
+  Result.Location := 'RtlLoadString';
+  Result.Status := RtlLoadString(DllBase, StringId, StringLanguage, 0, Buffer,
+    BufferLength, nil, nil);
+
+  if Result.IsSuccess then
+    SetString(ResourseString, Buffer, BufferLength);
 end;
 
 { Low-level Access }
