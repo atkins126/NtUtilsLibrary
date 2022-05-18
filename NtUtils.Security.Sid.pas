@@ -7,7 +7,7 @@ unit NtUtils.Security.Sid;
 interface
 
 uses
-  Ntapi.WinNt, Ntapi.ntseapi, Ntapi.securitybaseapi, NtUtils;
+  Ntapi.WinNt, Ntapi.ntseapi, Ntapi.WinBase, NtUtils;
 
 { Construction }
 
@@ -158,8 +158,7 @@ function SddlxCreateWellKnownSid(
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntrtl, Ntapi.ntstatus, Ntapi.WinBase, Ntapi.Sddl,
-  NtUtils.SysUtils, NtUtils.Errors;
+  Ntapi.ntdef, Ntapi.ntrtl, Ntapi.ntstatus, NtUtils.SysUtils, NtUtils.Errors;
 
  { Construction }
 
@@ -430,12 +429,23 @@ function RtlxServiceNameToSid(
 ): Boolean;
 const
   PREFIX = 'NT SERVICE\';
+  ALL_SERVICES = PREFIX + 'ALL SERVICES';
 begin
   // Service SIDs are determenistically derived from the service name.
   // We can parse them even without the help of LSA.
 
-  Result := RtlxPrefixString(PREFIX, StringSid) and RtlxCreateServiceSid(
-    Copy(StringSid, Length(PREFIX) + 1, Length(StringSid)), Sid).IsSuccess;
+  Result := False;
+
+  if not RtlxPrefixString(PREFIX, StringSid) then
+    Exit;
+
+  // NT SERVICE\ALL SERVICES is a reserved name
+  if RtlxEqualStrings(ALL_SERVICES, StringSid) then
+    Result := RtlxCreateSid(Sid, SECURITY_NT_AUTHORITY,
+      [SECURITY_SERVICE_ID_BASE_RID, SECURITY_SERVICE_ID_GROUP_RID]).IsSuccess
+  else
+    Result := RtlxCreateServiceSid(Copy(StringSid, Length(PREFIX) + 1,
+      Length(StringSid)), Sid).IsSuccess;
 end;
 
 function RtlxTaskNameToSid(

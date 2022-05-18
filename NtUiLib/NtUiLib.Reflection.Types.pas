@@ -212,9 +212,9 @@ function RepresentSidWorker(
 implementation
 
 uses
-  System.SysUtils, Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.WinUser, Ntapi.winsta,
-  DelphiApi.Reflection, NtUtils.Errors, NtUiLib.Errors,NtUtils.Lsa.Sid,
-  NtUtils.Lsa.Logon, NtUtils.WinStation, NtUtils.Security.Sid,
+  System.SysUtils, Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntpebteb, Ntapi.WinUser,
+  Ntapi.winsta, DelphiApi.Reflection, NtUtils.Errors,  NtUtils.Lsa.Logon,
+  NtUiLib.Errors,NtUtils.Lsa.Sid,NtUtils.WinStation, NtUtils.Security.Sid,
   NtUtils.Processes, NtUtils.Processes.Info, NtUtils.Threads,
   NtUtils.Synchronization, DelphiUiLib.Strings, DelphiUiLib.Reflection.Strings,
   DelphiUiLib.Reflection.Numeric;
@@ -656,7 +656,9 @@ begin
       THintSection.New('Session', TSessionIdRepresenter.Represent(
         LogonData.Data.Session, nil).Text)
     ]);
-  end;
+  end
+  else if UserName <> '' then
+    Result.Text := Format('%s (%s)', [Result.Text, UserName])
 end;
 
 { TSessionIdRepresenter }

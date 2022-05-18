@@ -15,12 +15,17 @@ const
   PROCESS_INJECT_EXE = PROCESS_SUSPEND_RESUME or PROCESS_INJECT_DLL or
     PROCESS_VM_WRITE;
 
+  dioAutoIgnoreWoW64 = NtUtils.Shellcode.Dll.dioAutoIgnoreWoW64;
+  dioAdjustCurrentDirectory = NtUtils.Shellcode.Dll.dioAdjustCurrentDirectory;
+
 // Load and start an EXE in a context of an existing process
 function RtlxInjectExeProcess(
   [Access(PROCESS_INJECT_EXE)] hxProcess: IHandle;
   const FileName: String;
+  Options: TDllInjectionOptions = [dioAutoIgnoreWoW64, dioAdjustCurrentDirectory];
+  ThreadFlags: TThreadCreateFlags = 0;
   const Timeout: Int64 = DEFAULT_REMOTE_TIMEOUT;
-  ThreadFlags: TThreadCreateFlags = 0
+  [out, opt] ExeBase: PPointer = nil
 ): TNtxStatus;
 
 implementation
@@ -166,6 +171,7 @@ begin
 
   Entrypoint := nil;
   AlreadyDetached := False;
+  Exclude(Options, dioUnloadImmediately);
 
   // Create a debug object for attaching to the target
   Result := NtxCreateDebugObject(hxDebugObject);
@@ -181,7 +187,8 @@ begin
 
   // Inject the EXE as a if it's a DLL and use a custom waiting callback
   // to acknowledge generated debug events and patch image headers
-  Result := RtlxInjectDllProcess(hxProcess, FileName, Timeout, nil, nil,
+  Result := RtlxInjectDllProcess(hxProcess, FileName, Options, ThreadFlags,
+    Timeout,
     function (
       const hxProcess: IHandle;
       const hxThread: IHandle;
@@ -295,7 +302,8 @@ begin
           NtxWaitForSingleObject(hxThread.Handle, Timeout);
         end;
       end;
-    end
+    end,
+    ExeBase
   );
 
   // No need to debug the target anymore
