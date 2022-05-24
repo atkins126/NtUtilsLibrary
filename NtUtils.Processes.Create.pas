@@ -7,8 +7,9 @@ unit NtUtils.Processes.Create;
 interface
 
 uses
-  Ntapi.ntdef, Ntapi.Ntpsapi, Ntapi.ntseapi, Ntapi.WinUser,
-  Ntapi.ProcessThreadsApi, NtUtils;
+  Ntapi.ntdef, Ntapi.Ntpsapi, Ntapi.ntseapi, Ntapi.ntmmapi, Ntapi.ntpebteb,
+  Ntapi.ntrtl, Ntapi.ntioapi, Ntapi.WinUser, Ntapi.ProcessThreadsApi,
+  Ntapi.ntwow64, NtUtils, DelphiApi.Reflection;
 
 type
   TNewProcessFlags = set of (
@@ -27,10 +28,38 @@ type
     poLPAC // Win 10 TH1+
   );
 
+  TProcessInfoFields = set of (
+    piProcessID,
+    piThreadID,
+    piProcessHandle,
+    piThreadHandle,
+    piFileHandle,
+    piSectionHandle,
+    piWmiObject,
+    piImageInformation,
+    piPebAddress,
+    piPebAddressWoW64,
+    piTebAddress,
+    piUserProcessParameters,
+    piUserProcessParametersFlags,
+    piManifest
+  );
+
   TProcessInfo = record
+    ValidFields: TProcessInfoFields;
     ClientId: TClientId;
     hxProcess: IHandle;
     hxThread: IHandle;
+    hxFile: IHandle;
+    hxSection: IHandle;
+    WmiObject: IDispatch;
+    ImageInformation: TSectionImageInformation;
+    [DontFollow] PebAddressNative: PPeb;
+    [DontFollow] PebAddressWoW64: PPeb32;
+    [DontFollow] TebAddress: PTeb;
+    [DontFollow] UserProcessParameters: PRtlUserProcessParameters;
+    UserProcessParametersFlags: TRtlUserProcessFlags;
+    Manifest: TMemory;
   end;
 
   TCreateProcessOptions = record
@@ -54,6 +83,7 @@ type
     PackageName: String;             // Win 8.1+
     LogonFlags: TProcessLogonFlags;
     Timeout: Int64;
+    AdditionalFileAccess: TIoFileAccessMask;
     Domain, Username, Password: String;
     function ApplicationWin32: String;
     function ApplicationNative: String;
@@ -89,7 +119,8 @@ type
     spoLPAC,
     spoAppContainer,
     spoCredentials,
-    spoTimeout
+    spoTimeout,
+    spoAdditinalFileAccess
   );
 
   TCreateProcessOptionMode = (

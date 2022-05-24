@@ -56,27 +56,27 @@ implementation
 uses
   Ntapi.ntstatus, Ntapi.ntpsapi, Ntapi.ntdef, Ntapi.ConsoleApi, NtUtils.Threads,
   NtUtils.Objects, NtUtils.Objects.Snapshots, NtUtils.Synchronization,
-  NtUtils.Sections, NtUtils.Processes, NtUtils.Processes.Info,
+  NtUtils.Sections, NtUtils.Processes, NtUtils.Processes.Info, NtUtils.SysUtils,
   NtUtils.Tokens.Impersonate, DelphiUtils.AutoObjects;
 
 function RtlxInheritAllHandles;
 var
   AutoSuspended: TArray<IAutoReleasable>;
   hxThread: IHandle;
-  Info: TThreadBasicInformation;
+  BasicInfo: TThreadBasicInformation;
   Handles: TArray<TProcessHandleEntry>;
   Handle: TProcessHandleEntry;
 begin
   AutoSuspended := nil;
 
-  Info := Default(TThreadBasicInformation);
+  BasicInfo := Default(TThreadBasicInformation);
 
   // Suspend all other threads to mitigate race conditions
   while NtxGetNextThread(NtCurrentProcess, hxThread, THREAD_SUSPEND_RESUME or
     THREAD_QUERY_LIMITED_INFORMATION).IsSuccess do
-    if NtxThread.Query(hxThread.Handle, ThreadBasicInformation, Info).IsSuccess
-      and (Info.ClientId.UniqueThread <> NtCurrentThreadId) and
-      NtxSuspendThread(hxThread.Handle).IsSuccess then
+    if NtxThread.Query(hxThread.Handle, ThreadBasicInformation,
+      BasicInfo).IsSuccess and (BasicInfo.ClientId.UniqueThread <>
+      NtCurrentThreadId) and NtxSuspendThread(hxThread.Handle).IsSuccess then
     begin
       SetLength(AutoSuspended, Length(AutoSuspended) + 1);
       AutoSuspended[High(AutoSuspended)] := NtxDelayedResumeThread(hxThread);
@@ -106,7 +106,7 @@ end;
 
 function RtlxAttachToParentConsole;
 var
-  Info: TProcessBasicInformation;
+  BasicInfo: TProcessBasicInformation;
 begin
   Result.Location := 'FreeConsole';
   Result.Win32Result := FreeConsole;
@@ -114,13 +114,14 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  Result := NtxProcess.Query(NtCurrentProcess, ProcessBasicInformation, Info);
+  Result := NtxProcess.Query(NtCurrentProcess, ProcessBasicInformation,
+    BasicInfo);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'AttachConsole';
-  Result.Win32Result := AttachConsole(Info.InheritedFromUniqueProcessID);
+  Result.Win32Result := AttachConsole(BasicInfo.InheritedFromUniqueProcessID);
 end;
 
 function RtlxCloneCurrentProcess;
@@ -128,6 +129,7 @@ var
   RtlProcessInfo: TRtlUserProcessInformation;
   ModifiedFlags: TRtlProcessCloneFlags;
 begin
+  Info := Default(TProcessInfo);
   ModifiedFlags := Flags;
 
   // Suspend the clone whenever swapping the primary token
@@ -144,9 +146,12 @@ begin
 
   if Result.IsSuccess and (Result.Status <> STATUS_PROCESS_CLONED) then
   begin
+    Info.ValidFields := [piProcessID, piThreadID, piProcessHandle,
+      piThreadHandle, piImageInformation];
     Info.ClientId := RtlProcessInfo.ClientId;
     Info.hxProcess := Auto.CaptureHandle(RtlProcessInfo.Process);
     Info.hxThread := Auto.CaptureHandle(RtlProcessInfo.Thread);
+    Info.ImageInformation := RtlProcessInfo.ImageInformation;
 
     if Assigned(PrimaryToken) then
     begin
@@ -157,7 +162,6 @@ begin
       begin
         // Fail and cleanup
         NtxTerminateProcess(Info.hxProcess.Handle, STATUS_CANCELLED);
-        Info := Default(TProcessInfo);
         Exit;
       end;
 
@@ -168,13 +172,17 @@ begin
   end;
 end;
 
+const
+  CLONE_MAX_STACK_TRACE_DEPTH = 254;
+  CLONE_MAX_STRING_LENGTH = 1024;
+
 type
   TCloneSharedData = record
     Status: NTSTATUS;
-    Location: PWideChar;
     StackTraceLength: Cardinal;
-    StackTrace: array [0 .. MAX_STACK_TRACE_DEPTH - 1] of Pointer;
-    LocationBuffer: TAnysizeArray<WideChar>;
+    Location: PWideChar;
+    StackTrace: array [0 .. CLONE_MAX_STACK_TRACE_DEPTH - 1] of Pointer;
+    LocationBuffer: array [0 .. CLONE_MAX_STRING_LENGTH - 1] of WideChar
   end;
   PCloneSharedData = ^TCloneSharedData;
 
@@ -215,22 +223,20 @@ begin
         SharedMemory.Data.Location := PWideChar(Result.Location)
 
       // Dynamic strings require marshling
-      else if Cardinal(Length(Result.Location)) * SizeOf(WideChar) <
-        SharedMemory.Size - SizeOf(TCloneSharedData) then
+      else if Length(Result.Location) <= CLONE_MAX_STRING_LENGTH then
       begin
         Move(PWideChar(Result.Location)^, SharedMemory.Data.LocationBuffer,
           Length(Result.Location) * SizeOf(WideChar));
-
-        SharedMemory.Data.Location := Pointer(@SharedMemory.Data.LocationBuffer);
+        SharedMemory.Data.Location := @SharedMemory.Data.LocationBuffer[0];
       end;
 
       // Save the stack trace
-      if CaptureStackTraces and (Length(Result.LastCall.StackTrace) > 0) then
+      if CaptureStackTraces and (Length(Result.LastCall.StackTrace) > 0) and
+        (Length(Result.LastCall.StackTrace) <= CLONE_MAX_STACK_TRACE_DEPTH) then
       begin
-        SharedMemory.Data.StackTraceLength := Length(Result.LastCall.StackTrace);
-
         Move(Result.LastCall.StackTrace[0], SharedMemory.Data.StackTrace,
           Length(Result.LastCall.StackTrace) * SizeOf(Pointer));
+        SharedMemory.Data.StackTraceLength := Length(Result.LastCall.StackTrace);
       end;
 
       Completed := True;
@@ -244,11 +250,11 @@ begin
         // Provide a stack trace of the exception when possible
         if CaptureStackTraces then
           SharedMemory.Data.StackTraceLength := RtlCaptureStackBackTrace(0,
-            MAX_STACK_TRACE_DEPTH, @SharedMemory.Data.StackTrace, nil);
+            CLONE_MAX_STACK_TRACE_DEPTH, @SharedMemory.Data.StackTrace, nil);
       end;
     end;
   finally
-    // Do not try to clean-up
+    // Do not try to clean up
     NtxTerminateProcess(NtCurrentProcess, STATUS_PROCESS_CLONED);
   end;
 
@@ -266,7 +272,12 @@ begin
   end;
 
   // Forward the result
-  Result.Location := String(SharedMemory.Data.Location);
+  if SharedMemory.Data.Location = @SharedMemory.Data.LocationBuffer[0] then
+    Result.Location := RtlxCaptureString(SharedMemory.Data.Location,
+      CLONE_MAX_STRING_LENGTH)
+  else
+    Result.Location := String(SharedMemory.Data.Location);
+
   Result.Status := SharedMemory.Data.Status;
 
   if CaptureStackTraces then
@@ -275,7 +286,8 @@ begin
     Result.LastCall.StackTrace := nil;
 
     // Get a stack trace from the clone
-    if SharedMemory.Data.StackTraceLength > 0 then
+    if (SharedMemory.Data.StackTraceLength > 0) and
+      (SharedMemory.Data.StackTraceLength <= CLONE_MAX_STACK_TRACE_DEPTH) then
     begin
       Result.LastCall.StackTrace := nil;
       SetLength(Result.LastCall.StackTrace, SharedMemory.Data.StackTraceLength);
