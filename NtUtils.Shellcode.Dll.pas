@@ -42,8 +42,8 @@ implementation
 
 uses
   Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntldr, Ntapi.ntstatus, Ntapi.ntpebteb,
-  Ntapi.ntioapi, Ntapi.ntmmapi, Ntapi.ImageHlp, Ntapi.Versions,
-  DelphiUtils.AutoObjects, NtUtils.Processes.Info,  NtUtils.Threads,
+  Ntapi.ntioapi, Ntapi.ntmmapi, Ntapi.ImageHlp, DelphiUtils.AutoObjects,
+  NtUtils.Processes.Info,  NtUtils.Threads,
   NtUtils.Files.Open, NtUtils.Sections;
 
 type
@@ -235,27 +235,12 @@ function RtlxAutoSelectModeDll(
   var Options: TDllInjectionOptions
 ): TNtxStatus;
 var
-  hxFile, hxSection: IHandle;
-  Attributes: TAllocationAttributes;
+  hxSection: IHandle;
   Info: TSectionImageInformation;
 begin
-  // Open the DLL for inspection
-  Result := NtxOpenFile(hxFile, FileOpenParameters
-    .UseFileName(DllPath, fnWin32).UseAccess(FILE_READ_DATA)
-    .UseOpenOptions(FILE_SYNCHRONOUS_IO_NONALERT or FILE_NON_DIRECTORY_FILE)
-  );
-
-  if not Result.IsSuccess then
-    Exit;
-
-  if RtlOsVersionAtLeast(OsWin8) then
-    Attributes := SEC_IMAGE_NO_EXECUTE
-  else
-    Attributes := SEC_IMAGE;
-
-  // Create an image section from it
-  Result := NtxCreateFileSection(hxSection, hxFile.Handle, PAGE_READONLY,
-    Attributes);
+  // Create a section from the DLL using the image layout
+  Result := RtlxCreateFileSection(hxSection, FileOpenParameters.UseFileName(
+    DllPath, fnWin32), RtlxSecImageNoExecute);
 
   if not Result.IsSuccess then
     Exit;

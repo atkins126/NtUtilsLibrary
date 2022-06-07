@@ -7,7 +7,7 @@ unit NtUtils.Processes.Create.Native;
 interface
 
 uses
-  Ntapi.ntrtl, Ntapi.ntseapi, NtUtils, NtUtils.Processes.Create,
+  Ntapi.ntrtl, Ntapi.ntseapi, Ntapi.Versions, NtUtils, NtUtils.Processes.Create,
   DelphiUtils.AutoObjects;
 
 type
@@ -28,7 +28,7 @@ function RtlxCreateProcessParameters(
 [SupportedOption(spoDesktop)]
 [SupportedOption(spoToken)]
 [SupportedOption(spoParentProcess)]
-[SupportedOption(spoJob)]
+[SupportedOption(spoDetectManifest)]
 [RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
 function RtlxCreateUserProcess(
   const Options: TCreateProcessOptions;
@@ -36,6 +36,7 @@ function RtlxCreateUserProcess(
 ): TNtxStatus;
 
 // Create a new process via RtlCreateUserProcessEx
+[MinOSVersion(OsWin10RS2)]
 [SupportedOption(spoSuspended)]
 [SupportedOption(spoInheritHandles)]
 [SupportedOption(spoEnvironment)]
@@ -45,6 +46,7 @@ function RtlxCreateUserProcess(
 [SupportedOption(spoToken)]
 [SupportedOption(spoParentProcess)]
 [SupportedOption(spoJob)]
+[SupportedOption(spoDetectManifest)]
 [RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
 function RtlxCreateUserProcessEx(
   const Options: TCreateProcessOptions;
@@ -67,6 +69,7 @@ function RtlxCreateUserProcessEx(
 [SupportedOption(spoChildPolicy)]
 [SupportedOption(spoLPAC)]
 [SupportedOption(spoAdditinalFileAccess)]
+[SupportedOption(spoDetectManifest)]
 [RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
 [RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
 function NtxCreateUserProcess(
@@ -79,7 +82,8 @@ implementation
 uses
   Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ProcessThreadsApi,
   Ntapi.ntioapi, Ntapi.ntpebteb, NtUtils.Threads, NtUtils.Files,
-  NtUtils.Objects, NtUtils.Ldr, NtUtils.Tokens;
+  NtUtils.Objects, NtUtils.Ldr, NtUtils.Tokens, NtUtils.Processes.Info,
+  NtUtils.Files.Open, NtUtils.Manifests;
 
 { Process Parameters & Attributes }
 
@@ -294,6 +298,53 @@ begin
   Result := Buffer.Data;
 end;
 
+function RtlxDetectManifestAndSaveAddresses(
+  const Options: TCreateProcessOptions;
+  var Info: TProcessInfo
+): TNtxStatus;
+var
+  Addresses: TProcessAddresses;
+  hxSection: IHandle;
+  ManifestRva: TMemory;
+begin
+  Result := NtxQueryAddressesProcess(Info.hxProcess.Handle, Addresses);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Save PEB
+  if Assigned(Addresses.PebAddressNative) then
+  begin
+    Include(Info.ValidFields, piPebAddress);
+    Info.PebAddressNative := Addresses.PebAddressNative;
+  end;
+
+  // Save WoW64 PEB
+  if Assigned(Addresses.PebAddressWoW64) then
+  begin
+    Include(Info.ValidFields, piPebAddressWoW64);
+    Info.PebAddressWoW64 := Addresses.PebAddressWoW64;
+  end;
+
+  // Save Image Base
+  Include(Info.ValidFields, piImageBase);
+  Info.ImageBaseAddress := Addresses.ImageBase;
+
+  hxSection := nil;
+
+  // Parse the file trying to locate the embedded manifest
+  Result := RtlxFindManifestInFile(FileOpenParameters.UseFileName(
+    Options.ApplicationNative), ManifestRva);
+
+  if Result.IsSuccess then
+  begin
+    // Convert RVA to VA and save the result
+    Inc(PByte(ManifestRva.Address), UIntPtr(Info.ImageBaseAddress));
+    Include(Info.ValidFields, piManifest);
+    Info.Manifest := ManifestRva;
+  end;
+end;
+
 { Process Creation }
 
 function RtlxCreateUserProcess;
@@ -348,6 +399,9 @@ begin
   Info.hxProcess := Auto.CaptureHandle(ProcessInfo.Process);
   Info.hxThread := Auto.CaptureHandle(ProcessInfo.Thread);
   Info.ImageInformation := ProcessInfo.ImageInformation;
+
+  if (poDetectManifest in Options.Flags) then
+    RtlxDetectManifestAndSaveAddresses(Options, Info);
 
   // Resume the process if necessary
   if not (poSuspended in Options.Flags) then
@@ -421,6 +475,9 @@ begin
   Info.hxThread := Auto.CaptureHandle(ProcessInfo.Thread);
   Info.ImageInformation := ProcessInfo.ImageInformation;
 
+  if (poDetectManifest in Options.Flags) then
+    RtlxDetectManifestAndSaveAddresses(Options, Info);
+
   // Resume the process if necessary
   if not (poSuspended in Options.Flags) then
     NtxResumeThread(ProcessInfo.Thread);
@@ -486,8 +543,11 @@ begin
   CreateInfo.AdditionalFileAccess := Options.AdditionalFileAccess;
   CreateInfo.InitFlags :=
     PS_CREATE_INTIAL_STATE_WRITE_OUTPUT_ON_EXIT or
-    PS_CREATE_INTIAL_STATE_DETECT_MANIFEST or
     PS_CREATE_INTIAL_STATE_IFEO_SKIP_DEBUGGER;
+
+  if poDetectManifest in Options.Flags then
+    CreateInfo.InitFlags := CreateInfo.InitFlags or
+      PS_CREATE_INTIAL_STATE_DETECT_MANIFEST;
 
   Result.Location := 'NtCreateUserProcess';
 
@@ -566,7 +626,6 @@ begin
       if BitTest(CreateInfo.OutputFlags and
         PS_CREATE_SUCCESS_MANIFEST_DETECTED) then
       begin
-        // TODO: suppress when IMAGE_DLLCHARACTERISTICS_NO_ISOLATION is set
         Include(Info.ValidFields, piManifest);
         Info.Manifest.Address := CreateInfo.ManifestAddress;
         Info.Manifest.Size := CreateInfo.ManifestSize;

@@ -25,7 +25,8 @@ type
     poRunAsInvokerOn,
     poRunAsInvokerOff,
     poIgnoreElevation,
-    poLPAC // Win 10 TH1+
+    poLPAC, // Win 10 TH1+
+    poDetectManifest
   );
 
   TProcessInfoFields = set of (
@@ -37,6 +38,7 @@ type
     piSectionHandle,
     piWmiObject,
     piImageInformation,
+    piImageBase,
     piPebAddress,
     piPebAddressWoW64,
     piTebAddress,
@@ -54,6 +56,7 @@ type
     hxSection: IHandle;
     WmiObject: IDispatch;
     ImageInformation: TSectionImageInformation;
+    [DontFollow] ImageBaseAddress: Pointer;
     [DontFollow] PebAddressNative: PPeb;
     [DontFollow] PebAddressWoW64: PPeb32;
     [DontFollow] TebAddress: PTeb;
@@ -120,7 +123,8 @@ type
     spoAppContainer,
     spoCredentials,
     spoTimeout,
-    spoAdditinalFileAccess
+    spoAdditinalFileAccess,
+    spoDetectManifest
   );
 
   TCreateProcessOptionMode = (
@@ -145,10 +149,19 @@ function RtlxApplyCompatLayer(
   out Reverter: IAutoReleasable
 ): TNtxStatus;
 
+// Register process creation with CSR and SxS using the embedded manifest.
+// Note: use with the poDetectManifest flag; otherwise, the process will be
+// registered without a manifest.
+function CsrxRegisterProcessCreation(
+  const Options: TCreateProcessOptions;
+  const Info: TProcessInfo
+): TNtxStatus;
+
 implementation
 
 uses
-  NtUtils.Environment, NtUtils.SysUtils, NtUtils.Files;
+  Ntapi.WinNt, Ntapi.ntstatus, Ntapi.ImageHlp, Ntapi.ntcsrapi, Ntapi.Versions,
+  NtUtils.Environment, NtUtils.SysUtils, NtUtils.Files, NtUtils.Csr;
 
 { TCreateProcessOptions }
 
@@ -232,6 +245,43 @@ begin
     Result := RtlxSetRunAsInvoker(False, Reverter)
   else
     Result.Status := STATUS_SUCCESS;
+end;
+
+function CsrxRegisterProcessCreation;
+var
+  RequiredFields: TProcessInfoFields;
+  Manifest: TMemory;
+begin
+  RequiredFields := [piProcessHandle, piThreadHandle, piProcessID,
+    piThreadID];
+
+  if RtlOsVersionAtLeast(OsWin81) then
+    Exclude(RequiredFields, piThreadHandle);
+
+  if RequiredFields * Info.ValidFields <> RequiredFields then
+  begin
+    Result.Location := 'CsrxRegisterProcessCreation';
+    Result.Status := STATUS_INVALID_PARAMETER;
+    Exit;
+  end;
+
+  // Use embedded manifest when found
+  if piManifest in Info.ValidFields then
+    Manifest := Info.Manifest
+  else
+    Manifest := Default(TMemory);
+
+  // But allow the image to opt-out due to characteristics
+  if (piImageInformation in Info.ValidFields) and
+    BitTest(Info.ImageInformation.DllCharacteristics and
+    IMAGE_DLLCHARACTERISTICS_NO_ISOLATION) then
+    Manifest := Default(TMemory);
+
+  // Send a message to CSR
+  Result := CsrxRegisterProcessManifest(Info.hxProcess.Handle,
+    HandleOrDefault(Info.hxThread), Info.ClientId, Info.hxProcess.Handle,
+    BASE_MSG_HANDLETYPE_PROCESS, Manifest,
+    RtlxExtractRootPath(Options.ApplicationWin32));
 end;
 
 end.
