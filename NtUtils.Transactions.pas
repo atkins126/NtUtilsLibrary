@@ -195,6 +195,10 @@ uses
   Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntrtl, NtUtils.Ldr,
   DelphiUtils.AutoObjects;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 function NtxEnumerateKtmObjects;
 var
   Cursor: TKtmObjectCursor;
@@ -253,7 +257,7 @@ begin
     0,
     0,
     nil,
-    TNtUnicodeString.From(Description).RefOrNull
+    TNtUnicodeString.From(Description).RefOrNil
   );
 
   if Result.IsSuccess then

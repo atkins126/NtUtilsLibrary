@@ -70,7 +70,7 @@ type
     Desktop: String;
     Environment: IEnvironment;
     ProcessSecurity, ThreadSecurity: ISecurityDescriptor;
-    WindowMode: TShowMode;
+    WindowMode: TShowMode32;
     HandleList: TArray<IHandle>;
     [Access(TOKEN_CREATE_PROCESS)] hxToken: IHandle;
     [Access(PROCESS_CREATE_PROCESS)] hxParentProcess: IHandle;
@@ -173,6 +173,10 @@ implementation
 uses
   Ntapi.ntstatus, Ntapi.ImageHlp, Ntapi.ntcsrapi, NtUtils.Environment,
   NtUtils.SysUtils, NtUtils.Files, NtUtils.Csr;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 { TCreateProcessOptions }
 

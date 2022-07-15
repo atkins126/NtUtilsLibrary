@@ -10,7 +10,7 @@ interface
 
 uses
   Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntlpcapi, Ntapi.ntrtl, Ntapi.ntpebteb,
-  Ntapi.Versions, DelphiApi.Reflection;
+  Ntapi.actctx, Ntapi.Versions, DelphiApi.Reflection;
 
 const
   // private
@@ -109,14 +109,14 @@ type
     BasepDefineDosDevice = $14,          // in: TBaseDefineDosDeviceMsg
     BasepSetTermsrvAppInstallMode = $15,
     BasepSetTermsrvClientTimeZone = $16,
-    BasepCreateActivationContext = $17,
+    BasepCreateActivationContext = $17,  // in/out: TBaseSxsCreateActivationContextMsg
     [Reserved] BasepDeadEntry24 = $18,
     BasepRegisterThread = $19,
     BasepDeferredCreateProcess = $1A,
     BasepNlsGetUserInfo = $1B,
     BasepNlsUpdateCacheCount = $1C,
     BasepCreateProcess2 = $1D,           // in: TBaseCreateProcessMsgV2, Win 10 20H1+
-    BasepCreateActivationContext2 = $1E
+    BasepCreateActivationContext2 = $1E  // in/out: TBaseSxsCreateActivationContextMsgV2, Win 10 20H1+
   );
 
   { Common }
@@ -182,25 +182,6 @@ type
     Size: NativeUInt;
   end;
   PBaseMsgSxsStream = ^TBaseMsgSxsStream;
-
-  // SDK::winnt.h
-  [SDKName('ACTCTX_REQUESTED_RUN_LEVEL')]
-  [NamingStyle(nsSnakeCase, 'ACTCTX_RUN_LEVEL_')]
-  TActCtxRequestedRunLevel = (
-    ACTCTX_RUN_LEVEL_UNSPECIFIED = 0,
-    ACTCTX_RUN_LEVEL_AS_INVOKER = 1,
-    ACTCTX_RUN_LEVEL_HIGHEST_AVAILABLE = 2,
-    ACTCTX_RUN_LEVEL_REQUIRE_ADMIN = 3
-  );
-
-  // SDK::winnt.h
-  [SDKName('ACTIVATION_CONTEXT_RUN_LEVEL_INFORMATION')]
-  TActivationContextRunLevelInformation = record
-    [Reserved] ulFlags: Cardinal;
-    RunLevel: TActCtxRequestedRunLevel;
-    UIAccess: LongBool;
-  end;
-  PActivationContextRunLevelInformation = ^TActivationContextRunLevelInformation;
 
   { API number 0x00 }
 
@@ -330,6 +311,30 @@ type
   end;
   PBaseDefineDosDeviceMsg = ^TBaseDefineDosDeviceMsg;
 
+  // private & rev - API number 0x17
+  [SDKName('BASE_SXS_CREATE_ACTIVATION_CONTEXT_MSG')]
+  TBaseSxsCreateActivationContextMsg = record
+    CsrMessage: TCsrApiMsg; // Embedded for convenience
+    Flags: TBaseMsgSxsFlags;
+    ProcessorArchitecture: TProcessorArchitecture;
+    CultureFallbacks: TNtUnicodeString;
+    Manifest: TBaseMsgSxsStream;
+    Policy: TBaseMsgSxsStream;
+    AssemblyDirectory: TNtUnicodeString;
+    TextualAssemblyIdentity: TNtUnicodeString;
+    Unknown1: UInt64;
+    ResourceId: PWideChar;
+    ActivationContextData: PPActivationContextData;
+  {$IFDEF Win64}
+    Unknown2: UInt64;
+  {$ENDIF}
+    Unknown5: UInt64;
+    Unknown6: Cardinal;
+    Unknown7: Cardinal;
+    AssemblyName: TNtUnicodeString;
+  end;
+  PBaseSxsCreateActivationContextMsg = ^TBaseSxsCreateActivationContextMsg;
+
   { API number 0x1D }
 
   // rev - API number 0x1D
@@ -351,65 +356,75 @@ type
   end;
   PBaseCreateProcessMsgV2 = ^TBaseCreateProcessMsgV2;
 
+  { API Number 0x1E }
+
+  // rev - API number 0x1E
+  TBaseSxsCreateActivationContextMsgV2 = record
+    V1: TBaseSxsCreateActivationContextMsg;
+    Extension: array [0..66] of Cardinal;
+  end;
+  PBaseSxsCreateActivationContextMsgV2 = ^TBaseSxsCreateActivationContextMsgV2;
+
 [SDKName('CSR_MAKE_API_NUMBER')]
 function CsrMakeApiNumber(
-  DllIndex: Word;
-  ApiIndex: Word
+  [in] DllIndex: Word;
+  [in] ApiIndex: Word
 ): TCsrApiNumber;
 
 function CsrGetProcessId(
 ): TProcessId; stdcall external ntdll;
 
-[Result: Allocates('CsrFreeCaptureBuffer')]
+[Result: ReleaseWith('CsrFreeCaptureBuffer')]
 function CsrAllocateCaptureBuffer(
-  [in] CountMessagePointers: Cardinal;
-  [in] Size: Cardinal
+  [in, NumberOfElements] CountMessagePointers: Cardinal;
+  [in, NumberOfBytes] Size: Cardinal
 ): PCsrCaptureHeader; stdcall external ntdll;
 
 procedure CsrFreeCaptureBuffer(
   [in] CaptureBuffer: PCsrCaptureHeader
 ); stdcall external ntdll;
 
-[Result: Counter(ctBytes)]
+[Result: NumberOfBytes]
 function CsrAllocateMessagePointer(
   [in, out] CaptureBuffer: PCsrCaptureHeader;
-  [Counter(ctBytes)] Length: Cardinal;
-  out MessagePointer: Pointer
+  [in, NumberOfBytes] Length: Cardinal;
+  [out] out MessagePointer: Pointer
 ): Cardinal; stdcall; external ntdll;
 
 procedure CsrCaptureMessageBuffer(
   [in, out] CaptureBuffer: PCsrCaptureHeader;
-  [in, opt] Buffer: Pointer;
-  Length: Cardinal;
-  out CapturedBuffer: Pointer
+  [in, opt, ReadsFrom] Buffer: Pointer;
+  [in, NumberOfBytes] Length: Cardinal;
+  [out] out CapturedBuffer: Pointer
 ); stdcall; external ntdll;
 
 procedure CsrCaptureMessageString(
   [in, out] CaptureBuffer: PCsrCaptureHeader;
-  StringData: PWideChar;
-  [Counter(ctBytes)] Length: Cardinal;
-  [Counter(ctBytes)] MaximumLength: Cardinal;
-  out CapturedString: TNtUnicodeString // Can also be TNtAnsiString
+  [in, ReadsFrom] StringData: PWideChar;
+  [in, NumberOfBytes] Length: Cardinal;
+  [in, NumberOfBytes] MaximumLength: Cardinal;
+  [out] out CapturedString: TNtUnicodeString // Can also be TNtAnsiString
 ); stdcall; external ntdll;
 
 function CsrCaptureMessageMultiUnicodeStringsInPlace(
-  [Allocates('CsrFreeCaptureBuffer')] var CaptureBuffer: PCsrCaptureHeader;
-  NumberOfStringsToCapture: Cardinal;
-  const StringsToCapture: TArray<PNtUnicodeString>
+  [in, out, ReleaseWith('CsrFreeCaptureBuffer')]
+    var CaptureBuffer: PCsrCaptureHeader;
+  [in, NumberOfElements] NumberOfStringsToCapture: Cardinal;
+  [in, ReadsFrom] const StringsToCapture: TArray<PNtUnicodeString>
 ): NTSTATUS; stdcall; external ntdll;
 
 function CsrClientCallServer(
-  var m: TCsrApiMsg;
+  [in, out, ReadsFrom, WritesTo] var m: TCsrApiMsg;
   [in, out, opt] CaptureBuffer: PCsrCaptureHeader;
-  ApiNumber: TCsrApiNumber;
-  ArgLength: Cardinal
+  [in] ApiNumber: TCsrApiNumber;
+  [in, NumberOfBytes] ArgLength: Cardinal
 ): NTSTATUS; stdcall; external ntdll;
 
 function CsrClientConnectToServer(
   [in] ObjectDirectory: PWideChar;
-  ServertDllIndex: Cardinal;
-  [in, opt] ConnectionInformation: Pointer;
-  ConnectionInformationLength: Cardinal;
+  [in] ServertDllIndex: Cardinal;
+  [in, opt, ReadsFrom] ConnectionInformation: Pointer;
+  [in, NumberOfBytes] ConnectionInformationLength: Cardinal;
   [out, opt] CalledFromServer: PBoolean
 ): NTSTATUS; stdcall; external ntdll;
 
@@ -418,6 +433,10 @@ function RtlRegisterThreadWithCsrss(
 ): NTSTATUS; stdcall; external ntdll;
 
 implementation
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 function CsrMakeApiNumber;
 begin

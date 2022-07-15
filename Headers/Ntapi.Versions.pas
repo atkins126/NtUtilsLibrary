@@ -7,9 +7,13 @@ unit Ntapi.Versions;
 
 interface
 
+uses
+  DelphiApi.Reflection;
+
 {$MINENUMSIZE 4}
 
 type
+  [NamingStyle(nsCamelCase, 'Os')]
   TWindowsVersion = (
     OsWinOld,
     OsWin7,
@@ -77,6 +81,10 @@ implementation
 
 uses
   Ntapi.Ntpebteb;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 function RtlOsVersionAtLeast;
 var

@@ -127,6 +127,10 @@ uses
   Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntexapi, Ntapi.Versions, NtUtils.Processes,
   NtUtils.Memory, NtUtils.Files.Open;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 type
   TMappedAutoSection = class(TCustomAutoMemory, IMemory)
     FProcess: IHandle;
@@ -146,7 +150,11 @@ end;
 
 procedure TMappedAutoSection.Release;
 begin
-  NtxUnmapViewOfSection(FProcess.Handle, FData);
+  if Assigned(FProcess) and Assigned(FData) then
+    NtxUnmapViewOfSection(FProcess.Handle, FData);
+
+  FProcess := nil;
+  FData := nil;
   inherited;
 end;
 

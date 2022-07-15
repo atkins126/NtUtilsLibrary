@@ -160,6 +160,10 @@ implementation
 uses
   Ntapi.ntdef, Ntapi.ntrtl, Ntapi.ntstatus, NtUtils.SysUtils, NtUtils.Errors;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
  { Construction }
 
 function RtlxCreateSid;
@@ -558,11 +562,11 @@ begin
   Result.Location := 'ConvertStringSidToSidW';
   Result.Win32Result := ConvertStringSidToSidW(PWideChar(SDDL), Buffer);
 
-  if Result.IsSuccess then
-  begin
-    Result := RtlxCopySid(Buffer, Sid);
-    LocalFree(Buffer);
-  end;
+  if not Result.IsSuccess then
+    Exit;
+
+  AdvxDelayLocalFree(Buffer);
+  Result := RtlxCopySid(Buffer, Sid);
 end;
 
 function RtlxStringToSidConverter;

@@ -219,6 +219,10 @@ uses
   NtUtils.Synchronization, DelphiUiLib.Strings, DelphiUiLib.Reflection.Strings,
   DelphiUiLib.Reflection.Numeric;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 function RepresentSidWorker;
 var
   SidCopy: ISid;
@@ -275,7 +279,7 @@ begin
 
     HintSections[i] := THintSection.New('Flags', TNumeric.Represent
       <TGroupAttributes>(Attributes and not SE_GROUP_STATE_MASK,
-      [Auto.From(IgnoreSubEnumsAttribute.Create).Data]).Text);
+      [Auto.From(IgnoreSubEnumsAttribute.Create).Self]).Text);
     Inc(i);
   end;
 

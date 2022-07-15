@@ -9,8 +9,8 @@ interface
 {$MINENUMSIZE 4}
 
 uses
-  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntrtl, Ntapi.ImageHlp, Ntapi.Versions,
-  DelphiApi.Reflection;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntrtl, Ntapi.ImageHlp, Ntapi.actctx,
+  Ntapi.Versions, DelphiApi.Reflection;
 
 const
   // Extracted from bit union PEB.BitField
@@ -193,10 +193,10 @@ type
     pShimData: Pointer;
     AppCompatInfo: Pointer; // APPCOMPAT_EXE_DATA
     CSDVersion: TNtUnicodeString;
-    ActivationContextData: Pointer; // ACTIVATION_CONTEXT_DATA
-    ProcessAssemblyStorageMap: Pointer; // ASSEMBLY_STORAGE_MAP
-    SystemDefaultActivationContextData: Pointer; // ACTIVATION_CONTEXT_DATA
-    SystemAssemblyStorageMap: Pointer; // ASSEMBLY_STORAGE_MAP
+    ActivationContextData: PActivationContextData;
+    ProcessAssemblyStorageMap: PAssemblyStorageMap;
+    SystemDefaultActivationContextData: PActivationContextData;
+    SystemAssemblyStorageMap: PAssemblyStorageMap;
     [Bytes] MinimumStackCommit: NativeUInt;
     [Unlisted] SparePointers: array [0..1] of Pointer;
     [MinOSVersion(OsWin11)] PatchLoaderData: Pointer;
@@ -246,17 +246,6 @@ type
   [FlagName(TEB_SAME_FLAGS_SKIP_LOADER_INIT, 'Skip Loader Init')]
   [FlagName(TEB_SAME_FLAGS_SKIP_FILE_API_BROKERING, 'Skip File API Brokering')]
   TTebSameTebFlags = type Word;
-
-  // PHNT::ntpebteb.h
-  [SDKName('ACTIVATION_CONTEXT_STACK')]
-  TActivationContextStack = record
-    ActiveFrame: Pointer;
-    FrameListCache: TListEntry;
-    [Hex] Flags: Cardinal;
-    NextCookieSequenceNumber: Cardinal;
-    StackId: Cardinal;
-  end;
-  PActivationContextStack = ^TActivationContextStack;
 
   // PHNT::ntpebteb.h
   [SDKName('GDI_TEB_BATCH')]
@@ -456,28 +445,6 @@ type
   TNtSystemRoot = array [MAX_PATH_ARRAY] of WideChar;
 
   // SDK::winnt.h
-  {$MINENUMSIZE 2}
-  [NamingStyle(nsSnakeCase, 'PROCESSOR_ARCHITECTURE')]
-  TProcessorArchitecture = (
-    PROCESSOR_ARCHITECTURE_INTEL = 0,
-    PROCESSOR_ARCHITECTURE_MIPS = 1,
-    PROCESSOR_ARCHITECTURE_ALPHA = 2,
-    PROCESSOR_ARCHITECTURE_PPC = 3,
-    PROCESSOR_ARCHITECTURE_SHX = 4,
-    PROCESSOR_ARCHITECTURE_ARM = 5,
-    PROCESSOR_ARCHITECTURE_IA64 = 6,
-    PROCESSOR_ARCHITECTURE_ALPHA64 = 7,
-    PROCESSOR_ARCHITECTURE_MSIL = 8,
-    PROCESSOR_ARCHITECTURE_AMD64 = 9,
-    PROCESSOR_ARCHITECTURE_IA32_ON_WIN64 = 10,
-    PROCESSOR_ARCHITECTURE_NEUTRAL = 11,
-    PROCESSOR_ARCHITECTURE_ARM64 = 12,
-    PROCESSOR_ARCHITECTURE_ARM32_ON_WIN64 = 13,
-    PROCESSOR_ARCHITECTURE_IA32_ON_ARM64 = 14
-  );
-  {$MINENUMSIZE 4}
-
-  // SDK::winnt.h
   [NamingStyle(nsSnakeCase, 'PF'), Range(0, 44)]
   TProcessorFeature = (
     PF_FLOATING_POINT_PRECISION_ERRATA = 0,
@@ -627,6 +594,7 @@ function RtlGetCurrentPeb(
 ): PPeb; stdcall; external ntdll;
 
 // PHNT::ntpebteb.h
+[Result: ReleaseWith('RtlReleasePebLock')]
 procedure RtlAcquirePebLock(
 ); stdcall; external ntdll;
 
@@ -635,6 +603,7 @@ procedure RtlReleasePebLock(
 ); stdcall; external ntdll;
 
 // PHNT::ntpebteb.h
+[Result: ReleaseWith('RtlReleasePebLock')]
 function RtlTryAcquirePebLock(
 ): LongBool; stdcall; external ntdll;
 
@@ -658,19 +627,19 @@ function RtlGetThreadErrorMode(
 
 // PHNT::ntrtl.h
 function RtlSetThreadErrorMode(
-  NewMode: TRtlErrorMode;
+  [in] NewMode: TRtlErrorMode;
   [out, opt] OldMode: PRtlErrorMode
 ): NTSTATUS; stdcall; external ntdll;
 
 // PHNT::ntrtl.h
 function RtlWow64EnableFsRedirection(
-  Wow64FsEnableRedirection: Boolean
+  [in] Wow64FsEnableRedirection: Boolean
 ): NTSTATUS; stdcall; external ntdll;
 
 // PHNT::ntrtl.h
 function RtlWow64EnableFsRedirectionEx(
-  Wow64FsEnableRedirection: NativeUInt;
-  out OldFsRedirectionLevel: NativeUInt
+  [in] Wow64FsEnableRedirection: NativeUInt;
+  [out] out OldFsRedirectionLevel: NativeUInt
 ): NTSTATUS; stdcall; external ntdll;
 
 // PHNT::ntrtl.h
@@ -693,14 +662,18 @@ const
   DAYS_FROM_1970 = 25569; // difference Unix & Delphi's zero time
 
 // Native time
-function DateTimeToLargeInteger(DateTime: TDateTime): TLargeInteger;
-function LargeIntegerToDateTime(QuadPart: TLargeInteger): TDateTime;
+function DateTimeToLargeInteger([in] DateTime: TDateTime): TLargeInteger;
+function LargeIntegerToDateTime([in] QuadPart: TLargeInteger): TDateTime;
 
 // Unix time
-function DateTimeToUnixTime(DateTime: TDateTime): TUnixTime;
-function UnixTimeToDateTime(UnixTime: TUnixTime): TDateTime;
+function DateTimeToUnixTime([in] DateTime: TDateTime): TUnixTime;
+function UnixTimeToDateTime([in] UnixTime: TUnixTime): TDateTime;
 
 implementation
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 {$IFDEF WIN64}
 function NtCurrentTeb;
@@ -736,26 +709,32 @@ end;
 
 function DateTimeToLargeInteger;
 begin
+  {$Q-}{$R-}
   Result := Trunc(NATIVE_TIME_DAY * (DAYS_FROM_1601 + DateTime)) + TimeZoneBias;
+  {$IFDEF R+}{$R+}{$ENDIF}{$IFDEF Q+}{$Q+}{$ENDIF}
 end;
 
 function LargeIntegerToDateTime;
 begin
-  {$Q-}
+  {$Q-}{$R-}
   Result := (QuadPart - TimeZoneBias) / NATIVE_TIME_DAY - DAYS_FROM_1601;
-  {$Q+}
+  {$IFDEF R+}{$R+}{$ENDIF}{$IFDEF Q+}{$Q+}{$ENDIF}
 end;
 
 function DateTimeToUnixTime;
 begin
+  {$Q-}{$R-}
   Result := Trunc((DateTime - DAYS_FROM_1970) * SECONDS_PER_DAY) +
     TimeZoneBias div NATIVE_TIME_SECOND;
+  {$IFDEF R+}{$R+}{$ENDIF}{$IFDEF Q+}{$Q+}{$ENDIF}
 end;
 
 function UnixTimeToDateTime;
 begin
+  {$Q-}{$R-}
   Result := (UnixTime - TimeZoneBias / NATIVE_TIME_SECOND) / SECONDS_PER_DAY +
     DAYS_FROM_1970;
+  {$IFDEF R+}{$R+}{$ENDIF}{$IFDEF Q+}{$Q+}{$ENDIF}
 end;
 
 { KUSER_SHARED_DATA }
@@ -764,7 +743,10 @@ function KUSER_SHARED_DATA.GetTickCount;
 begin
   {$Q-}{$R-}
   Result := UInt64(TickCount.LowPart) * TickCountMultiplier shr 24;
-  {$Q+}{$R+}
+  {$IFDEF R+}{$R+}{$ENDIF}{$IFDEF Q+}{$Q+}{$ENDIF}
 end;
 
+initialization
+  if RtlGetCurrentPeb.ImageBaseAddress <> @ImageBase then
+    SysInit.ModuleIsLib := True;
 end.

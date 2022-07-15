@@ -67,6 +67,10 @@ uses
   Ntapi.ntdef, NtUtils.Ldr, Ntapi.UserEnv, Ntapi.ntstatus, Ntapi.ntseapi,
   NtUtils.Security.Sid;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 function RtlxDeriveCapabilitySid;
 var
   CapGroupSid: ISid;
@@ -116,11 +120,11 @@ begin
   Result.HResult := AppContainerDeriveSidFromMoniker(PWideChar(Name),
     Buffer);
 
-  if Result.IsSuccess then
-  begin
-    Result := RtlxCopySid(Buffer, Sid);
-    RtlFreeSid(Buffer);
-  end;
+  if not Result.IsSuccess then
+    Exit;
+
+  RtlxDelayFreeSid(Buffer);
+  Result := RtlxCopySid(Buffer, Sid);
 end;
 
 function RtlxAppContainerChildNameToSid;
@@ -156,6 +160,20 @@ begin
     SubAuthorities);
 end;
 
+function RtlxDelayAppContainerFreeMemory(
+  [in] Buffer: Pointer
+): IAutoReleasable;
+begin
+  Result := Auto.Delay(
+    procedure
+    begin
+      if LdrxCheckModuleDelayedImport(kernelbase,
+        'AppContainerFreeMemory').IsSuccess then
+        AppContainerFreeMemory(Buffer);
+    end
+  );
+end;
+
 function RtlxAppContainerSidToName;
 var
   Buffer: PWideChar;
@@ -166,19 +184,14 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'AppContainerFreeMemory');
+  Result.Location := 'AppContainerLookupMoniker';
+  Result.HResult := AppContainerLookupMoniker(Sid.Data, Buffer);
 
   if not Result.IsSuccess then
     Exit;
 
-  Result.Location := 'AppContainerLookupMoniker';
-  Result.HResult := AppContainerLookupMoniker(Sid.Data, Buffer);
-
-  if Result.IsSuccess then
-  begin
-    Name := String(Buffer);
-    AppContainerFreeMemory(Buffer);
-  end;
+  RtlxDelayAppContainerFreeMemory(Buffer);
+  Name := String(Buffer);
 end;
 
 function RtlxAppContainerType;
@@ -202,11 +215,11 @@ begin
   Result.Location := 'RtlGetAppContainerParent';
   Result.Status := RtlGetAppContainerParent(AppContainerSid.Data, Buffer);
 
-  if Result.IsSuccess then
-  begin
-    Result := RtlxCopySid(Buffer, AppContainerParent);
-    RtlFreeSid(Buffer);
-  end;
+  if not Result.IsSuccess then
+    Exit;
+
+  RtlxDelayFreeSid(Buffer);
+  Result := RtlxCopySid(Buffer, AppContainerParent);
 end;
 
 end.

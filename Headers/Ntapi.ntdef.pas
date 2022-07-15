@@ -69,7 +69,7 @@ type
     [Bytes] MaximumLength: Word;
     Buffer: PWideChar;
     function ToString: String;
-    function RefOrNull: PNtUnicodeString;
+    function RefOrNil: PNtUnicodeString;
 
     class function RequiredSize(const Source: String): NativeUInt; static;
     class function From(const Source: String): TNtUnicodeString; static;
@@ -151,23 +151,27 @@ function AlighUp(
 function AlighUpPtr(pData: Pointer): Pointer;
 
 procedure InitializeObjectAttributes(
-  out ObjAttr: TObjectAttributes;
+  [out] out ObjAttr: TObjectAttributes;
   [in, opt] ObjectName: PNtUnicodeString = nil;
-  Attributes: TObjectAttributesFlags = 0;
-  RootDirectory: THandle = 0;
+  [in] Attributes: TObjectAttributesFlags = 0;
+  [in, opt] RootDirectory: THandle = 0;
   [in, opt] QoS: PSecurityQualityOfService = nil
 );
 
 procedure InitializaQoS(
-  var QoS: TSecurityQualityOfService;
-  ImpersonationLevel: TSecurityImpersonationLevel = SecurityImpersonation;
-  EffectiveOnly: Boolean = False
-); inline;
+  [out] out QoS: TSecurityQualityOfService;
+  [in] ImpersonationLevel: TSecurityImpersonationLevel = SecurityImpersonation;
+  [in] EffectiveOnly: Boolean = False
+);
 
 implementation
 
 uses
   Ntapi.ntstatus;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 function NT_SEVERITY;
 begin
@@ -226,14 +230,18 @@ end;
 
 function AlighUp;
 begin
-  Result := {$Q-}(Length + Size - 1) and not (Size - 1){$Q+};
+  {$Q-}{$R-}
+  Result := (Length + Size - 1) and not (Size - 1);
+  {$IFDEF R+}{$R+}{$ENDIF}{$IFDEF Q+}{$Q+}{$ENDIF}
 end;
 
 function AlighUpPtr;
 const
   ALIGN_M = SizeOf(UIntPtr) - 1;
 begin
-  Result := {$Q-}Pointer((UIntPtr(pData) + ALIGN_M) and not ALIGN_M){$Q+};
+  {$Q-}{$R-}
+  Result := Pointer((UIntPtr(pData) + ALIGN_M) and not ALIGN_M);
+  {$IFDEF R+}{$R+}{$ENDIF}{$IFDEF Q+}{$Q+}{$ENDIF}
 end;
 
 procedure InitializeObjectAttributes;
@@ -272,9 +280,18 @@ end;
 
 class function TNtUnicodeString.From;
 begin
-  Result.Buffer := PWideChar(Source);
-  Result.Length := System.Length(Source) * SizeOf(WideChar);
-  Result.MaximumLength := Result.Length + SizeOf(WideChar);
+  if Source <> '' then
+  begin
+    Result.Buffer := PWideChar(Source);
+    Result.Length := System.Length(Source) * SizeOf(WideChar);
+    Result.MaximumLength := Result.Length + SizeOf(WideChar);
+  end
+  else
+  begin
+    Result.Length := 0;
+    Result.MaximumLength := 0;
+    Result.Buffer := nil;
+  end;
 end;
 
 class procedure TNtUnicodeString.Marshal;
@@ -302,9 +319,9 @@ begin
     LocalAddress.MaximumLength);
 end;
 
-function TNtUnicodeString.RefOrNull;
+function TNtUnicodeString.RefOrNil;
 begin
-  if Length <> 0 then
+  if Assigned(@Self) and (Length <> 0) then
     Result := @Self
   else
     Result := nil;

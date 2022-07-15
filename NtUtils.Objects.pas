@@ -140,11 +140,14 @@ function NtxSetSecurityObject(
 
 implementation
 
-{$WARN SYMBOL_PLATFORM OFF}
-
 uses
   Ntapi.ntstatus, Ntapi.ntpsapi, Ntapi.ntpebteb, Ntapi.ntdbg,
   DelphiUtils.AutoObjects;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+{$WARN SYMBOL_PLATFORM OFF}
 
 type
   TAutoHandle = class(TCustomAutoHandle, IHandle)
@@ -154,7 +157,10 @@ type
 
 procedure TAutoHandle.Release;
 begin
-  NtxClose(FHandle);
+  if FHandle <> 0 then
+    NtxClose(FHandle);
+
+  FHandle := 0;
   inherited;
 end;
 

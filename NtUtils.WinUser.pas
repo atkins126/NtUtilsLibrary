@@ -150,6 +150,10 @@ implementation
 uses
   Ntapi.ProcessThreadsApi, Ntapi.ntpsapi, Ntapi.ntstatus;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 function UsrxCurrentDesktop;
 begin
   Result := GetThreadDesktop(NtCurrentThreadId);
@@ -294,7 +298,7 @@ end;
 function UsrxEnumAllDesktops;
 var
   i, j: Integer;
-  hWinStation: THandle;
+  hxWinSta: IHandle;
   WinStations, Desktops: TArray<String>;
 begin
   SetLength(Result, 0);
@@ -306,14 +310,12 @@ begin
   for i := 0 to High(WinStations) do
   begin
     // Open each window station
-    hWinStation := OpenWindowStationW(PWideChar(WinStations[i]), False,
-      WINSTA_ENUMDESKTOPS);
-
-    if hWinStation = 0 then
+    if not UsrxOpenWindowStation(hxWinSta, WinStations[i],
+      WINSTA_ENUMDESKTOPS).IsSuccess then
       Continue;
 
     // Enumerate desktops of this window station
-    if UsrxEnumDesktops(hWinStation, Desktops).IsSuccess then
+    if UsrxEnumDesktops(hxWinSta.Handle, Desktops).IsSuccess then
     begin
       // Expand each name
       for j := 0 to High(Desktops) do
@@ -321,8 +323,6 @@ begin
 
       Insert(Desktops, Result, Length(Result));
     end;
-
-   CloseWindowStation(hWinStation);
   end;
 end;
 

@@ -158,6 +158,10 @@ implementation
 uses
   Ntapi.ntstatus, Ntapi.ntldr, NtUtils.Ldr, NtUtils.SysUtils;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 { Helper functions }
 
 type
@@ -167,9 +171,11 @@ type
 
 procedure TAutoPackageInfoReference.Release;
 begin
-  if LdrxCheckModuleDelayedImport(kernelbase, 'ClosePackageInfo').IsSuccess then
+  if (FHandle <> 0) and LdrxCheckModuleDelayedImport(kernelbase,
+    'ClosePackageInfo').IsSuccess then
     ClosePackageInfo(FHandle);
 
+  FHandle := 0;
   inherited;
 end;
 
@@ -386,7 +392,7 @@ begin
   SetLength(FullNames, Count);
 
   for i := 0 to High(FullNames) do
-    FullNames[i] := String(Names.Data{$R-}[i]{$R+});
+    FullNames[i] := String(Names.Data{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF});
 end;
 
 function PkgxEnumeratePackagesInFamilyEx;
@@ -429,8 +435,8 @@ begin
 
   for i := 0 to High(Packages) do
   begin
-    Packages[i].FullName := String(Names.Data{$R-}[i]{$R+});
-    Packages[i].Properties := Properties.Data{$R-}[i]{$R+};
+    Packages[i].FullName := String(Names.Data{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF});
+    Packages[i].Properties := Properties.Data{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF};
   end;
 end;
 
@@ -511,7 +517,8 @@ begin
   SetLength(Info, Count);
 
   for i := 0 to High(Info) do
-    Info[i] := PkgxpCapturePackageInfo(Buffer.Data{$R-}[i]{$R+})
+    Info[i] := PkgxpCapturePackageInfo(Buffer
+      .Data{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF})
 end;
 
 function PkgxQueryPackageInfo2;
@@ -542,7 +549,8 @@ begin
   SetLength(Info, Count);
 
   for i := 0 to High(Info) do
-    Info[i] := PkgxpCapturePackageInfo(Buffer.Data{$R-}[i]{$R+})
+    Info[i] := PkgxpCapturePackageInfo(Buffer
+      .Data{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF})
 end;
 
 function PkgxIsMsixPackage;

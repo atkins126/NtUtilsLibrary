@@ -60,6 +60,10 @@ uses
   NtUtils.Com.Dispatch, NtUtils.Tokens.Impersonate, NtUtils.Threads,
   NtUtils.Objects, NtUtils.Errors;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 { ----------------------------------- WMI ----------------------------------- }
 
 function WmixCreateProcess;
@@ -397,7 +401,7 @@ var
   ActivatorV2: IDesktopAppXActivatorV2;
   ActivatorV3: IDesktopAppXActivatorV3;
   Flags: TDesktopAppxActivateOptions;
-  WindowMode: TShowMode;
+  WindowMode: TShowMode32;
   ImpersonationReverter: IAutoReleasable;
   hProcess: THandle32;
 begin
@@ -447,7 +451,7 @@ begin
     if poUseWindowMode in Options.Flags then
       WindowMode := Options.WindowMode
     else
-      WindowMode := SW_SHOW_NORMAL;
+      WindowMode := TShowMode32.SW_SHOW_NORMAL;
 
     // Use Win 11+ version
     Result.Location := 'IDesktopAppXActivator::ActivateWithOptionsArgsWorkingDirectoryShowWindow';
@@ -459,7 +463,7 @@ begin
       Options.ParentProcessId,
       nil,
       NtUtils.RefStrOrNil(Options.CurrentDirectory),
-      Cardinal(WindowMode),
+      WindowMode,
       hProcess
     );
   end

@@ -177,6 +177,10 @@ uses
   Ntapi.ntioapi, NtUtils.Memory, NtUtils.Security.Sid, NtUtils.System,
   DelphiUtils.AutoObjects;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 function NtxQueryProcess;
 var
   Required: Cardinal;
@@ -353,6 +357,7 @@ var
   Address: Pointer;
   StringData: TNtUnicodeString;
   Buffer: IWideChar;
+  Flags: TRtlUserProcessFlags;
 {$IFDEF Win64}
   ProcessParams32: Wow64Pointer<PRtlUserProcessParameters32>;
   StringData32: TNtUnicodeString32;
@@ -409,6 +414,18 @@ begin
 
     if not Result.IsSuccess then
       Exit;
+
+    // Read the flags to determine whether the parameters are normalized
+    Result := NtxMemory.Read(hProcess, @ProcessParams32.Self.Flags, Flags);
+
+    if not Result.IsSuccess then
+      Exit;
+
+    // The pointers are actually offsets; normalize them
+    {$Q-}{$R-}
+    if not BitTest(Flags and RTL_USER_PROC_PARAMS_NORMALIZED) then
+      Inc(StringData32.Buffer.Value, ProcessParams32.Value);
+    {$IFDEF R+}{$R+}{$ENDIF}{$IFDEF Q+}{$Q+}{$ENDIF}
 
     if StringData32.Length > 0 then
     begin
@@ -476,6 +493,18 @@ begin
     if not Result.IsSuccess then
       Exit;
 
+    // Read the flags to determine whether the parameters are normalized
+    Result := NtxMemory.Read(hProcess, @ProcessParams.Flags, Flags);
+
+    if not Result.IsSuccess then
+      Exit;
+
+    // The pointers are actually offsets; make them absolute
+    {$Q-}{$R-}
+    if not BitTest(Flags and RTL_USER_PROC_PARAMS_NORMALIZED) then
+      Inc(UIntPtr(StringData.Buffer), UIntPtr(ProcessParams));
+    {$IFDEF R+}{$R+}{$ENDIF}{$IFDEF Q+}{$Q+}{$ENDIF}
+
     if StringData.Length > 0 then
     begin
       // Read the string content
@@ -535,7 +564,7 @@ begin
   SetLength(Traces, Buffer.Data.TotalTraces);
 
   for i := 0 to High(Traces) do
-    Traces[i] := Buffer.Data.HandleTrace{$R-}[i]{$R+};
+    Traces[i] := Buffer.Data.HandleTrace{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF};
 end;
 
 function NtxQueryTelemetryProcess;

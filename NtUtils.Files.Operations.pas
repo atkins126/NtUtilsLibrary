@@ -148,6 +148,10 @@ uses
   Ntapi.ntstatus, Ntapi.ntrtl, NtUtils.Objects, NtUtils.SysUtils,
   NtUtils.Files.Open, NtUtils.Synchronization;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 { Operations }
 
 procedure AwaitFileOperation;
@@ -270,11 +274,10 @@ end;
 
 function NtxQueryFile;
 var
-  xIsb: IMemory<PIoStatusBlock>;
+  Isb: TIoStatusBlock;
 begin
   Result.Location := 'NtQueryInformationFile';
   Result.LastCall.UsesInfoClass(InfoClass, icQuery);
-  IMemory(xIsb) := Auto.AllocateDynamic(SizeOf(TIoStatusBlock));
 
   // NtQueryInformationFile does not return the required size. We either need
   // to know how to grow the buffer, or we should guess.
@@ -283,46 +286,34 @@ begin
 
   xMemory := Auto.AllocateDynamic(InitialBuffer);
   repeat
-    xIsb.Data.Information := 0;
+    Isb.Information := 0;
 
-    Result.Status := NtQueryInformationFile(hFile, xIsb.Data, xMemory.Data,
+    Result.Status := NtQueryInformationFile(hFile, Isb, xMemory.Data,
       xMemory.Size, InfoClass);
 
-    // Wait on async handles
-    AwaitFileOperation(Result, hFile, xIsb);
-
-  until not NtxExpandBufferEx(Result, xMemory, xIsb.Data.Information,
-    GrowthMethod);
+  until not NtxExpandBufferEx(Result, xMemory, Isb.Information, GrowthMethod);
 end;
 
 function NtxSetFile;
 var
-  xIsb: IMemory<PIoStatusBlock>;
+  Isb: TIoStatusBlock;
 begin
   Result.Location := 'NtSetInformationFile';
   Result.LastCall.UsesInfoClass(InfoClass, icSet);
-  IMemory(xIsb) := Auto.AllocateDynamic(SizeOf(TIoStatusBlock));
 
-  Result.Status := NtSetInformationFile(hFile, xIsb.Data, Buffer,
+  Result.Status := NtSetInformationFile(hFile, Isb, Buffer,
     BufferSize, InfoClass);
-
-  // Wait on async handles
-  AwaitFileOperation(Result, hFile, xIsb);
 end;
 
 class function NtxFile.Query<T>;
 var
-  xIsb: IMemory<PIoStatusBlock>;
+  Isb: TIoStatusBlock;
 begin
   Result.Location := 'NtQueryInformationFile';
   Result.LastCall.UsesInfoClass(InfoClass, icQuery);
-  IMemory(xIsb) := Auto.AllocateDynamic(SizeOf(TIoStatusBlock));
 
-  Result.Status := NtQueryInformationFile(hFile, xIsb.Data, @Buffer,
+  Result.Status := NtQueryInformationFile(hFile, Isb, @Buffer,
     SizeOf(Buffer), InfoClass);
-
-  // Wait on async handles
-  AwaitFileOperation(Result, hFile, xIsb);
 end;
 
 class function NtxFile.&Set<T>;
@@ -447,13 +438,13 @@ begin
     IMemory(xMemory), SizeOf(TFileProcessIdsUsingFileInformation));
   Result.LastCall.Expects<TFileAccessMask>(FILE_READ_ATTRIBUTES);
 
-  if Result.IsSuccess then
-  begin
-    SetLength(PIDs, xMemory.Data.NumberOfProcessIdsInList);
+  if not Result.IsSuccess then
+    Exit;
 
-    for i := 0 to High(PIDs) do
-      PIDs[i] := xMemory.Data.ProcessIdList{$R-}[i]{$R+};
-  end;
+  SetLength(PIDs, xMemory.Data.NumberOfProcessIdsInList);
+
+  for i := 0 to High(PIDs) do
+    PIDs[i] := xMemory.Data.ProcessIdList{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF};
 end;
 
 end.

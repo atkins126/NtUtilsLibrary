@@ -11,6 +11,7 @@ uses
 
 type
   TSessionIdW = Ntapi.winsta.TSessionIdW;
+  TWinStationInformation = Ntapi.winsta.TWinStationInformation;
   TWinStaHandle = Ntapi.winsta.TWinStaHandle;
   IWinStaHandle = NtUtils.IHandle;
 
@@ -103,6 +104,10 @@ implementation
 uses
   NtUtils.SysUtils, DelphiUtils.AutoObjects;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 type
   TWinStaAutoHandle = class(TCustomAutoHandle, IWinStaHandle)
     procedure Release; override;
@@ -110,8 +115,23 @@ type
 
 procedure TWinStaAutoHandle.Release;
 begin
-  WinStationCloseServer(FHandle);
+  if FHandle <> 0 then
+    WinStationCloseServer(FHandle);
+
+  FHandle := 0;
   inherited;
+end;
+
+function WsxDelayFreeMemory(
+  [in] Buffer: Pointer
+): IAutoReleasable;
+begin
+  Result := Auto.Delay(
+    procedure
+    begin
+      WinStationFreeMemory(Buffer);
+    end
+  );
 end;
 
 function WsxOpenServer;
@@ -134,16 +154,15 @@ begin
   Result.Location := 'WinStationEnumerateW';
   Result.Win32Result := WinStationEnumerateW(hServer, Buffer, Count);
 
-  if Result.IsSuccess then
-  begin
-    SetLength(Sessions, Count);
+  if not Result.IsSuccess then
+    Exit;
 
-    for i := 0 to High(Sessions) do
-      Sessions[i] := Buffer{$R-}[i]{$R+};
+  WsxDelayFreeMemory(Buffer);
+  SetLength(Sessions, Count);
 
-    WinStationFreeMemory(Buffer);
-  end;
-end;
+  for i := 0 to High(Sessions) do
+    Sessions[i] := Buffer{$R-}[i]{$IFDEF R+}{$IFDEF R+}{$R+}{$ENDIF}{$ENDIF};
+ end;
 
 class function WsxWinStation.Query<T>;
 var
@@ -188,7 +207,7 @@ function WsxQueryToken;
 var
   UserToken: TWinStationUserToken;
 begin
-  FillChar(UserToken, SizeOf(UserToken), 0);
+  UserToken := Default(TWinStationUserToken);
 
   Result := WsxWinStation.Query(SessionId, WinStationUserToken, UserToken,
     hServer);
@@ -229,16 +248,9 @@ begin
 end;
 
 function WsxRemoteControl;
-var
-  pTargetServer: PWideChar;
 begin
-  if TargetServer = '' then
-    pTargetServer := nil
-  else
-    pTargetServer := PWideChar(TargetServer);
-
   Result.Location := 'WinStationShadow';
-  Result.Win32Result := WinStationShadow(hServer, pTargetServer,
+  Result.Win32Result := WinStationShadow(hServer, RefStrOrNil(TargetServer),
     TargetSessionId, HotKeyVk, HotkeyModifiers);
 end;
 

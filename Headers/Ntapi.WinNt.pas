@@ -441,8 +441,21 @@ const
   THREAD_ALL_ACCESS = STANDARD_RIGHTS_ALL or SPECIFIC_RIGHTS_ALL;
 
 type
-  // If range checks are enabled, make sure to wrap all accesses to any-size
-  // arrays into a {$R-}/{$R+} block which temporarily disables them.
+  // NOTE: Indexing elements other then 0 in an any-size array when range checks
+  // are enabled generates exceptions. Make sure to temporarily suppress range
+  // checks by using {$R-} and then enable them back. Unfortunately, Delphi
+  // doesn't seem to provide a macro for restoring them to the global-defined
+  // state (which can also be disabled). Because of that, we use
+  // {$IFOPT R+}{$DEFINE R+}{$ENDIF} in the beggining of the implementation
+  // section of each unit to save the default state into an R+ conditional
+  // symbol (don't confuse it with the $R+ switch). Then whenever we want to
+  // restore range checks, we use {$IFDEF R+}{$R+}{$ENDIF} which enables them
+  // back only if they are enabled globally.
+  //
+  // TLDR; use {$R-}[i]{$IFDEF R+}{$R+}{$ENDIF} to index any-size arrays and
+  // don't forget to put {$IFOPT R+}{$DEFINE R+}{$ENDIF} in the beggining on
+  // the unit.
+  //
   ANYSIZE_ARRAY = 0..0;
   TAnysizeArray<T> = array [ANYSIZE_ARRAY] of T;
 
@@ -1009,7 +1022,35 @@ type
   [SubEnum(MAX_UINT, DLL_PROCESS_VERIFIER, 'Process Verifier')]
   TDllReason = type Cardinal;
 
+  // SDK::winnt.h
+  {$MINENUMSIZE 2}
+  [NamingStyle(nsSnakeCase, 'PROCESSOR_ARCHITECTURE')]
+  TProcessorArchitecture = (
+    PROCESSOR_ARCHITECTURE_INTEL = 0,
+    PROCESSOR_ARCHITECTURE_MIPS = 1,
+    PROCESSOR_ARCHITECTURE_ALPHA = 2,
+    PROCESSOR_ARCHITECTURE_PPC = 3,
+    PROCESSOR_ARCHITECTURE_SHX = 4,
+    PROCESSOR_ARCHITECTURE_ARM = 5,
+    PROCESSOR_ARCHITECTURE_IA64 = 6,
+    PROCESSOR_ARCHITECTURE_ALPHA64 = 7,
+    PROCESSOR_ARCHITECTURE_MSIL = 8,
+    PROCESSOR_ARCHITECTURE_AMD64 = 9,
+    PROCESSOR_ARCHITECTURE_IA32_ON_WIN64 = 10,
+    PROCESSOR_ARCHITECTURE_NEUTRAL = 11,
+    PROCESSOR_ARCHITECTURE_ARM64 = 12,
+    PROCESSOR_ARCHITECTURE_ARM32_ON_WIN64 = 13,
+    PROCESSOR_ARCHITECTURE_IA32_ON_ARM64 = 14
+  );
+  {$MINENUMSIZE 4}
+
 const
+  {$IFDEF Win64}
+    PROCESSOR_ARCHITECTURE_CURRENT = PROCESSOR_ARCHITECTURE_AMD64;
+  {$ELSE}
+    PROCESSOR_ARCHITECTURE_CURRENT = PROCESSOR_ARCHITECTURE_INTEL;
+  {$ENDIF}
+
   VALID_SID_TYPES = [
     SidTypeUser..SidTypeDeletedAccount,
     SidTypeComputer..SidTypeLogonSession
@@ -1040,7 +1081,7 @@ const
   INFINITE_FUTURE = TLargeInteger(-1);
 
 function TimeoutToLargeInteger(
-  const [ref] Timeout: Int64
+  [in] const [ref] Timeout: Int64
 ): PLargeInteger; inline;
 
 // Expected access masks when accessing security
@@ -1051,6 +1092,10 @@ implementation
 
 uses
   Ntapi.ntrtl;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 { TPlaceholder<T> }
 

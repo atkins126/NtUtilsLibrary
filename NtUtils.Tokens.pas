@@ -19,6 +19,11 @@ type
   TFbqnValue = record
     Version: UInt64;
     Name: String;
+
+    constructor Create(
+      const Version: UInt64;
+      const Name: String
+    );
   end;
 
   TSecurityAttribute = record
@@ -28,8 +33,33 @@ type
     ValuesUInt64: TArray<UInt64>;
     ValuesString: TArray<String>;
     ValuesFqbn: TArray<TFbqnValue>;
-    ValuesSid: TArray<ISid>;
     ValuesOctet: TArray<IMemory>;
+
+    constructor CreateUInt64(
+      const Name: String;
+      Flags: TSecurityAttributeFlags;
+      const Values: TArray<UInt64>;
+      ValueType: TSecurityAttributeType = SECURITY_ATTRIBUTE_TYPE_UINT64
+    );
+
+    constructor CreateString(
+      const Name: String;
+      Flags: TSecurityAttributeFlags;
+      const Values: TArray<String>
+    );
+
+    constructor CreateFqbn(
+      const Name: String;
+      Flags: TSecurityAttributeFlags;
+      const Values: TArray<TFbqnValue>
+    );
+
+    constructor CreateOctet(
+      const Name: String;
+      Flags: TSecurityAttributeFlags;
+      const Values: TArray<IMemory>;
+      ValueType: TSecurityAttributeType = SECURITY_ATTRIBUTE_TYPE_OCTET_STRING
+    );
   end;
 
 { Pseudo-handles }
@@ -210,6 +240,10 @@ uses
   Ntapi.ntstatus, Ntapi.ntpsapi, Ntapi.WinError, NtUtils.Tokens.Misc,
   NtUtils.Processes, NtUtils.Threads, NtUtils.Ldr, Ntapi.ntpebteb,
   DelphiUtils.AutoObjects;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 { Pseudo-handles }
 
@@ -604,6 +638,48 @@ begin
   Result.LastCall.Expects<TTokenAccessMask>(TOKEN_ADJUST_GROUPS);
   Result.Status := NtAdjustGroupsToken(hxToken.Handle, ResetToDefault,
     TokenGroups.Data, 0, nil, nil);
+end;
+
+{ TFbqnValue }
+
+constructor TFbqnValue.Create;
+begin
+  Self.Version := Version;
+  Self.Name := Name;
+end;
+
+{ TSecurityAttribute }
+
+constructor TSecurityAttribute.CreateFqbn;
+begin
+  Self.Name := Name;
+  Self.ValueType := SECURITY_ATTRIBUTE_TYPE_FQBN;
+  Self.Flags := Flags;
+  Self.ValuesFqbn := Values;
+end;
+
+constructor TSecurityAttribute.CreateOctet;
+begin
+  Self.Name := Name;
+  Self.ValueType := ValueType;
+  Self.Flags := Flags;
+  Self.ValuesOctet := Values;
+end;
+
+constructor TSecurityAttribute.CreateString;
+begin
+  Self.Name := Name;
+  Self.ValueType := SECURITY_ATTRIBUTE_TYPE_STRING;
+  Self.Flags := Flags;
+  Self.ValuesString := Values;
+end;
+
+constructor TSecurityAttribute.CreateUInt64;
+begin
+  Self.Name := Name;
+  Self.ValueType := ValueType;
+  Self.Flags := Flags;
+  Self.ValuesUInt64 := Values;
 end;
 
 end.

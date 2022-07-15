@@ -38,6 +38,10 @@ uses
   Ntapi.ntdef, Ntapi.ntstatus, NtUtils.Processes.Info, NtUtils.Tokens.Misc,
   DelphiUtils.AutoObjects, NtUtils.Lsa;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 function LsaxLogonUser;
 var
   hToken: THandle;
@@ -72,6 +76,18 @@ begin
     if Result.IsSuccess then
       hxToken := Auto.CaptureHandle(hToken);
   end;
+end;
+
+function LsaxDelayFreeReturnBuffer(
+  [in] Buffer: Pointer
+): IAutoReleasable;
+begin
+  Result := Auto.Delay(
+    procedure
+    begin
+      LsaFreeReturnBuffer(Buffer);
+    end
+  );
 end;
 
 function LsaxLogonS4U;
@@ -141,13 +157,17 @@ begin
     TokenSource, ProfileBuffer, ProfileSize, LogonId, hToken, Quotas,
     SubStatus);
 
-  if Result.IsSuccess then
+  if not Result.IsSuccess then
   begin
-    hxToken := Auto.CaptureHandle(hToken);
-    LsaFreeReturnBuffer(ProfileBuffer);
-  end
-  else if not NT_SUCCESS(SubStatus) then
-    Result.Status := SubStatus; // Prefer more detailed statuses on failure
+    // Prefer more detailed statuses on failure
+    if not NT_SUCCESS(SubStatus) then
+      Result.Status := SubStatus;
+
+    Exit;
+  end;
+
+  LsaxDelayFreeReturnBuffer(ProfileBuffer);
+  hxToken := Auto.CaptureHandle(hToken);
 end;
 
 end.

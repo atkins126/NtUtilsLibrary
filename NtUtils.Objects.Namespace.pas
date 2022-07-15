@@ -127,6 +127,10 @@ uses
   Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntrtl, Ntapi.ntpebteb, NtUtils.Ldr,
   NtUtils.Tokens, NtUtils.Tokens.Info, NtUtils.SysUtils;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 function RtlxGetNamedObjectPath;
 var
   SessionId: TSessionId;
@@ -167,11 +171,11 @@ begin
     Result.Status := RtlGetTokenNamedObjectPath(hxToken.Handle, nil,
       ObjectPath);
 
-    if Result.IsSuccess then
-    begin
-      Path := ObjectPath.ToString;
-      RtlFreeUnicodeString(ObjectPath);
-    end;
+    if not Result.IsSuccess then
+      Exit;
+
+    RtlxDelayFreeUnicodeString(@ObjectPath);
+    Path := ObjectPath.ToString;
   end;
 end;
 
@@ -278,14 +282,22 @@ type
 
 procedure TAutoBoundaryDescriptor.Release;
 begin
-  RtlDeleteBoundaryDescriptor(FData);
+  if Assigned(FData) then
+    RtlDeleteBoundaryDescriptor(FData);
+
+  FData := nil;
   inherited;
 end;
 
 procedure TAutoPrivateNamespace.Release;
 begin
-  NtDeletePrivateNamespace(FHandle);
-  NtxClose(FHandle);
+  if FHandle <> 0 then
+  begin
+    NtDeletePrivateNamespace(FHandle);
+    NtxClose(FHandle);
+  end;
+
+  FHandle := 0;
   inherited;
 end;
 

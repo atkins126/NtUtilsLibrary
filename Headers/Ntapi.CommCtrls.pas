@@ -134,12 +134,16 @@ type
 
 // SDK::Commctrl.h
 function TaskDialogIndirect(
-  const TaskConfig: TTaskDialogConfig;
+  [in] const TaskConfig: TTaskDialogConfig;
   [out, opt] pnButton: PMessageResponse;
   [out, opt] pnRadioButton: PMessageResponse;
   [out, opt] pfVerificationFlagChecked: PLongBool
 ): HRESULT; stdcall; external comctl32 delayed;
 
 implementation
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 end.

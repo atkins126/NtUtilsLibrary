@@ -34,6 +34,7 @@ type
   // Forward the types for automatic lifetime management
   IAutoReleasable = DelphiUtils.AutoObjects.IAutoReleasable;
   IAutoObject = DelphiUtils.AutoObjects.IAutoObject;
+  IAutoPointer = DelphiUtils.AutoObjects.IAutoPointer;
   TMemory = DelphiUtils.AutoObjects.TMemory;
   IMemory = DelphiUtils.AutoObjects.IMemory;
   IHandle = DelphiUtils.AutoObjects.IHandle;
@@ -232,13 +233,33 @@ function AccessMaskOverride(
 { Helper functions }
 
 function RefStrOrNil(const S: String): PWideChar;
-function RefNtStrOrNil(const [ref] S: TNtUnicodeString): PNtUnicodeString;
 function HandleOrDefault(const hxObject: IHandle; Default: THandle = 0): THandle;
+
+{ Shared delay free functions }
+
+// Free a string buffer using RtlFreeUnicodeString after use
+function RtlxDelayFreeUnicodeString(
+  [in] Buffer: PNtUnicodeString
+): IAutoReleasable;
+
+// Free a SID buffer using RtlFreeSid after use
+function RtlxDelayFreeSid(
+  [in] Buffer: PSid
+): IAutoReleasable;
+
+// Free a buffer using LocalFree after use
+function AdvxDelayLocalFree(
+  [in] Buffer: Pointer
+): IAutoReleasable;
 
 implementation
 
 uses
-  Ntapi.ntrtl, Ntapi.ntstatus, NtUtils.Errors;
+  Ntapi.ntrtl, Ntapi.ntstatus, Ntapi.WinBase, NtUtils.Errors;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 { Object Attributes }
 
@@ -362,7 +383,7 @@ function TNtxObjectAttributes.SetName;
 begin
   FName := Value;
   FNameStr := TNtUnicodeString.From(FName);
-  FObjAttr.ObjectName := RefNtStrOrNil(FNameStr);
+  FObjAttr.ObjectName := FNameStr.RefOrNil;
   Result := Self;
 end;
 
@@ -702,20 +723,42 @@ begin
     Result := nil;
 end;
 
-function RefNtStrOrNil;
-begin
-  if S.Length <> 0 then
-    Result := @S
-  else
-    Result := nil;
-end;
-
 function HandleOrDefault;
 begin
   if Assigned(hxObject) then
     Result := hxObject.Handle
   else
     Result := Default;
+end;
+
+function RtlxDelayFreeUnicodeString;
+begin
+  Result := Auto.Delay(
+    procedure
+    begin
+      RtlFreeUnicodeString(Buffer);
+    end
+  );
+end;
+
+function RtlxDelayFreeSid;
+begin
+  Result := Auto.Delay(
+    procedure
+    begin
+      RtlFreeSid(Buffer);
+    end
+  );
+end;
+
+function AdvxDelayLocalFree;
+begin
+  Result := Auto.Delay(
+    procedure
+    begin
+      LocalFree(Buffer);
+    end
+  );
 end;
 
 end.

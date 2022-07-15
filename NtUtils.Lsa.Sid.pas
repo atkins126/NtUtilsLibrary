@@ -97,6 +97,22 @@ implementation
 uses
   Ntapi.NtSecApi, Ntapi.ntstatus, NtUtils.SysUtils, NtUtils.Security.Sid;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
+function LsaxDelayFreeMemory(
+  [in] Buffer: Pointer
+):  IAutoReleasable;
+begin
+  Result := Auto.Delay(
+    procedure
+    begin
+      LsaFreeMemory(Buffer);
+    end
+  );
+end;
+
 { TTranslatedName }
 
 function TTranslatedName.FullName;
@@ -168,13 +184,16 @@ begin
   if not Result.IsSuccess then
     Exit;
 
+  LsaxDelayFreeMemory(BufferDomains);
+  LsaxDelayFreeMemory(BufferNames);
+
   Names := nil;
   SetLength(Names, Length(SIDs));
 
   for i := 0 to High(Sids) do
   begin
     // If LSA cannot translate a name, ask our custom name providers
-    if (BufferNames{$R-}[i]{$R+}.Use in INVALID_SID_TYPES) and
+    if (BufferNames{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF}.Use in INVALID_SID_TYPES) and
       RtlxLookupSidInCustomProviders(Sids[i], Names[i].SidType,
       Names[i].DomainName, Names[i].UserName) then
     begin
@@ -188,20 +207,19 @@ begin
     // SidTypeUnknown
 
     Names[i].SID := Sids[i];
-    Names[i].SidType := BufferNames{$R-}[i]{$R+}.Use;
-    Names[i].UserName := BufferNames{$R-}[i]{$R+}.Name.ToString;
+    Names[i].SidType := BufferNames{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF}.Use;
+    Names[i].UserName := BufferNames{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF}.Name
+      .ToString;
 
     // Negative DomainIndex means the SID does not reference a domain
-    if (BufferNames{$R-}[i]{$R+}.DomainIndex >= 0) and
-      (BufferNames{$R-}[i]{$R+}.DomainIndex < BufferDomains.Entries) then
+    if (BufferNames{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF}.DomainIndex >= 0) and
+      (BufferNames{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF}.DomainIndex <
+      BufferDomains.Entries) then
       Names[i].DomainName := BufferDomains.Domains{$R-}[
-        BufferNames[i].DomainIndex]{$R+}.Name.ToString
+        BufferNames[i].DomainIndex]{$IFDEF R+}{$R+}{$ENDIF}.Name.ToString
     else
       Names[i].DomainName := '';
   end;
-
-  LsaFreeMemory(BufferDomains);
-  LsaFreeMemory(BufferNames);
 end;
 
 function LsaxSidToString;
@@ -221,7 +239,6 @@ const
 var
   BufferDomain: PLsaReferencedDomainList;
   BufferTranslatedSid: PLsaTranslatedSid2Array;
-  NeedsFreeMemory: Boolean;
 begin
   Result := LsaxpEnsureConnected(hxPolicy, POLICY_LOOKUP_NAMES);
 
@@ -236,19 +253,19 @@ begin
   // Request translation of one name
   Result.Location := 'LsaLookupNames2';
   Result.Status := LsaLookupNames2(hxPolicy.Handle, 0, 1,
-    TLsaUnicodeString.From(AccountName), BufferDomain, BufferTranslatedSid);
+    [TLsaUnicodeString.From(AccountName)], BufferDomain, BufferTranslatedSid);
 
   // LsaLookupNames2 allocates memory even on some errors
-  NeedsFreeMemory := Result.IsSuccess or (Result.Status = STATUS_NONE_MAPPED);
-
-  if Result.IsSuccess then
-    Result := RtlxCopySid(BufferTranslatedSid{$R-}[0]{$R+}.Sid, Sid);
-
-  if NeedsFreeMemory then
+  if Result.IsSuccess or (Result.Status = STATUS_NONE_MAPPED) then
   begin
-    LsaFreeMemory(BufferDomain);
-    LsaFreeMemory(BufferTranslatedSid);
+    LsaxDelayFreeMemory(BufferDomain);
+    LsaxDelayFreeMemory(BufferTranslatedSid);
   end;
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxCopySid(BufferTranslatedSid[0].Sid, Sid);
 end;
 
 function LsaxLookupNameOrSddl;
@@ -308,14 +325,15 @@ begin
   Result.Location := 'LsaGetUserName';
   Result.Status := LsaGetUserName(BufferUser, BufferDomain);
 
-  if Result.IsSuccess then
-  begin
-    Domain := BufferDomain.ToString;
-    UserName := BufferUser.ToString;
+  if not Result.IsSuccess then
+    Exit;
 
-    LsaFreeMemory(BufferUser);
-    LsaFreeMemory(BufferDomain);
-  end;
+  LsaxDelayFreeMemory(BufferUser);
+  LsaxDelayFreeMemory(BufferDomain);
+
+
+  Domain := BufferDomain.ToString;
+  UserName := BufferUser.ToString;
 end;
 
 function LsaxGetFullUserName;
@@ -357,6 +375,9 @@ begin
 
   // The function uses a custom way to report some errors
   if not Result.IsSuccess and Assigned(pOutput) then
+  begin
+    LsaxDelayFreeMemory(pOutput);
+
     case pOutput.ErrorCode of
       LsaSidNameMappingOperation_NameCollision,
       LsaSidNameMappingOperation_SidCollision:
@@ -371,9 +392,7 @@ begin
       LsaSidNameMappingOperation_MappingNotFound:
         Result.Status := STATUS_NOT_FOUND;
     end;
-
-  if Assigned(pOutput) then
-    LsaFreeMemory(pOutput);
+  end;
 end;
 
 function LsaxAddSidNameMapping;

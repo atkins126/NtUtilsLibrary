@@ -127,6 +127,10 @@ uses
   Ntapi.WinNt, Ntapi.ntrtl, Ntapi.ntstatus, Ntapi.ntpebteb, NtUtils.SysUtils,
   DelphiUtils.AutoObjects;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 { Paths }
 
 function RtlxGetFullDosPath;
@@ -153,14 +157,12 @@ var
 begin
   NtPathStr := Default(TNtUnicodeString);
 
-  if NT_SUCCESS(RtlDosPathNameToNtPathName_U_WithStatus(
+  if not NT_SUCCESS(RtlDosPathNameToNtPathName_U_WithStatus(
     PWideChar(Path), NtPathStr, nil, nil)) then
-  begin
-    Result := NtPathStr.ToString;
-    RtlFreeUnicodeString(NtPathStr);
-  end
-  else
-    Result := '';
+    Exit('');
+
+  RtlxDelayFreeUnicodeString(@NtPathStr);
+  Result := NtPathStr.ToString;
 end;
 
 function RtlxNativePathToDosPath;

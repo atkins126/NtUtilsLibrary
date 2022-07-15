@@ -89,6 +89,10 @@ uses
   NtUtils.Objects, NtUtils.Ldr, NtUtils.Tokens, NtUtils.Processes.Info,
   NtUtils.Files.Open, NtUtils.Manifests;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 { Process Parameters & Attributes }
 
 type
@@ -98,7 +102,10 @@ type
 
 procedure TAutoUserProcessParams.Release;
 begin
-  RtlDestroyProcessParameters(FData);
+  if Assigned(FData) then
+    RtlDestroyProcessParameters(FData);
+
+  FData := nil;
   inherited;
 end;
 
@@ -118,11 +125,11 @@ begin
     Buffer,
     ApplicationStr,
     nil, // DllPath
-    RefNtStrOrNil(CurrentDirStr),
+    CurrentDirStr.RefOrNil,
     @CommandLineStr,
     Auto.RefOrNil<PEnvironment>(Options.Environment),
     nil, // WindowTitile
-    RefNtStrOrNil(DesktopStr),
+    DesktopStr.RefOrNil,
     nil, // ShellInfo
     nil, // RuntimeData
     RTL_USER_PROC_PARAMS_NORMALIZED
@@ -131,13 +138,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  { TODO: there is something wrong string marshling within the process
-    parameters block. NtCreateUserProcess parses it correctly and then
-    allocates a correct reconstructed version within the target.
-    NtCreateProcessEx, on the other hand, requires manually writing it, and with
-    the block we get, the tager process often crashes during initialization.
-    Manually zeroing out empty strings seems to at least mitigate the problem
-    with console applcations. }
+  // Make sure zero-lenth strings use null pointers
   Buffer.DLLPath := Default(TNtUnicodeString);
   Buffer.WindowTitle := Default(TNtUnicodeString);
   Buffer.ShellInfo := Default(TNtUnicodeString);
@@ -150,7 +151,7 @@ begin
   if poUseWindowMode in Options.Flags then
   begin
     xMemory.Data.WindowFlags := xMemory.Data.WindowFlags or STARTF_USESHOWWINDOW;
-    xMemory.Data.ShowWindowFlags := Cardinal(Options.WindowMode);
+    xMemory.Data.ShowWindowFlags := Options.WindowMode;
   end;
 end;
 

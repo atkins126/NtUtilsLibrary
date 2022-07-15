@@ -169,6 +169,10 @@ uses
   Ntapi.ntrtl, Ntapi.ntstatus, Ntapi.WinBase, NtUtils.SysUtils,
   NtUtils.Security.Acl, NtUtils.Security.Sid, DelphiUtils.AutoObjects;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 class function TSecurityDescriptorData.Create;
 begin
   Result.Control := Control;
@@ -475,7 +479,10 @@ type
 
 procedure TAutoLocalMem.Release;
 begin
-  LocalFree(FData);
+  if Assigned(FData) then
+    LocalFree(FData);
+
+  FData := nil;
   inherited;
 end;
 
@@ -503,11 +510,11 @@ begin
   Result.Win32Result := ConvertSecurityDescriptorToStringSecurityDescriptorW(
     SecDesc, SECURITY_DESCRIPTOR_REVISION, SecurityInformation, Buffer, @Size);
 
-  if Result.IsSuccess then
-  begin
-    SDDL := RtlxCaptureString(Buffer, Size);
-    LocalFree(Buffer);
-  end;
+  if not Result.IsSuccess then
+    Exit;
+
+  AdvxDelayLocalFree(Buffer);
+  SDDL := RtlxCaptureString(Buffer, Size);
 end;
 
 end.

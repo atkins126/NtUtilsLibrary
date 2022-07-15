@@ -12,6 +12,12 @@ uses
 
 // Strings
 
+// Return a string if non-empty or a default string
+function RtlxStringOrDefault(
+  [opt] const Value: String;
+  const Default: String
+): String;
+
 // Create string from a potenrially zero-terminated buffer
 function RtlxCaptureString(
   [in] Buffer: PWideChar;
@@ -191,7 +197,19 @@ function RtlxIsPathUnderRoot(
 implementation
 
 uses
-  Ntapi.ntrtl, Ntapi.ntdef, Ntapi.crt, Ntapi.ntpebteb;
+  Ntapi.ntrtl, Ntapi.ntdef, Ntapi.crt, Ntapi.ntpebteb, NtUtils;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
+function RtlxStringOrDefault;
+begin
+  if Value <> '' then
+    Result := Value
+  else
+    Result := Default;
+end;
 
 function RtlxCaptureString;
 var
@@ -598,15 +616,13 @@ function RtlxGuidToString;
 var
   Str: TNtUnicodeString;
 begin
-  FillChar(Str, SizeOf(TNtUnicodeString), 0);
+  Str := Default(TNtUnicodeString);
 
-  if NT_SUCCESS(RtlStringFromGUID(Guid, Str)) then
-  begin
-    Result := Str.ToString;
-    RtlFreeUnicodeString(Str);
-  end
-  else
-    Result := '';
+  if not NT_SUCCESS(RtlStringFromGUID(Guid, Str)) then
+    Exit('');
+
+  RtlxDelayFreeUnicodeString(@Str);
+  Result := Str.ToString;
 end;
 
 function RtlxSplitPath;

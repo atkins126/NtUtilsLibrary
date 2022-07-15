@@ -258,6 +258,10 @@ uses
   Ntapi.ntstatus, Ntapi.WinError, Ntapi.WinBase, NtUtils.SysUtils,
   DelphiUtils.Arrays, DelphiUtils.AutoObjects;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 type
   TScmAutoHandle = class(TCustomAutoHandle, IScmHandle)
     procedure Release; override;
@@ -265,21 +269,18 @@ type
 
 procedure TScmAutoHandle.Release;
 begin
-  CloseServiceHandle(FHandle);
+  if FHandle <> 0 then
+    CloseServiceHandle(FHandle);
+
+  FHandle := 0;
   inherited;
 end;
 
 function ScmxConnect;
 var
   hScm: TScmHandle;
-  pServerName: PWideChar;
   DatabaseStr: PWideChar;
 begin
-  if ServerName <> '' then
-    pServerName := PWideChar(ServerName)
-  else
-    pServerName := nil;
-
   case Database of
     scmActiveDatabase:
       DatabaseStr := SERVICES_ACTIVE_DATABASE;
@@ -296,7 +297,7 @@ begin
   Result.LastCall.OpensForAccess<TScmAccessMask>(DesiredAccess or
     SC_MANAGER_CONNECT);
 
-  hScm := OpenSCManagerW(pServerName, DatabaseStr, DesiredAccess);
+  hScm := OpenSCManagerW(RefStrOrNil(ServerName), DatabaseStr, DesiredAccess);
   Result.Win32Result := (hScm <> 0);
 
   if Result.IsSuccess then
@@ -404,7 +405,7 @@ begin
   SetLength(Services, Count);
 
   for i := 0 to High(Services) do
-    with Buffer.Data{$R-}[i]{$R+} do
+    with Buffer.Data{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF} do
     begin
       Services[i].ServiceName := String(ServiceName);
       Services[i].DisplayName := String(DisplayName);
@@ -451,7 +452,7 @@ begin
   SetLength(Services, Count);
 
   for i := 0 to High(Services) do
-    with Buffer.Data{$R-}[i]{$R+} do
+    with Buffer.Data{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF} do
     begin
       Services[i].ServiceName := String(ServiceName);
       Services[i].DisplayName := String(DisplayName);
@@ -489,7 +490,7 @@ begin
   SetLength(Services, Count);
 
   for i := 0 to High(Services) do
-    with Buffer.Data{$R-}[i]{$R+} do
+    with Buffer.Data{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF} do
     begin
       Services[i].ServiceName := String(ServiceName);
       Services[i].DisplayName := String(DisplayName);
@@ -740,18 +741,6 @@ begin
     DisplayName := String(Buffer.Data);
 end;
 
-function DelayLocalFree(
-  [in] Buffer: Pointer
-): IAutoReleasable;
-begin
-  Result := Auto.Delay(
-    procedure
-    begin
-      LocalFree(Buffer);
-    end
-  );
-end;
-
 function ScmxLookupServiceTag;
 var
   Info: TTagInfoNameFromTag;
@@ -764,15 +753,13 @@ begin
   Result.LastCall.UsesInfoClass(eTagInfoLevelNameFromTag, icQuery);
   Result.LastCall.Expects<TScmAccessMask>(SC_MANAGER_ENUMERATE_SERVICE);
 
-  Result.Win32Error := I_QueryTagInformation(nil, eTagInfoLevelNameFromTag,
-    @Info);
+  Result.Win32ErrorOrSuccess := I_QueryTagInformation(nil,
+    eTagInfoLevelNameFromTag, @Info);
 
-  if Result.Win32Error = ERROR_SUCCESS then
-    Result.Status := STATUS_SUCCESS
-  else
+  if not Result.IsSuccess then
     Exit;
 
-  DelayLocalFree(Info.Name);
+  AdvxDelayLocalFree(Info.Name);
   ServiceName := String(Info.Name);
 end;
 
@@ -788,12 +775,10 @@ begin
   Result.LastCall.UsesInfoClass(eTagInfoLevelNameTagMapping, icQuery);
   Result.LastCall.Expects<TScmAccessMask>(SC_MANAGER_ENUMERATE_SERVICE);
 
-  Result.Win32Error := I_QueryTagInformation(nil, eTagInfoLevelNameTagMapping,
-    @Info);
+  Result.Win32ErrorOrSuccess := I_QueryTagInformation(nil,
+    eTagInfoLevelNameTagMapping, @Info);
 
-  if Result.Win32Error = ERROR_SUCCESS then
-    Result.Status := STATUS_SUCCESS
-  else
+  if not Result.IsSuccess then
     Exit;
 
   if not Assigned(Info.OutParams) then
@@ -802,11 +787,11 @@ begin
     Exit;
   end;
 
-  DelayLocalFree(Info.OutParams);
+  AdvxDelayLocalFree(Info.OutParams);
   SetLength(ServiceTags, Info.OutParams.Elements);
 
   for i := 0 to High(ServiceTags) do
-    with Info.OutParams.NameTagMappingElements{$R-}[i]{$R+} do
+    with Info.OutParams.NameTagMappingElements{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF} do
     begin
       ServiceTags[i].Tag := Tag;
       ServiceTags[i].ServiceName := String(Name);
@@ -851,7 +836,10 @@ end;
 
 procedure TScmAutoLock.Release;
 begin
-  UnlockServiceDatabase(FCookie);
+  if FCookie <> 0 then
+    UnlockServiceDatabase(FCookie);
+
+  FCookie := 0;
   inherited;
 end;
 

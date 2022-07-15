@@ -59,6 +59,10 @@ implementation
 uses
   Ntapi.ntdef, Ntapi.ntstatus, NtUtils.Files.Open, NtUtils.Synchronization;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 function NtxEnumerateFolder;
 const
   BUFFER_SIZE = $F00;
@@ -80,7 +84,7 @@ begin
     repeat
       Result.Status := NtQueryDirectoryFile(hFolder, 0, nil, nil,
         @IoStatusBlock, xMemory.Data, xMemory.Size, FileDirectoryInformation,
-        False, TNtUnicodeString.From(Pattern).RefOrNull, FirstScan);
+        False, TNtUnicodeString.From(Pattern).RefOrNil, FirstScan);
 
       // Since IoStatusBlock is on our stack, we must wait for completion
       if Result.Status = STATUS_PENDING then

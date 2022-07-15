@@ -67,9 +67,13 @@ function AdvxCreateProcessWithLogon(
 implementation
 
 uses
-  Ntapi.WinNt, Ntapi.ntstatus, Ntapi.ntpsapi, Ntapi.WinBase,
+  Ntapi.WinNt, Ntapi.ntstatus, Ntapi.ntpsapi, Ntapi.WinBase, Ntapi.WinUser,
   Ntapi.ProcessThreadsApi, NtUtils.Objects, NtUtils.Tokens,
   DelphiUtils.AutoObjects;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
  { Process-thread attributes }
 
@@ -92,10 +96,10 @@ type
 
 procedure TPtAutoMemory.Release;
 begin
-  if Initilalized then
+  if Assigned(FData) and Initilalized then
     DeleteProcThreadAttributeList(FData);
 
-  // Call inherited memory deallocation
+  // Call the inherited memory deallocation
   inherited;
 end;
 
@@ -397,7 +401,7 @@ begin
   // Window show mode
   if poUseWindowMode in Options.Flags then
   begin
-    SI.ShowWindow := Options.WindowMode;
+    SI.ShowWindow := TShowMode16(Word(Options.WindowMode));
     SI.Flags := SI.Flags or STARTF_USESHOWWINDOW;
   end;
 end;

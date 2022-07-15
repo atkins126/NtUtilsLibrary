@@ -33,19 +33,34 @@ function ShlxEnableDynamicSuggestions(
 implementation
 
 uses
-  Ntapi.WinNt, Ntapi.ObjBase, Ntapi.ObjIdl, Ntapi.WinError, NtUtils.WinUser;
+  Ntapi.WinNt, Ntapi.ObjBase, Ntapi.ObjIdl, Ntapi.WinError, NtUtils.WinUser,
+  DelphiApi.Reflection;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 type
   TStringEnumerator = class(TInterfacedObject, IEnumString, IACList)
   private
     function Next(
-      Count: Integer;
-      out Elements: TAnysizeArray<PWideChar>;
-      Fetched: PInteger
+      [in, NumberOfElements] Count: Integer;
+      [out, WritesTo, ReleaseWith('CoTaskMemFree')] out Elements:
+        TAnysizeArray<PWideChar>;
+      [out, NumberOfElements] out Fetched: Integer
     ): HResult; stdcall;
-    function Skip(Count: Integer): HResult; stdcall;
-    function Reset: HResult; stdcall;
-    function Clone(out Enm: IEnumString): HResult; stdcall;
+
+    function Skip(
+      [in,  NumberOfElements] Count: Integer
+    ): HResult; stdcall;
+
+    function Reset(
+    ): HResult; stdcall;
+
+    function Clone(
+      [out] out Enm: IEnumString
+    ): HResult; stdcall;
+
     function Expand(Root: PWideChar): HResult; stdcall;
   protected
     EditControl: THwnd;
@@ -118,13 +133,12 @@ begin
     Move(PWideChar(Strings[Index])^, Buffer^,
       Succ(Length(Strings[Index])) * SizeOf(WideChar));
 
-    Elements{$R-}[i]{$R+} := Buffer;
+    Elements{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF} := Buffer;
     Inc(i);
     Inc(Index);
   end;
 
-  if Assigned(Fetched) then
-    Fetched^ := i;
+  Fetched := i;
 
   if i = Count then
     Result := S_OK
@@ -186,15 +200,23 @@ begin
 end;
 
 function ShlxEnableStaticSuggestions;
+var
+  ACList: IACList;
 begin
-  Result := ShlxpEnableSuggestions(EditControl, TStringEnumerator.CreateStatic(
-    EditControl, Strings), Options);
+  // Save the object to an interface variable since it we pass it as a const
+  ACList := TStringEnumerator.CreateStatic(EditControl, Strings);
+
+  Result := ShlxpEnableSuggestions(EditControl, ACList, Options);
 end;
 
 function ShlxEnableDynamicSuggestions;
+var
+  ACList: IACList;
 begin
-  Result := ShlxpEnableSuggestions(EditControl, TStringEnumerator.CreateDynamic(
-    EditControl, Provider), Options);
+  // Save the object to an interface variable since it we pass it as a const
+  ACList := TStringEnumerator.CreateDynamic(EditControl, Provider);
+
+  Result := ShlxpEnableSuggestions(EditControl, ACList, Options);
 end;
 
 end.
