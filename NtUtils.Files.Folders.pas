@@ -10,19 +10,46 @@ uses
   Ntapi.ntioapi, Ntapi.ntseapi, NtUtils, NtUtils.Files, DelphiApi.Reflection;
 
 type
-  TFolderContentInfo = record
-    [Aggregate] Times: TFileTimestamps;
-    [Bytes] EndOfFile: UInt64;
-    [Bytes] AllocationSize: UInt64;
-    FileAttributes: TFileAttributes;
-    Name: String;
+{
+  Info class                         | EA | Short | ID | ID 128 | Reparse | TX |
+  ---------------------------------- | -- | ----- | -- | ------ | ------- | -- |
+  FileDirectoryInformation           |    |       |    |        |         |    |
+  FileFullDirectoryInformation       | +  |       |    |        |         |    |
+  FileBothDirectoryInformation       | +  |   +   |    |        |         |    |
+  FileIdBothDirectoryInformation     | +  |   +   | +  |        |         |    |
+  FileIdFullDirectoryInformation     | +  |       | +  |        |         |    |
+  FileIdGlobalTxDirectoryInformation |    |       | +  |        |         | +  |
+  FileIdExtdDirectoryInformation     | +  |       | +  |   +    |    +    |    |
+  FileIdExtdBothDirectoryInformation | +  |   +   | +  |   +    |    +    |    |
+}
+
+  TFolderFields = set of (
+    fcShortName,
+    fcEaSize,
+    fcFileId,
+    fcFileId128,
+    fcReparseTag,
+    fcTransactionInfo
+  );
+
+  TFolderEntry = record
+    OptionalFields: TFolderFields;
+    [Aggregate] Common: TFileDirectoryCommonInformation;
+    FileName: String;
+    ShortName: String;
+    [Bytes] EaSize: Cardinal;
+    FileId: TFileId;
+    FileId128: TFileId128;
+    ReparsePointTag: TReparseTag;
+    LockingTransactionId: TGuid;
+    TxInfoFlags: TFileTxInfoFlags;
   end;
 
   // Note: ContinuePropagation applies only to folders and allows callers can
   // explicitly cancel traversing of specific locations, as well as enable it
   // back when skipping reparse points.
   TFileTraverseCallback = reference to function(
-    const FileInfo: TFolderContentInfo;
+    const FileInfo: TFolderEntry;
     const Root: IHandle;
     const RootName: String;
     var ContinuePropagation: Boolean
@@ -36,14 +63,24 @@ type
     ftSkipReparsePoints
   );
 
-// Enumerate content of a folder
-function NtxEnumerateFolder(
+// Iterate on the condent of a filesystem directory
+function NtxIterateFolder(
   [Access(FILE_LIST_DIRECTORY)] hFolder: THandle;
-  out Files: TArray<TFolderContentInfo>;
+  out Entry: TFolderEntry;
+  var FirstScan: Boolean;
+  InfoClass: TFileInformationClass = FileDirectoryInformation;
   [opt] const Pattern: String = ''
 ): TNtxStatus;
 
-// Recursively traverse a folder and its sub-folders
+// Enumerate content of a filesystem directory
+function NtxEnumerateFolder(
+  [Access(FILE_LIST_DIRECTORY)] hFolder: THandle;
+  out Files: TArray<TFolderEntry>;
+  InfoClass: TFileInformationClass = FileDirectoryInformation;
+  [opt] const Pattern: String = ''
+): TNtxStatus;
+
+// Recursively traverse a filesystem directory and its sub-directories
 [RequiredPrivilege(SE_BACKUP_PRIVILEGE, rpForBypassingChecks)]
 function NtxTraverseFolder(
   [opt, Access(FILE_LIST_DIRECTORY)] hxFolder: IHandle;
@@ -57,22 +94,232 @@ function NtxTraverseFolder(
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntstatus, NtUtils.Files.Open, NtUtils.Synchronization;
+  Ntapi.ntdef, Ntapi.ntstatus, NtUtils.Files.Open, NtUtils.Synchronization,
+  NtUtils.Files.Operations, DelphiUtils.AutoObjects;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
 {$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
+function RtlxpCaptureDirectoryInfo(
+  [in, out] var Buffer: Pointer;
+  InfoClass: TFileInformationClass;
+  out Entry: TFolderEntry
+): Boolean;
+var
+  BufferDir: PFileDirectoryInformation absolute Buffer;
+  BufferFull: PFileFullDirInformation absolute Buffer;
+  BufferBoth: PFileBothDirInformation absolute Buffer;
+  BufferIdBoth: PFileIdBothDirInformation absolute Buffer;
+  BufferIdFull: PFileIdFullDirInformation absolute Buffer;
+  BufferIdGlobalTx: PFileIdGlobalTxDirInformation absolute Buffer;
+  BufferIdExtd: PFileIdExtdDirInformation absolute Buffer;
+  BufferIdExtdBoth: PFileIdExtdBothDirInformation absolute Buffer;
+begin
+  case InfoClass of
+    FileDirectoryInformation:
+      begin
+        Entry.OptionalFields := [];
+        Entry.Common := BufferDir.Common;
+
+        SetString(Entry.FileName, BufferDir.FileName,
+          BufferDir.Common.FileNameLength div SizeOf(WideChar));
+
+        Result := BufferDir.Common.NextEntryOffset <> 0;
+        Inc(PByte(Buffer), BufferDir.Common.NextEntryOffset);
+      end;
+
+
+    FileFullDirectoryInformation:
+      begin
+        Entry.OptionalFields := [fcEaSize];
+        Entry.Common := BufferFull.Common;
+        Entry.EaSize := BufferFull.EaSize;
+
+        SetString(Entry.FileName, BufferFull.FileName,
+          BufferFull.Common.FileNameLength div SizeOf(WideChar));
+
+        Result := BufferFull.Common.NextEntryOffset <> 0;
+        Inc(PByte(Buffer), BufferFull.Common.NextEntryOffset);
+      end;
+
+    FileBothDirectoryInformation:
+      begin
+        Entry.OptionalFields := [fcEaSize, fcShortName];
+        Entry.Common := BufferBoth.Common;
+        Entry.EaSize := BufferBoth.EaSize;
+
+        SetString(Entry.FileName, BufferBoth.FileName,
+          BufferBoth.Common.FileNameLength div SizeOf(WideChar));
+
+        SetString(Entry.ShortName, BufferBoth.ShortName,
+          BufferBoth.ShortNameLength div SizeOf(WideChar));
+
+        Result := BufferBoth.Common.NextEntryOffset <> 0;
+        Inc(PByte(Buffer), BufferBoth.Common.NextEntryOffset);
+      end;
+
+    FileIdBothDirectoryInformation:
+      begin
+        Entry.OptionalFields := [fcEaSize, fcShortName, fcFileId];
+        Entry.Common := BufferIdBoth.Common;
+        Entry.EaSize := BufferIdBoth.EaSize;
+        Entry.FileId := BufferIdBoth.FileId;
+
+        SetString(Entry.FileName, BufferIdBoth.FileName,
+          BufferIdBoth.Common.FileNameLength div SizeOf(WideChar));
+
+        SetString(Entry.ShortName, BufferIdBoth.ShortName,
+          BufferIdBoth.ShortNameLength div SizeOf(WideChar));
+
+        Result := BufferIdBoth.Common.NextEntryOffset <> 0;
+        Inc(PByte(Buffer), BufferIdBoth.Common.NextEntryOffset);
+      end;
+
+    FileIdFullDirectoryInformation:
+      begin
+        Entry.OptionalFields := [fcEaSize, fcFileId];
+        Entry.Common := BufferIdFull.Common;
+        Entry.EaSize := BufferIdFull.EaSize;
+        Entry.FileId := BufferIdFull.FileId;
+
+        SetString(Entry.FileName, BufferIdFull.FileName,
+          BufferIdFull.Common.FileNameLength div SizeOf(WideChar));
+
+        Result := BufferIdFull.Common.NextEntryOffset <> 0;
+        Inc(PByte(Buffer), BufferIdFull.Common.NextEntryOffset);
+      end;
+
+
+    FileIdGlobalTxDirectoryInformation:
+      begin
+        Entry.OptionalFields := [fcFileId, fcTransactionInfo];
+        Entry.Common := BufferIdGlobalTx.Common;
+        Entry.FileId := BufferIdGlobalTx.FileId;
+        Entry.LockingTransactionId := BufferIdGlobalTx.LockingTransactionId;
+        Entry.TxInfoFlags := BufferIdGlobalTx.TxInfoFlags;
+
+        SetString(Entry.FileName, BufferIdGlobalTx.FileName,
+          BufferIdGlobalTx.Common.FileNameLength div SizeOf(WideChar));
+
+        Result := BufferIdGlobalTx.Common.NextEntryOffset <> 0;
+        Inc(PByte(Buffer), BufferIdGlobalTx.Common.NextEntryOffset);
+      end;
+
+    FileIdExtdDirectoryInformation:
+      begin
+        Entry.OptionalFields := [fcEaSize, fcFileId, fcFileId128, fcReparseTag];
+        Entry.Common := BufferIdExtd.Common;
+        Entry.EaSize := BufferIdExtd.EaSize;
+        Entry.FileId128 := BufferIdExtd.FileId;
+        Entry.ReparsePointTag := BufferIdExtd.ReparsePointTag;
+
+        if Entry.FileId128.High = 0 then
+          Entry.FileId := Entry.FileId128.Low
+        else
+          Entry.FileId := FILE_INVALID_FILE_ID;
+
+        SetString(Entry.FileName, BufferIdExtd.FileName,
+          BufferIdExtd.Common.FileNameLength div SizeOf(WideChar));
+
+        Result := BufferIdExtd.Common.NextEntryOffset <> 0;
+        Inc(PByte(Buffer), BufferIdExtd.Common.NextEntryOffset);
+      end;
+
+    FileIdExtdBothDirectoryInformation:
+      begin
+        Entry.OptionalFields := [fcEaSize, fcFileId, fcFileId128, fcReparseTag,
+          fcShortName];
+        Entry.Common := BufferIdExtdBoth.Common;
+        Entry.EaSize := BufferIdExtdBoth.EaSize;
+        Entry.FileId128 := BufferIdExtdBoth.FileId;
+        Entry.ReparsePointTag := BufferIdExtdBoth.ReparsePointTag;
+
+        if Entry.FileId128.High = 0 then
+          Entry.FileId := Entry.FileId128.Low
+        else
+          Entry.FileId := FILE_INVALID_FILE_ID;
+
+        SetString(Entry.FileName, BufferIdExtdBoth.FileName,
+          BufferIdExtdBoth.Common.FileNameLength div SizeOf(WideChar));
+
+        SetString(Entry.ShortName, BufferIdExtdBoth.ShortName,
+          BufferIdExtdBoth.ShortNameLength div SizeOf(WideChar));
+
+        Result := BufferIdExtdBoth.Common.NextEntryOffset <> 0;
+        Inc(PByte(Buffer), BufferIdExtdBoth.Common.NextEntryOffset);
+      end;
+  else
+    Result := False;
+  end;
+end;
+
+function NtxIterateFolder;
+const
+  BUFFER_SIZE = $100;
+var
+  Isb: IMemory<PIoStatusBlock>;
+  xMemory: IMemory;
+  Buffer: Pointer;
+begin
+  // Check for supported info classes
+  case InfoClass of
+    FileDirectoryInformation, FileFullDirectoryInformation,
+    FileBothDirectoryInformation, FileIdBothDirectoryInformation,
+    FileIdFullDirectoryInformation, FileIdGlobalTxDirectoryInformation,
+    FileIdExtdDirectoryInformation, FileIdExtdBothDirectoryInformation: ;
+  else
+    Result.Location := 'NtxEnumerateFolder';
+    Result.Status := STATUS_INVALID_INFO_CLASS;
+  end;
+
+  IMemory(Isb) := Auto.AllocateDynamic(SizeOf(TIoStatusBlock));
+
+  Result.Location := 'NtQueryDirectoryFile';
+  Result.LastCall.Expects<TIoDirectoryAccessMask>(FILE_LIST_DIRECTORY);
+  Result.LastCall.UsesInfoClass(FileDirectoryInformation, icQuery);
+
+  IMemory(xMemory) := Auto.AllocateDynamic(BUFFER_SIZE);
+  repeat
+    Result.Status := NtQueryDirectoryFile(hFolder, 0, nil, nil,
+      Isb.Data, xMemory.Data, xMemory.Size, InfoClass, True,
+      TNtUnicodeString.From(Pattern).RefOrNil, FirstScan);
+
+    AwaitFileOperation(Result, hFolder, Isb);
+  until not NtxExpandBufferEx(Result, IMemory(xMemory), xMemory.Size shl 1,
+    nil);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Buffer := xMemory.Data;
+  RtlxpCaptureDirectoryInfo(Buffer, InfoClass, Entry);
+  FirstScan := False;
+end;
+
 function NtxEnumerateFolder;
 const
   BUFFER_SIZE = $F00;
 var
-  IoStatusBlock: TIoStatusBlock;
+  Isb: IMemory<PIoStatusBlock>;
   xMemory: IMemory;
-  Buffer: PFileDirectoryInformation;
+  Buffer: Pointer;
   FirstScan: Boolean;
 begin
+  // Check for supported modes
+  case InfoClass of
+    FileDirectoryInformation, FileFullDirectoryInformation,
+    FileBothDirectoryInformation, FileIdBothDirectoryInformation,
+    FileIdFullDirectoryInformation, FileIdGlobalTxDirectoryInformation,
+    FileIdExtdDirectoryInformation, FileIdExtdBothDirectoryInformation: ;
+  else
+    Result.Location := 'NtxEnumerateFolder';
+    Result.Status := STATUS_INVALID_INFO_CLASS;
+  end;
+
+  Files := nil;
   FirstScan := True;
+  IMemory(Isb) := Auto.AllocateDynamic(SizeOf(TIoStatusBlock));
 
   Result.Location := 'NtQueryDirectoryFile';
   Result.LastCall.Expects<TIoDirectoryAccessMask>(FILE_LIST_DIRECTORY);
@@ -83,21 +330,16 @@ begin
     IMemory(xMemory) := Auto.AllocateDynamic(BUFFER_SIZE);
     repeat
       Result.Status := NtQueryDirectoryFile(hFolder, 0, nil, nil,
-        @IoStatusBlock, xMemory.Data, xMemory.Size, FileDirectoryInformation,
-        False, TNtUnicodeString.From(Pattern).RefOrNil, FirstScan);
+        Isb.Data, xMemory.Data, xMemory.Size, InfoClass, False,
+        TNtUnicodeString.From(Pattern).RefOrNil, FirstScan);
 
-      // Since IoStatusBlock is on our stack, we must wait for completion
-      if Result.Status = STATUS_PENDING then
-      begin
-        Result := NtxWaitForSingleObject(hFolder);
-
-        if Result.IsSuccess then
-          Result.Status := IoStatusBlock.Status;
-      end;
-    until not NtxExpandBufferEx(Result, IMemory(xMemory), xMemory.Size shl 1, nil);
+      AwaitFileOperation(Result, hFolder, Isb);
+    until not NtxExpandBufferEx(Result, IMemory(xMemory), xMemory.Size shl 1,
+      nil);
 
     // Nothing left to do
-    if Result.Status = STATUS_NO_MORE_FILES then
+    if (Result.Status = STATUS_NO_MORE_FILES) or
+      (Result.Status = STATUS_NO_SUCH_FILE) then
     begin
       Result.Status := STATUS_SUCCESS;
       Break;
@@ -105,26 +347,11 @@ begin
     else if not Result.IsSuccess then
       Break;
 
-    // Collect all the files we recieved
+    // Collect all new files we recieved
     Buffer := xMemory.Data;
     repeat
       SetLength(Files, Succ(Length(Files)));
-
-      with Files[High(Files)] do
-      begin
-        Times := Buffer.Times;
-        EndOfFile := Buffer.EndOfFile;
-        AllocationSize := Buffer.AllocationSize;
-        FileAttributes := Buffer.FileAttributes;
-        SetString(Name, Buffer.FileName, Buffer.FileNameLength div
-          SizeOf(WideChar));
-      end;
-
-      if Buffer.NextEntryOffset = 0 then
-        Break;
-
-      Buffer := Pointer(UIntPtr(Buffer) + Buffer.NextEntryOffset);
-    until False;
+    until not RtlxpCaptureDirectoryInfo(Buffer, InfoClass, Files[High(Files)]);
 
     FirstScan := False;
   until False;
@@ -139,7 +366,7 @@ function NtxTraverseFolderWorker(
   RemainingDepth: Integer
 ): TNtxStatus;
 var
-  Files: TArray<TFolderContentInfo>;
+  Files: TArray<TFolderEntry>;
   hxSubFolder: IHandle;
   IsFolder, ContinuePropagation, MoreEntries: Boolean;
   i: Integer;
@@ -164,14 +391,15 @@ begin
   for i := 0 to High(Files) do
   begin
     // Skip pseudo-directories
-    if (Files[i].Name = '.') or (Files[i].Name = '..')  then
+    if (Files[i].FileName = '.') or (Files[i].FileName = '..')  then
       Continue;
 
-    IsFolder := BitTest(Files[i].FileAttributes and FILE_ATTRIBUTE_DIRECTORY);
+    IsFolder := BitTest(Files[i].Common.FileAttributes and
+      FILE_ATTRIBUTE_DIRECTORY);
 
     // Allow skipping junctions and symlinks
     ContinuePropagation := not (ftSkipReparsePoints in Options) or not
-      BitTest(Files[i].FileAttributes and FILE_ATTRIBUTE_REPARSE_POINT);
+      BitTest(Files[i].Common.FileAttributes and FILE_ATTRIBUTE_REPARSE_POINT);
 
     // Invoke the callback
     if (IsFolder and (ftInvokeOnFolders in Options)) or
@@ -191,7 +419,7 @@ begin
     if IsFolder and ContinuePropagation and (RemainingDepth > 0) then
     begin
       Result := NtxOpenFile(hxSubFolder, ParametersTemplate
-        .UseFileName(Files[i].Name).UseRoot(hxFolder));
+        .UseFileName(Files[i].FileName).UseRoot(hxFolder));
 
       if not Result.IsSuccess then
       begin
@@ -209,7 +437,7 @@ begin
 
       // Call recursively
       Result := NtxTraverseFolderWorker(hxSubFolder,
-        AccumulatedPath + '\' + Files[i].Name, ParametersTemplate, Callback,
+        AccumulatedPath + '\' + Files[i].FileName, ParametersTemplate, Callback,
         Options, RemainingDepth - 1);
 
       if Result.Status = STATUS_MORE_ENTRIES then
