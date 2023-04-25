@@ -31,26 +31,22 @@ type
     [MinOSVersion(OsWin1019H1)] Win32GraphicsProtection: TMemoryProtection;
   end;
 
-{$IFDEF Win64}
-// Make sure the memory region is accessible from a WoW64 process
-function NtxAssertWoW64Accessible(const Memory: TMemory): TNtxStatus;
-{$ENDIF}
-
 // Allocate memory in a process
 function NtxAllocateMemory(
   [Access(PROCESS_VM_OPERATION)] const hxProcess: IHandle;
   Size: NativeUInt;
   out xMemory: IMemory;
-  EnsureWoW64Accessible: Boolean = False;
   Protection: TMemoryProtection = PAGE_READWRITE;
-  Address: Pointer = nil
+  Address: Pointer = nil;
+  AllocationType: TAllocationType= MEM_COMMIT
 ): TNtxStatus;
 
 // Manually free memory in a process
 function NtxFreeMemory(
   [Access(PROCESS_VM_OPERATION)] hProcess: THandle;
   [in] Address: Pointer;
-  Size: NativeUInt
+  Size: NativeUInt;
+  FreeType: TAllocationType = MEM_FREE
 ): TNtxStatus;
 
 // Change memory protection
@@ -190,11 +186,30 @@ type
     ): TNtxStatus; static;
   end;
 
+{ Other }
+
+// Open a session object
+function NtxOpenSession(
+  out hxSession: IHandle;
+  DesiredAccess: TSessionAccessMask;
+  const ObjectName: String;
+  [opt] const ObjectAttributes: IObjectAttributes = nil
+): TNtxStatus;
+
+// Open a memory partition
+[MinOSVersion(OsWin10TH1)]
+function NtxOpenPartition(
+  out hxPartition: IHandle;
+  DesiredAccess: TPartitionAccessMask;
+  const ObjectName: String;
+  [opt] const ObjectAttributes: IObjectAttributes = nil
+): TNtxStatus;
+
 implementation
 
 uses
   Ntapi.ntpsapi, Ntapi.ntdef, Ntapi.ntstatus, DelphiUtils.AutoObjects,
-  NtUtils.Objects;
+  NtUtils.Objects, NtUtils.Ldr;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -228,19 +243,6 @@ end;
 
 { Functions }
 
-{$IFDEF Win64}
-function NtxAssertWoW64Accessible;
-begin
-  if UInt64(Memory.Address) + Memory.Size < High(Cardinal) then
-    Result.Status := STATUS_SUCCESS
-  else
-  begin
-    Result.Location := 'NtxAssertWoW64Accessible';
-    Result.Status := STATUS_NO_MEMORY;
-  end;
-end;
-{$ENDIF}
-
 function NtxAllocateMemory;
 var
   Region: TMemory;
@@ -251,12 +253,7 @@ begin
   Result.LastCall.Expects<TProcessAccessMask>(PROCESS_VM_OPERATION);
 
   Result.Status := NtAllocateVirtualMemory(hxProcess.Handle, Region.Address, 0,
-    Region.Size, MEM_COMMIT, Protection);
-
-{$IFDEF Win64}
-  if EnsureWoW64Accessible and Result.IsSuccess then
-    Result := NtxAssertWoW64Accessible(Region);
-{$ENDIF}
+    Region.Size, AllocationType, Protection);
 
   if Result.IsSuccess then
     xMemory := TRemoteAutoMemory.Capture(hxProcess, Region);
@@ -273,7 +270,7 @@ begin
   Result.LastCall.Expects<TProcessAccessMask>(PROCESS_VM_OPERATION);
 
   Result.Status := NtFreeVirtualMemory(hProcess, Memory.Address, Memory.Size,
-    MEM_RELEASE);
+    FreeType);
 end;
 
 type
@@ -418,11 +415,7 @@ begin
   until not NtxExpandBufferEx(Result, xMemory, Required, GrowthMethod);
 end;
 
-function NtxQueryFileNameMemory(
-  hProcess: THandle;
-  [in] Address: Pointer;
-  out Filename: String
-): TNtxStatus;
+function NtxQueryFileNameMemory;
 var
   xMemory: INtUnicodeString;
 begin
@@ -577,6 +570,43 @@ end;
 class function NtxMemory.Write<T>;
 begin
   Result := NtxWriteMemory(hProcess, Address, TMemory.Reference(Buffer));
+end;
+
+function NtxOpenSession;
+var
+  hSession: THandle;
+begin
+  Result.Location := 'NtOpenSession';
+  Result.LastCall.OpensForAccess(DesiredAccess);
+  Result.Status := NtOpenSession(
+    hSession,
+    DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(ObjectName).ToNative^
+  );
+
+  if Result.IsSuccess then
+    hxSession := Auto.CaptureHandle(hSession);
+end;
+
+function NtxOpenPartition;
+var
+  hPartition: THandle;
+begin
+  Result := LdrxCheckNtDelayedImport('NtOpenPartition');
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result.Location := 'NtOpenPartition';
+  Result.LastCall.OpensForAccess(DesiredAccess);
+  Result.Status := NtOpenPartition(
+    hPartition,
+    DesiredAccess,
+    AttributeBuilder(ObjectAttributes).UseName(ObjectName).ToNative^
+  );
+
+  if Result.IsSuccess then
+    hxPartition := Auto.CaptureHandle(hPartition);
 end;
 
 end.

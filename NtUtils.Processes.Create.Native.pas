@@ -61,6 +61,7 @@ function RtlxCreateUserProcessEx(
 [SupportedOption(spoInheritHandles)]
 [SupportedOption(spoBreakawayFromJob)]
 [SupportedOption(spoForceBreakaway)]
+[SupportedOption(spoInheritConsole)]
 [SupportedOption(spoEnvironment)]
 [SupportedOption(spoSecurity)]
 [SupportedOption(spoWindowMode)]
@@ -72,6 +73,7 @@ function RtlxCreateUserProcessEx(
 [SupportedOption(spoChildPolicy)]
 [SupportedOption(spoLPAC)]
 [SupportedOption(spoPackageBreakaway)]
+[SupportedOption(spoProtection)]
 [SupportedOption(spoAdditinalFileAccess)]
 [SupportedOption(spoDetectManifest)]
 [RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
@@ -84,10 +86,10 @@ function NtxCreateUserProcess(
 implementation
 
 uses
-  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ProcessThreadsApi,
-  Ntapi.ntioapi, Ntapi.ntpebteb, NtUtils.Threads, NtUtils.Files,
-  NtUtils.Objects, NtUtils.Ldr, NtUtils.Tokens, NtUtils.Processes.Info,
-  NtUtils.Files.Open, NtUtils.Manifests;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntstatus, Ntapi.ntioapi,
+  Ntapi.ntpebteb, Ntapi.ProcessThreadsApi, Ntapi.ConsoleApi, NtUtils.Threads,
+  NtUtils.Files, NtUtils.Objects, NtUtils.Ldr, NtUtils.Tokens,
+  NtUtils.Processes.Info, NtUtils.Files.Open, NtUtils.Manifests;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -163,9 +165,11 @@ type
     FClientId: TClientId;
     FTebAddress: PTeb;
     FHandleList: TArray<THandle>;
+    FStdHandleInfo: TPsStdHandleInfo;
     hxExpandedToken: IHandle;
     hJob: THandle;
     PackagePolicy: TProcessAllPackagesFlags;
+    PsProtection: TPsProtection;
     Buffer: IMemory<PPsAttributeList>;
     function GetData: PPsAttributeList;
   public
@@ -177,6 +181,42 @@ type
   end;
 
 { TPsAttributesRecord }
+
+function RtlxWin32ToNativeProtection(
+  Win32Protection: TProtectionLevel;
+  out NativeProtection: TPsProtection
+): TNtxStatus;
+const
+  PROTECTION_TYPE: array [TProtectionLevel] of TPsProtectionType = (
+    PsProtectedTypeProtectedLight, PsProtectedTypeProtected,
+    PsProtectedTypeProtectedLight, PsProtectedTypeProtectedLight,
+    PsProtectedTypeProtectedLight, PsProtectedTypeProtected,
+    PsProtectedTypeProtectedLight, PsProtectedTypeProtected,
+    PsProtectedTypeProtectedLight
+  );
+  PROTECTION_SIGNER: array [TProtectionLevel] of TPsProtectionSigner = (
+    PsProtectedSignerWinTcb, PsProtectedSignerWindows, PsProtectedSignerWindows,
+    PsProtectedSignerAntimalware, PsProtectedSignerLsa, PsProtectedSignerWinTcb,
+    PsProtectedSignerCodeGen, PsProtectedSignerAuthenticode,
+    PsProtectedSignerApp
+  );
+begin
+  if (Win32Protection >= Low(TProtectionLevel)) and
+    (Win32Protection <= High(TProtectionLevel)) then
+  begin
+    Result.Status := STATUS_SUCCESS;
+    NativeProtection :=  Byte(PROTECTION_TYPE[Win32Protection]) or
+      (Byte(PROTECTION_SIGNER[Win32Protection]) shl PS_PROTECTED_SIGNER_SHIFT);
+  end
+  else if Win32Protection = PROTECTION_LEVEL_SAME then
+    Result := NtxProcess.Query(NtCurrentProcess, ProcessProtectionInformation,
+      NativeProtection)
+  else
+  begin
+    Result.Location := 'RtlxWin32ToNativeProtection';
+    Result.Status := STATUS_INVALID_PARAMETER;
+  end;
+end;
 
 function TPsAttributesRecord.Create;
 var
@@ -207,6 +247,12 @@ begin
   if HasAny(Options.PackageBreaway) then
     Inc(Count);
 
+  if poUseProtection in Options.Flags then
+    Inc(Count);
+
+  if poInheritConsole in Options.Flags then
+    Inc(Count);
+
   Source := Options;
   IMemory(Buffer) := Auto.AllocateDynamic(TPsAttributeList.SizeOfCount(Count));
   Data.TotalLength := Buffer.Size;
@@ -215,7 +261,7 @@ begin
   // Image name
   FImageName := Options.ApplicationNative;
   Attribute.Attribute := PS_ATTRIBUTE_IMAGE_NAME;
-  Attribute.Size := SizeOf(WideChar) * Length(FImageName);
+  Attribute.Size := StringSizeNoZero(FImageName);
   Pointer(Attribute.Value) := PWideChar(FImageName);
   Inc(Attribute);
 
@@ -305,6 +351,31 @@ begin
     Attribute.Attribute := PS_ATTRIBUTE_DESKTOP_APP_POLICY;
     Attribute.Size := SizeOf(TProcessDesktopAppFlags);
     Pointer(Attribute.Value) := @Options.PackageBreaway;
+    Inc(Attribute);
+  end;
+
+  // Process protection
+  if poUseProtection in Options.Flags then
+  begin
+    Result := RtlxWin32ToNativeProtection(Options.Protection, PsProtection);
+
+    if not Result.IsSuccess then
+      Exit;
+
+    Attribute.Attribute := PS_ATTRIBUTE_PROTECTION_LEVEL;
+    Attribute.Size := SizeOf(TPsProtection);
+    Attribute.Value := PsProtection;
+    Inc(Attribute);
+  end;
+
+  // Std handle info
+  if poInheritConsole in Options.Flags then
+  begin
+    FStdHandleInfo.Flags := PS_STD_STATE_REQUEST_DUPLICATE;
+    FStdHandleInfo.StdHandleSubsystemType := IMAGE_SUBSYSTEM_WINDOWS_CUI;
+    Attribute.Attribute := PS_ATTRIBUTE_STD_HANDLE_INFO;
+    Attribute.Size := SizeOf(PPsStdHandleInfo);
+    Pointer(Attribute.Value) := @FStdHandleInfo;
   end;
 
   Result.Status := STATUS_SUCCESS;
@@ -350,7 +421,7 @@ begin
   hxSection := nil;
 
   // Parse the file trying to locate the embedded manifest
-  Result := RtlxFindManifestInFile(FileOpenParameters.UseFileName(
+  Result := RtlxFindManifestInFile(FileParameters.UseFileName(
     Options.ApplicationNative), ManifestRva);
 
   if Result.IsSuccess then
@@ -548,10 +619,27 @@ begin
   if poInheritHandles in Options.Flags then
     ProcessFlags := ProcessFlags or PROCESS_CREATE_FLAGS_INHERIT_HANDLES;
 
+  if poUseProtection in Options.Flags then
+    ProcessFlags := ProcessFlags or PROCESS_CREATE_FLAGS_PROTECTED_PROCESS;
+
   ThreadFlags := 0;
 
   if poSuspended in Options.Flags then
     ThreadFlags := ThreadFlags or THREAD_CREATE_FLAGS_CREATE_SUSPENDED;
+
+  // Console inheritance
+  if poInheritConsole in Options.Flags then
+  begin
+    if RtlOsVersionAtLeast(OsWin10RS3) and LdrxCheckModuleDelayedImport(
+      kernelbase, 'BaseGetConsoleReference').IsSuccess then
+      ProcessParams.Data.ConsoleHandle := BaseGetConsoleReference
+    else
+      ProcessParams.Data.ConsoleHandle :=
+        RtlGetCurrentPeb.ProcessParameters.ConsoleHandle;
+
+    ProcessParams.Data.ProcessGroupID :=
+      RtlGetCurrentPeb.ProcessParameters.ProcessGroupID;
+  end;
 
   // Ask for us as much info as possible
   CreateInfo := Default(TPsCreateInfo);
@@ -598,26 +686,37 @@ begin
   );
 
   // Attach the stage that failed as an info class
-  if not (CreateInfo.State in [PsCreateInitialState, PsCreateSuccess]) then
-    Result.LastCall.UsesInfoClass(CreateInfo.State, icPerform);
+  Result.LastCall.UsesInfoClass(CreateInfo.State, icPerform);
 
   if Result.IsSuccess then
   begin
     // Capture info about the process
-    Info.ValidFields := [piProcessID, piThreadID, piProcessHandle,
-      piThreadHandle, piTebAddress];
-
+    Info.ValidFields := Info.ValidFields + [piProcessID, piThreadID,
+      piTebAddress];
     Info.ClientId := Attributes.ClientId;
-    Info.hxProcess := Auto.CaptureHandle(hProcess);
-    Info.hxThread := Auto.CaptureHandle(hThread);
     Info.TebAddress := Attributes.TebAddress;
+
+    if hProcess <> 0 then
+    begin
+      Include(Info.ValidFields, piProcessHandle);
+      Info.hxProcess := Auto.CaptureHandle(hProcess);
+    end;
+
+    if hThread <> 0 then
+    begin
+      Include(Info.ValidFields, piThreadHandle);
+      Info.hxThread := Auto.CaptureHandle(hThread);
+    end;
   end;
 
   // Make sure to either close or capture all handles
   case CreateInfo.State of
-    PsCreateFailOnFileOpen:
+    PsCreateFailOnSectionCreate:
       if CreateInfo.FileHandleFail <> 0 then
-        NtxClose(CreateInfo.FileHandleFail);
+      begin
+        Include(Info.ValidFields, piFileHandle);
+        Info.hxFile := Auto.CaptureHandle(CreateInfo.FileHandleFail);
+      end;
 
     PsCreateFailExeName:
       if CreateInfo.IFEOKey <> 0 then
@@ -626,11 +725,9 @@ begin
     PsCreateSuccess:
     begin
       // Capture more info about thr process
-      Info.ValidFields := Info.ValidFields + [piFileHandle, piSectionHandle,
-        piPebAddress, piUserProcessParameters, piUserProcessParametersFlags];
+      Info.ValidFields := Info.ValidFields + [piPebAddress,
+        piUserProcessParameters, piUserProcessParametersFlags];
       Info.PebAddressNative := CreateInfo.PebAddressNative;
-      Info.hxFile := Auto.CaptureHandle(CreateInfo.FileHandleSuccess);
-      Info.hxSection := Auto.CaptureHandle(CreateInfo.SectionHandle);
       Info.UserProcessParameters := CreateInfo.UserProcessParametersNative;
       Info.UserProcessParametersFlags := CreateInfo.CurrentParameterFlags;
 
@@ -646,6 +743,18 @@ begin
         Include(Info.ValidFields, piManifest);
         Info.Manifest.Address := CreateInfo.ManifestAddress;
         Info.Manifest.Size := CreateInfo.ManifestSize;
+      end;
+
+      if CreateInfo.FileHandleSuccess <> 0 then
+      begin
+        Include(Info.ValidFields, piFileHandle);
+        Info.hxFile := Auto.CaptureHandle(CreateInfo.FileHandleSuccess);
+      end;
+
+      if CreateInfo.SectionHandle <> 0 then
+      begin
+        Include(Info.ValidFields, piSectionHandle);
+        Info.hxSection := Auto.CaptureHandle(CreateInfo.SectionHandle);
       end;
     end;
   end;

@@ -6,6 +6,7 @@ unit Ntapi.ntmmapi;
 
 interface
 
+{$WARN SYMBOL_PLATFORM OFF}
 {$MINENUMSIZE 4}
 
 uses
@@ -93,13 +94,27 @@ const
   MEMORY_REGION_MAPPED_PAGE_FILE = $00000008;
   MEMORY_REGION_MAPPED_PHYSICAL = $00000010;
   MEMORY_REGION_DIRECT_MAPPED = $00000020;
-  MEMORY_REGION_SOFTWARE_ENCLAVE = $00000040; // RS3
+  MEMORY_REGION_SOFTWARE_ENCLAVE = $00000040; // Win 10 RS3+
   MEMORY_REGION_PAGE_SIZE_64K = $00000080;
-  MEMORY_REGION_PLACEHOLDER_RESERVATION = $00000100; // RS4
-  MEMORY_REGION_MAPPED_AWE = $00000200; // 21H1
+  MEMORY_REGION_PLACEHOLDER_RESERVATION = $00000100; // Win 10 RS4+
+  MEMORY_REGION_MAPPED_AWE = $00000200; // Win 10 21H1
   MEMORY_REGION_MAPPED_WRITE_WATCH = $00000400;
   MEMORY_REGION_PAGE_SIZE_LARGE = $00000800;
   MEMORY_REGION_PAGE_SIZE_HUGE = $00001000;
+
+  // Extracted bit field from MEMORY_IMAGE_INFORMATION's ImageFlags
+  MEMORY_IMAGE_PARTIAL_MAP = $00000001;
+  MEMORY_IMAGE_NOT_EXECUTABLE = $00000002;
+  MEMORY_IMAGE_SIGNING_LEVEL_MASK = $0000003C; // embedded TSeSigningLevel, Win 10 RS3+
+  MEMORY_IMAGE_SIGNING_LEVEL_SHIFT = 2;
+
+  // Extracted bit field from SECTION_IMAGE_INFORMATION's ImageFlags
+  SECTION_IMAGE_COMPLUS_NATIVE_READY = $01;
+  SECTION_IMAGE_COMPLUS_IL_OONLY = $02;
+  SECTION_IMAGE_DYNAMICALLY_RELOCATED = $04;
+  SECTION_IMAGE_MAPPED_FLAT = $08;
+  SECTION_IMAGE_BELOW_4GB = $10;
+  SECTION_IMAGE_COMPLUS_PREFER_32BIT = $20;
 
   // Sections
 
@@ -131,7 +146,7 @@ const
   SESSION_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $03;
 
 type
-  [FriendlyName('section'), ValidMask(SECTION_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('section'), ValidBits(SECTION_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(SECTION_QUERY, 'Query')]
   [FlagName(SECTION_MAP_WRITE, 'Map Write')]
   [FlagName(SECTION_MAP_READ, 'Map Read')]
@@ -141,12 +156,12 @@ type
   TSectionAccessMask = type TAccessMask;
 
   [FriendlyName('memory partition')]
-  [ValidMask(MEMORY_PARTITION_ALL_ACCESS), IgnoreUnnamed]
+  [ValidBits(MEMORY_PARTITION_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(MEMORY_PARTITION_QUERY_ACCESS, 'Query')]
   [FlagName(MEMORY_PARTITION_MODIFY_ACCESS, 'Modify')]
   TPartitionAccessMask = type TAccessMask;
 
-  [FriendlyName('session'), ValidMask(SESSION_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('session'), ValidBits(SESSION_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(SESSION_QUERY_ACCESS, 'Query')]
   [FlagName(SESSION_MODIFY_ACCESS, 'Modify')]
   TSessionAccessMask = type TAccessMask;
@@ -202,7 +217,7 @@ type
     MemoryMappedFilenameInformation = 2, // q: UNICODE_STRING
     MemoryRegionInformation = 3,         // q: TMemoryRegionInformation
     MemoryWorkingSetExInformation = 4,   // q: TMemoryWorkingSetExInformation
-    MemorySharedCommitInformation = 5,
+    MemorySharedCommitInformation = 5,   // q: NativeUInt (CommitSize), Win 8+
     MemoryImageInformation = 6           // q: TMemoryImageInformation
   );
 
@@ -270,12 +285,16 @@ type
   end;
   PMemoryRegionInformation = ^TMemoryRegionInformation;
 
+  [FlagName(MEMORY_IMAGE_PARTIAL_MAP, 'Partial Map')]
+  [FlagName(MEMORY_IMAGE_NOT_EXECUTABLE, 'Not Executable')]
+  TMemoryImageFlags = type Cardinal;
+
   // PHNT::ntmmapi.h
   [SDKName('MEMORY_IMAGE_INFORMATION')]
   TMemoryImageInformation = record
     ImageBase: Pointer;
     [Bytes] SizeOfImage: NativeUInt;
-    [Hex] ImageFlags: Cardinal;
+    ImageFlags: TMemoryImageFlags;
   end;
   PMemoryImageInformation = ^TMemoryImageInformation;
 
@@ -285,8 +304,8 @@ type
   TSectionInformationClass = (
     SectionBasicInformation = 0,       // q: TSectionBasicInformation
     SectionImageInformation = 1,       // q: TSectionImageInformation
-    SectionRelocationInformation = 2,
-    SectionOriginalBaseInformation = 3 // q: Pointer
+    SectionRelocationInformation = 2,  // q: Pointer
+    SectionOriginalBaseInformation = 3 // q: Pointer, Win 10 RS2+
   );
 
   [FlagName(SEC_PARTITION_OWNER_HANDLE, 'Partition Owner Handle')]
@@ -314,6 +333,14 @@ type
   end;
   PSectionBasicInformation = ^TSectionBasicInformation;
 
+  [FlagName(SECTION_IMAGE_COMPLUS_NATIVE_READY, 'ComPlus Native Ready')]
+  [FlagName(SECTION_IMAGE_COMPLUS_IL_OONLY, 'ComPlus IL Only')]
+  [FlagName(SECTION_IMAGE_DYNAMICALLY_RELOCATED, 'Dynamically Relocated')]
+  [FlagName(SECTION_IMAGE_MAPPED_FLAT, 'Mapped Flat')]
+  [FlagName(SECTION_IMAGE_BELOW_4GB, 'Below 4GB')]
+  [FlagName(SECTION_IMAGE_COMPLUS_PREFER_32BIT, 'ComPlus Prefer 32-bit')]
+  TSectionImageFlags = type Byte;
+
   // PHNT::ntmmapi.h
   [SDKName('SECTION_IMAGE_INFORMATION')]
   TSectionImageInformation = record
@@ -328,7 +355,7 @@ type
     DllCharacteristics: TImageDllCharacteristics;
     Machine: TImageMachine;
     ImageContainsCode: Boolean;
-    [Hex] ImageFlags: Byte;
+    ImageFlags: TSectionImageFlags;
     [Hex] LoaderFlags: Cardinal;
     [Bytes] ImageFileSize: Cardinal;
     [Hex] CheckSum: Cardinal;
@@ -490,6 +517,37 @@ function NtAreMappedFilesTheSame(
   [in] File1MappedAsAnImage: Pointer;
   [in] File2MappedAsFile: Pointer
 ): NTSTATUS; stdcall; external ntdll;
+
+// Sessions
+
+// PHNT::ntioapi.h
+function NtOpenSession(
+  [out] out SessionHandle: THandle;
+  [in] DesiredAccess: TSessionAccessMask;
+  [in] const ObjectAttributes: TObjectAttributes
+): NTSTATUS; stdcall; external ntdll;
+
+// Partitions
+
+// PHNT::ntmmapi.h
+[MinOSVersion(OsWin10TH1)]
+[RequiredPrivilege(SE_LOCK_MEMORY_PRIVILEGE, rpAlways)]
+function NtCreatePartition(
+  [in, opt, Access(MEMORY_PARTITION_MODIFY_ACCESS)]
+    ParentPartitionHandle: THandle;
+  [out] out PartitionHandle: THandle;
+  [in] DesiredAccess: TPartitionAccessMask;
+  [in, opt] ObjectAttributes: PObjectAttributes;
+  [in] PreferredNode: Cardinal
+): NTSTATUS; stdcall; external ntdll delayed;
+
+// PHNT::ntmmapi.h
+[MinOSVersion(OsWin10TH1)]
+function NtOpenPartition(
+  [out] out PartitionHandle: THandle;
+  [in] DesiredAccess: TPartitionAccessMask;
+  [in] const ObjectAttributes: TObjectAttributes
+): NTSTATUS; stdcall; external ntdll delayed;
 
 // Misc.
 

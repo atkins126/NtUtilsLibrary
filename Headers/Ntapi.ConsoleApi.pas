@@ -7,6 +7,7 @@ unit Ntapi.ConsoleApi;
 interface
 
 {$MINENUMSIZE 4}
+{$WARN SYMBOL_PLATFORM OFF}
 
 uses
   Ntapi.WinNt, Ntapi.WinUser, DelphiApi.Reflection;
@@ -21,6 +22,9 @@ const
   BACKGROUND_GREEN = $0020;
   BACKGROUND_RED = $0040;
   BACKGROUND_INTENSITY = $0080;
+
+  // Special flag for AttachConsole
+  ATTACH_PARENT_PROCESS = TProcessId32(-1);
 
 type
   [FlagName(FOREGROUND_BLUE, 'Foreground Blue')]
@@ -131,6 +135,10 @@ function SetConsoleTextAttribute(
 [SetsLastError]
 function GetConsoleWindow(
 ): THwnd; stdcall; external kernel32;
+
+// rev
+function BaseGetConsoleReference(
+): THandle; stdcall; external kernelbase delayed;
 
 implementation
 

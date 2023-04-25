@@ -7,8 +7,7 @@ unit NtUtils.Manifests;
 interface
 
 uses
-  Ntapi.ntldr, Ntapi.ntmmapi, Ntapi.ntioapi, NtUtils, NtUtils.Files,
-  DelphiApi.Reflection;
+  Ntapi.ntldr, Ntapi.ntmmapi, Ntapi.ntioapi, NtUtils, NtUtils.Files;
 
 {$MINENUMSIZE 4}
 
@@ -101,7 +100,7 @@ function RtlxFindManifestInSection(
 
 // Find an RVA of an embedded manifest in a DLL/EXE file
 function RtlxFindManifestInFile(
-  [Access(FILE_READ_DATA)] const FileParameters: IFileOpenParameters;
+  [Access(FILE_READ_DATA)] const FileParameters: IFileParameters;
   out ManifestRva: TMemory
 ): TNtxStatus;
 

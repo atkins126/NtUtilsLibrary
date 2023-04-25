@@ -28,15 +28,15 @@ type
 // Lookup all exported symbols in a module
 function RtlxEnumSymbols(
   out Symbols: TArray<TImageHlpSymbol>;
-  [in] BaseAddress: Pointer;
-  ImageSize: Cardinal;
-  MappedAsImage: Boolean
+  const Image: TMemory;
+  MappedAsImage: Boolean;
+  RangeChecks: Boolean = True
 ): TNtxStatus;
 
 // Lookup all exported symbols in a file
 function RtlxEnumSymbolsFile(
   out Symbols: TArray<TImageHlpSymbol>;
-  const FileParmeters: IFileOpenParameters
+  const FileParmeters: IFileParameters
 ): TNtxStatus;
 
 // Find a nearest symbol in a module
@@ -75,8 +75,8 @@ function RtlxEnumSymbols;
 var
   ExportEntries: TArray<TExportEntry>;
 begin
-  Result := RtlxEnumerateExportImage(ExportEntries, BaseAddress, ImageSize,
-    MappedAsImage);
+  Result := RtlxEnumerateExportImage(ExportEntries, Image, MappedAsImage,
+    RangeChecks);
 
   if not Result.IsSuccess then
     Exit;
@@ -114,12 +114,12 @@ function RtlxEnumSymbolsFile;
 var
   MappedFile: IMemory;
 begin
-  Result := RtlxOpenAndMapFile(MappedFile, FileParmeters);
+  Result := RtlxMapFileByName(MappedFile, FileParmeters);
 
   if not Result.IsSuccess then
     Exit;
 
-  Result := RtlxEnumSymbols(Symbols, MappedFile.Data, MappedFile.Size, False);
+  Result := RtlxEnumSymbols(Symbols, MappedFile.Region, False);
 end;
 
 function RtlxFindBestMatchModule;

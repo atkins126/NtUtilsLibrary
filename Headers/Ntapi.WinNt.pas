@@ -10,7 +10,7 @@ interface
 {$MINENUMSIZE 4}
 
 uses
-  DelphiApi.Reflection;
+  Ntapi.Versions, DelphiApi.Reflection;
 
 const
   kernelbase = 'kernelbase.dll';
@@ -338,7 +338,8 @@ const
 
   // ACL
   ACL_REVISION = 2;
-  ACL_REVISION_DS = 4;
+  ACL_REVISION3 = 3; // for comound ACEs
+  ACL_REVISION_DS = 4; // for object ACEs
   MAX_ACL_SIZE = High(Word) and not (SizeOf(Cardinal) - 1);
 
   // ACE flags
@@ -390,7 +391,7 @@ const
   LABEL_SECURITY_INFORMATION = $00000010; // q: RC; s: WO
   ATTRIBUTE_SECURITY_INFORMATION = $00000020; // q: RC; s: WD; Win 8+
   SCOPE_SECURITY_INFORMATION = $00000040; // q: RC; s: AS; Win 8+
-  PROCESS_TRUST_LABEL_SECURITY_INFORMATION = $00000080; // Win 8.1+
+  PROCESS_TRUST_LABEL_SECURITY_INFORMATION = $00000080; // q: RC; s: WD; Win 8.1+
   ACCESS_FILTER_SECURITY_INFORMATION = $00000100; // Win 10 RS2+
   BACKUP_SECURITY_INFORMATION = $00010000; // q: RC | AS; s: WD | WO | AS; Win 8+
 
@@ -454,7 +455,7 @@ type
   // back only if they are enabled globally.
   //
   // TLDR; use {$R-}[i]{$IFDEF R+}{$R+}{$ENDIF} to index any-size arrays and
-  // don't forget to put {$IFOPT R+}{$DEFINE R+}{$ENDIF} in the beggining on
+  // don't forget to put {$IFOPT R+}{$DEFINE R+}{$ENDIF} in the beggining of
   // the unit.
   //
   ANYSIZE_ARRAY = 0..0;
@@ -516,14 +517,12 @@ type
     Blink: PListEntry;
   end;
 
-  {$ALIGN 16}
   [SDKName('M128A')]
   M128A = record
     Low: UInt64;
     High: Int64;
-  end;
+  end align 16;
   PM128A = ^M128A;
-  {$ALIGN 8}
 
   [FlagName(EFLAGS_CF, 'Carry')]
   [FlagName(EFLAGS_PF, 'Parity')]
@@ -553,45 +552,45 @@ type
   TContext64 = record
     PnHome: array [1..6] of UInt64;
     ContextFlags: TContextFlags;
-    MxCsr: Cardinal;
-    SegCs: Word;
-    SegDs: Word;
-    SegEs: Word;
-    SegFs: Word;
-    SegGs: Word;
-    SegSs: Word;
+    [Hex] MxCsr: Cardinal;
+    [Hex] SegCs: Word;
+    [Hex] SegDs: Word;
+    [Hex] SegEs: Word;
+    [Hex] SegFs: Word;
+    [Hex] SegGs: Word;
+    [Hex] SegSs: Word;
     EFlags: TEFlags;
-    Dr0: UInt64;
-    Dr1: UInt64;
-    Dr2: UInt64;
-    Dr3: UInt64;
-    Dr6: UInt64;
-    Dr7: UInt64;
-    Rax: UInt64;
-    Rcx: UInt64;
-    Rdx: UInt64;
-    Rbx: UInt64;
-    Rsp: UInt64;
-    Rbp: UInt64;
-    Rsi: UInt64;
-    Rdi: UInt64;
-    R8: UInt64;
-    R9: UInt64;
-    R10: UInt64;
-    R11: UInt64;
-    R12: UInt64;
-    R13: UInt64;
-    R14: UInt64;
-    R15: UInt64;
-    Rip: UInt64;
+    [Hex] Dr0: UInt64;
+    [Hex] Dr1: UInt64;
+    [Hex] Dr2: UInt64;
+    [Hex] Dr3: UInt64;
+    [Hex] Dr6: UInt64;
+    [Hex] Dr7: UInt64;
+    [Hex] Rax: UInt64;
+    [Hex] Rcx: UInt64;
+    [Hex] Rdx: UInt64;
+    [Hex] Rbx: UInt64;
+    [Hex] Rsp: UInt64;
+    [Hex] Rbp: UInt64;
+    [Hex] Rsi: UInt64;
+    [Hex] Rdi: UInt64;
+    [Hex] R8: UInt64;
+    [Hex] R9: UInt64;
+    [Hex] R10: UInt64;
+    [Hex] R11: UInt64;
+    [Hex] R12: UInt64;
+    [Hex] R13: UInt64;
+    [Hex] R14: UInt64;
+    [Hex] R15: UInt64;
+    [Hex] Rip: UInt64;
     FloatingPointState: array [0..31] of M128A;
     VectorRegister: array [0..25] of M128A;
-    VectorControl: UInt64;
-    DebugControl: UInt64;
-    LastBranchToRip: UInt64;
-    LastBranchFromRip: UInt64;
-    LastExceptionToRip: UInt64;
-    LastExceptionFromRip: UInt64;
+    [Hex] VectorControl: UInt64;
+    [Hex] DebugControl: UInt64;
+    [Hex] LastBranchToRip: UInt64;
+    [Hex] LastBranchFromRip: UInt64;
+    [Hex] LastExceptionToRip: UInt64;
+    [Hex] LastExceptionFromRip: UInt64;
     property Ax: UInt64 read Rax write Rax;
     property Cx: UInt64 read Rcx write Rcx;
     property Dx: UInt64 read Rdx write Rdx;
@@ -601,7 +600,7 @@ type
     property Si: UInt64 read Rsi write Rsi;
     property Di: UInt64 read Rdi write Rdi;
     property Ip: UInt64 read Rip write Rip;
-  end;
+  end align 16;
   PContext64 = ^TContext64;
   {$ALIGN 8}
 
@@ -627,29 +626,29 @@ type
     MAXIMUM_SUPPORTED_EXTENSION = 512;
   var
     ContextFlags: TContextFlags;
-    Dr0: Cardinal;
-    Dr1: Cardinal;
-    Dr2: Cardinal;
-    Dr3: Cardinal;
-    Dr6: Cardinal;
-    Dr7: Cardinal;
+    [Hex] Dr0: Cardinal;
+    [Hex] Dr1: Cardinal;
+    [Hex] Dr2: Cardinal;
+    [Hex] Dr3: Cardinal;
+    [Hex] Dr6: Cardinal;
+    [Hex] Dr7: Cardinal;
     FloatSave: TFloatingSaveArea;
-    SegGs: Cardinal;
-    SegFs: Cardinal;
-    SegEs: Cardinal;
-    SegDs: Cardinal;
-    Edi: Cardinal;
-    Esi: Cardinal;
-    Ebx: Cardinal;
-    Edx: Cardinal;
-    Ecx: Cardinal;
-    Eax: Cardinal;
-    Ebp: Cardinal;
-    Eip: Cardinal;
-    SegCs: Cardinal;
+    [Hex] SegGs: Cardinal;
+    [Hex] SegFs: Cardinal;
+    [Hex] SegEs: Cardinal;
+    [Hex] SegDs: Cardinal;
+    [Hex] Edi: Cardinal;
+    [Hex] Esi: Cardinal;
+    [Hex] Ebx: Cardinal;
+    [Hex] Edx: Cardinal;
+    [Hex] Ecx: Cardinal;
+    [Hex] Eax: Cardinal;
+    [Hex] Ebp: Cardinal;
+    [Hex] Eip: Cardinal;
+    [Hex] SegCs: Cardinal;
     EFlags: TEFlags;
-    Esp: Cardinal;
-    SegSs: Cardinal;
+    [Hex] Esp: Cardinal;
+    [Hex] SegSs: Cardinal;
     ExtendedRegisters: array [0 .. MAXIMUM_SUPPORTED_EXTENSION - 1] of Byte;
     property Ax: Cardinal read Eax write Eax;
     property Cx: Cardinal read Ecx write Ecx;
@@ -660,7 +659,7 @@ type
     property Si: Cardinal read Esi write Esi;
     property Di: Cardinal read Edi write Edi;
     property Ip: Cardinal read Eip write Eip;
-  end;
+  end align 8;
   PContext32 = ^TContext32;
 
   {$IFDEF WIN64}
@@ -698,7 +697,7 @@ type
   end;
   PExceptionPointers = ^TExceptionPointers;
 
-  [FriendlyName('object'), ValidMask($FFFFFFFF)]
+  [FriendlyName('object'), ValidBits($FFFFFFFF)]
   [FlagName(READ_CONTROL, 'Read Permissions')]
   [FlagName(WRITE_DAC, 'Write Permissions')]
   [FlagName(WRITE_OWNER, 'Write Owner')]
@@ -781,35 +780,35 @@ type
   {$MINENUMSIZE 1}
   [NamingStyle(nsSnakeCase, 'SYSTEM', 'ACE_TYPE')]
   TAceType = (
-    ACCESS_ALLOWED_ACE_TYPE = 0,
-    ACCESS_DENIED_ACE_TYPE = 1,
-    SYSTEM_AUDIT_ACE_TYPE = 2,
-    SYSTEM_ALARM_ACE_TYPE = 3,
+    ACCESS_ALLOWED_ACE_TYPE = 0, // Non-object
+    ACCESS_DENIED_ACE_TYPE = 1,  // Non-object
+    SYSTEM_AUDIT_ACE_TYPE = 2,   // Non-object
+    SYSTEM_ALARM_ACE_TYPE = 3,   // Non-object
 
-    ACCESS_ALLOWED_COMPOUND_ACE_TYPE = 4, // Unknown
+    ACCESS_ALLOWED_COMPOUND_ACE_TYPE = 4, // Compound
 
-    ACCESS_ALLOWED_OBJECT_ACE_TYPE = 5, // Object ace
-    ACCESS_DENIED_OBJECT_ACE_TYPE = 6,  // Object ace
-    SYSTEM_AUDIT_OBJECT_ACE_TYPE = 7,   // Object ace
-    SYSTEM_ALARM_OBJECT_ACE_TYPE = 8,   // Object ace
+    ACCESS_ALLOWED_OBJECT_ACE_TYPE = 5, // Object
+    ACCESS_DENIED_OBJECT_ACE_TYPE = 6,  // Object
+    SYSTEM_AUDIT_OBJECT_ACE_TYPE = 7,   // Object
+    SYSTEM_ALARM_OBJECT_ACE_TYPE = 8,   // Object
 
-    ACCESS_ALLOWED_CALLBACK_ACE_TYPE = 9,
-    ACCESS_DENIED_CALLBACK_ACE_TYPE = 10,
+    ACCESS_ALLOWED_CALLBACK_ACE_TYPE = 9, // Non-object with extra data
+    ACCESS_DENIED_CALLBACK_ACE_TYPE = 10, // Non-object with extra data
 
-    ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE = 11, // Object ace
-    ACCESS_DENIED_CALLBACK_OBJECT_ACE_TYPE = 12,  // Object ace
+    ACCESS_ALLOWED_CALLBACK_OBJECT_ACE_TYPE = 11, // Object with extra data
+    ACCESS_DENIED_CALLBACK_OBJECT_ACE_TYPE = 12,  // Object with extra data
 
-    SYSTEM_AUDIT_CALLBACK_ACE_TYPE = 13,
-    SYSTEM_ALARM_CALLBACK_ACE_TYPE = 14,
+    SYSTEM_AUDIT_CALLBACK_ACE_TYPE = 13, // Non-object with extra data
+    SYSTEM_ALARM_CALLBACK_ACE_TYPE = 14, // Non-object with extra data
 
-    SYSTEM_AUDIT_CALLBACK_OBJECT_ACE_TYPE = 15, // Object ace
-    SYSTEM_ALARM_CALLBACK_OBJECT_ACE_TYPE = 16, // Object ace
+    SYSTEM_AUDIT_CALLBACK_OBJECT_ACE_TYPE = 15, // Object with extra data
+    SYSTEM_ALARM_CALLBACK_OBJECT_ACE_TYPE = 16, // Object with extra data
 
-    SYSTEM_MANDATORY_LABEL_ACE_TYPE = 17,
-    SYSTEM_RESOURCE_ATTRIBUTE_ACE_TYPE = 18,
-    SYSTEM_SCOPED_POLICY_ID_ACE_TYPE = 19,
-    SYSTEM_PROCESS_TRUST_LABEL_ACE_TYPE = 20,
-    SYSTEM_ACCESS_FILTER_ACE_TYPE = 21
+    SYSTEM_MANDATORY_LABEL_ACE_TYPE = 17,     // Non-object, LABEL_SECURITY_INFORMATION
+    SYSTEM_RESOURCE_ATTRIBUTE_ACE_TYPE = 18,  // Non-object with extra data, ATTRIBUTE_SECURITY_INFORMATION
+    SYSTEM_SCOPED_POLICY_ID_ACE_TYPE = 19,    // Non-object, SCOPE_SECURITY_INFORMATION
+    SYSTEM_PROCESS_TRUST_LABEL_ACE_TYPE = 20, // Non-object, PROCESS_TRUST_LABEL_SECURITY_INFORMATION
+    SYSTEM_ACCESS_FILTER_ACE_TYPE = 21        // Non-object with extra data, ACCESS_FILTER_SECURITY_INFORMATION
   );
   {$MINENUMSIZE 4}
 
@@ -834,40 +833,70 @@ type
   end;
   PAceHeader = ^TAceHeader;
 
+  [SDKName('KNOWN_ACE')] // symbols
   [SDKName('ACCESS_ALLOWED_ACE')]
   [SDKName('ACCESS_DENIED_ACE')]
   [SDKName('SYSTEM_AUDIT_ACE')]
   [SDKName('SYSTEM_ALARM_ACE')]
-  [SDKName('SYSTEM_RESOURCE_ATTRIBUTE_ACE')]
-  [SDKName('SYSTEM_SCOPED_POLICY_ID_ACE')]
-  [SDKName('SYSTEM_MANDATORY_LABEL_ACE')]
-  [SDKName('SYSTEM_PROCESS_TRUST_LABEL_ACE')]
-  [SDKName('SYSTEM_ACCESS_FILTER_ACE')]
   [SDKName('ACCESS_ALLOWED_CALLBACK_ACE')]
   [SDKName('ACCESS_DENIED_CALLBACK_ACE')]
   [SDKName('SYSTEM_AUDIT_CALLBACK_ACE')]
   [SDKName('SYSTEM_ALARM_CALLBACK_ACE')]
-  TNonObjectAce = record
+  [SDKName('SYSTEM_MANDATORY_LABEL_ACE')]
+  [SDKName('SYSTEM_RESOURCE_ATTRIBUTE_ACE')]
+  [SDKName('SYSTEM_SCOPED_POLICY_ID_ACE')]
+  [SDKName('SYSTEM_PROCESS_TRUST_LABEL_ACE')]
+  [SDKName('SYSTEM_ACCESS_FILTER_ACE')]
+  TKnownAce = record
     Header: TAceHeader;
     Mask: TAccessMask;
   private
-    SidStart: Cardinal;
+    SidStart: TPlaceholder;
   public
     function Sid: PSid;
     function ExtraData: Pointer;
     function ExtraDataSize: Word;
   end;
-  PNonObjectAce = ^TNonObjectAce;
+  PKnownAce = ^TKnownAce;
 
   [FlagName(SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, 'No-Write-Up')]
   [FlagName(SYSTEM_MANDATORY_LABEL_NO_READ_UP, 'No-Read-Up')]
   [FlagName(SYSTEM_MANDATORY_LABEL_NO_EXECUTE_UP, 'No-Execute-Up')]
   TMandatoryLabelMask = type TAccessMask;
 
+  // private
+  {$MINENUMSIZE 2}
+  [NamingStyle(nsSnakeCase, 'COMPOUND_ACE'), Range(1)]
+  TCompundAceType = (
+    [Reserved] COMPOUND_ACE_INVALID = 0,
+    COMPOUND_ACE_IMPERSONATION = 1
+  );
+  {$MINENUMSIZE 4}
+
+  // symbols
+  [SDKName('KNOWN_COMPOUND_ACE')]
+  [SDKName('COMPOUND_ACCESS_ALLOWED_ACE')]
+  TKnownCompoundAce = record
+    Header: TAceHeader;
+    Mask: TAccessMask;
+    CompoundAceType: TCompundAceType;
+    [Reserved] Reserved: Word;
+  private
+    ServerSidStart: TPlaceholder;
+    // Client SID follows
+  public
+    function ServerSid: PSid;
+    function ClientSid: PSid;
+    function ExtraData: Pointer;
+    function ExtraDataSize: Word;
+  end;
+  PKnownCompoundAce = ^TKnownCompoundAce;
+
   [FlagName(ACE_OBJECT_TYPE_PRESENT, 'Object Type Present')]
   [FlagName(ACE_INHERITED_OBJECT_TYPE_PRESENT, 'Inherited Object Type Present')]
   TObjectAceFlags = type Cardinal;
 
+  [SDKName('KNOWN_OBJECT_ACE')] // symbols
   [SDKName('ACCESS_ALLOWED_OBJECT_ACE')]
   [SDKName('ACCESS_DENIED_OBJECT_ACE')]
   [SDKName('SYSTEM_AUDIT_OBJECT_ACE')]
@@ -876,29 +905,34 @@ type
   [SDKName('ACCESS_DENIED_CALLBACK_OBJECT_ACE')]
   [SDKName('SYSTEM_AUDIT_CALLBACK_OBJECT_ACE')]
   [SDKName('SYSTEM_ALARM_CALLBACK_OBJECT_ACE')]
-  TObjectAce = record
+  TKnownObjectAce = record
     Header: TAceHeader;
     Mask: TAccessMask;
     Flags: TObjectAceFlags;
-    ObjectType: TGuid;
-    InheritedObjectType: TGuid;
   private
-    SidStart: Cardinal;
+    VariablePart: TPlaceholder;
+    // ObjectType GUID
+    // InheritedObjectType GUID
+    // SID
   public
+    function ObjectType: PGuid;
+    function InheritedObjectType: PGuid;
     function Sid: PSid;
     function ExtraData: Pointer;
     function ExtraDataSize: Word;
   end;
-  PObjectAce = ^TObjectAce;
+  PKnownObjectAce = ^TKnownObjectAce;
 
   TAce_Internal = record
   case Integer of
     0: (Header: TAceHeader);
-    1: (NonObjectAce: TNonObjectAce);
-    2: (ObjectAce: TObjectAce);
+    1: (NonObjectAce: TKnownAce);
+    2: (ObjectAce: TKnownObjectAce);
+    3: (CompoundAce: TKnownCompoundAce);
   end;
   PAce = ^TAce_Internal;
 
+  [SDKName('KNOWN_OBJECT_ACE')] // symbols
   [SDKName('ACL_INFORMATION_CLASS')]
   [NamingStyle(nsCamelCase, 'Acl'), Range(1)]
   TAclInformationClass = (
@@ -912,6 +946,7 @@ type
     AceCount: Integer;
     [Bytes] AclBytesInUse: Cardinal;
     [Bytes] AclBytesFree: Cardinal;
+    function AclBytesInUseByAces: Cardinal;
     function AclBytesTotal: Cardinal;
   end;
   PAclSizeInformation = ^TAclSizeInformation;
@@ -990,6 +1025,31 @@ type
   [FlagName(UNPROTECTED_DACL_SECURITY_INFORMATION, 'Unprotected DACL')]
   [FlagName(UNPROTECTED_SACL_SECURITY_INFORMATION, 'Unprotected SACL')]
   TSecurityInformation = type Cardinal;
+
+  {$MINENUMSIZE 1}
+  [MinOSVersion(OsWin8)]
+  [SDKName('SE_SIGNING_LEVEL')]
+  [NamingStyle(nsSnakeCase, 'SE_SIGNING_LEVEL')]
+  [ValidBits([0..4, 6..8, 11..12, 14])]
+  TSeSigningLevel = (
+    SE_SIGNING_LEVEL_UNCHECKED = 0,
+    SE_SIGNING_LEVEL_UNSIGNED = 1,
+    SE_SIGNING_LEVEL_ENTERPRISE = 2,
+    SE_SIGNING_LEVEL_DEVELOPER = 3,
+    SE_SIGNING_LEVEL_AUTHENTICODE = 4,
+    [Reserved] SE_SIGNING_LEVEL_CUSTOM_2 = 5,
+    SE_SIGNING_LEVEL_STORE = 6,
+    SE_SIGNING_LEVEL_ANTIMALWARE = 7,
+    SE_SIGNING_LEVEL_MICROSOFT = 8,
+    [Reserved] SE_SIGNING_LEVEL_CUSTOM_4 = 9,
+    [Reserved] SE_SIGNING_LEVEL_CUSTOM_5 = 10,
+    SE_SIGNING_LEVEL_DYNAMIC_CODEGEN = 11,
+    SE_SIGNING_LEVEL_WINDOWS = 12,
+    [Reserved] SE_SIGNING_LEVEL_CUSTOM_7 = 13,
+    SE_SIGNING_LEVEL_WINDOWS_TCB = 14,
+    [Reserved] SE_SIGNING_LEVEL_CUSTOM_6 = 15
+  );
+  {$MINENUMSIZE 4}
 
   [SDKName('QUOTA_LIMITS')]
   TQuotaLimits = record
@@ -1079,6 +1139,9 @@ const
     ACCESS_DENIED_OBJECT_ACE_TYPE, ACCESS_DENIED_CALLBACK_ACE_TYPE,
     ACCESS_DENIED_CALLBACK_OBJECT_ACE_TYPE];
 
+  CallbackAces: TAceTypeSet = [ACCESS_ALLOWED_CALLBACK_ACE_TYPE..
+    SYSTEM_ALARM_CALLBACK_OBJECT_ACE_TYPE, SYSTEM_ACCESS_FILTER_ACE_TYPE];
+
   INFINITE_FUTURE = TLargeInteger(-1);
 
 function TimeoutToLargeInteger(
@@ -1135,47 +1198,108 @@ function TAceHeader.Revision;
 begin
   if AceType in ObjectAces then
     Result := ACL_REVISION_DS
+  else if AceType = ACCESS_ALLOWED_COMPOUND_ACE_TYPE then
+    Result := ACL_REVISION3
   else
     Result := ACL_REVISION;
 end;
 
-{ TAce_Internal }
+{ TKnownAce }
 
-function TNonObjectAce.ExtraData;
+function TKnownAce.ExtraData;
 begin
   Pointer(Result) := PByte(@Self.SidStart) + RtlLengthSid(Sid);
 end;
 
-function TNonObjectAce.ExtraDataSize;
+function TKnownAce.ExtraDataSize;
 begin
-  Result := Header.AceSize + SizeOf(Cardinal) - Cardinal(SizeOf(TNonObjectAce))
-    - RtlLengthSid(Sid);
+  Result := Cardinal(Header.AceSize) - SizeOf(TKnownAce) - RtlLengthSid(Sid);
 end;
 
-function TNonObjectAce.Sid;
+function TKnownAce.Sid;
 begin
   Pointer(Result) := @Self.SidStart;
 end;
 
-{ TObjectAce_Internal }
+{ TKnownCompoundAce }
 
-function TObjectAce.ExtraData;
+function TKnownCompoundAce.ClientSid;
 begin
-  Pointer(Result) := PByte(@Self.SidStart) + RtlLengthSid(Sid);
+  Pointer(Result) := PByte(@Self.ServerSidStart) + RtlLengthSid(ServerSid);
 end;
 
-function TObjectAce.ExtraDataSize;
+function TKnownCompoundAce.ExtraData;
 begin
-  Result := Header.AceSize + SizeOf(Cardinal) - Cardinal(SizeOf(TObjectAce)) -
-    RtlLengthSid(Sid);
+  Result := PByte(ClientSid) + RtlLengthSid(ClientSid);
 end;
 
-function TObjectAce.Sid;
+function TKnownCompoundAce.ExtraDataSize: Word;
 begin
-  Pointer(Result) := @Self.SidStart;
+  Result := Word(UIntPtr(@Self) + Header.AceSize - UIntPtr(ExtraData));
+end;
+
+function TKnownCompoundAce.ServerSid;
+begin
+  Pointer(Result) := @Self.ServerSidStart;
+end;
+
+{ TKnownObjectAce }
+
+function TKnownObjectAce.ExtraData;
+begin
+  Pointer(Result) := PByte(Sid) + RtlLengthSid(Sid);
+end;
+
+function TKnownObjectAce.ExtraDataSize;
+begin
+  Result := Word(UIntPtr(@Self) + Header.AceSize - UIntPtr(ExtraData));
+end;
+
+function TKnownObjectAce.InheritedObjectType;
+begin
+  if Flags and ACE_INHERITED_OBJECT_TYPE_PRESENT <> 0 then
+    if Flags and ACE_OBJECT_TYPE_PRESENT <> 0 then
+      Pointer(Result) := PByte(@VariablePart) + SizeOf(TGuid)
+    else
+      Result := Pointer(@VariablePart)
+  else
+    Result := nil;
+end;
+
+function TKnownObjectAce.ObjectType;
+begin
+  if Flags and ACE_OBJECT_TYPE_PRESENT <> 0 then
+    Result := Pointer(@VariablePart)
+  else
+    Result := nil;
+end;
+
+function TKnownObjectAce.Sid;
+var
+  Offset: Cardinal;
+begin
+  Offset := 0;
+
+  if Flags and ACE_OBJECT_TYPE_PRESENT <> 0 then
+    Inc(Offset, SizeOf(TGuid));
+
+  if Flags and ACE_INHERITED_OBJECT_TYPE_PRESENT <> 0 then
+    Inc(Offset, SizeOf(TGuid));
+
+  Pointer(Result) := PByte(@VariablePart) + Offset;
 end;
 
 { TAclSizeInformation }
+
+function TAclSizeInformation.AclBytesInUseByAces;
+begin
+  if AclBytesInUse < SizeOf(TAcl) then
+    Result := 0
+  else
+  {$Q-}
+    Result := AclBytesInUse - SizeOf(TAcl);
+  {$IFDEF Q+}{$Q+}{$ENDIF}
+end;
 
 function TAclSizeInformation.AclBytesTotal;
 begin

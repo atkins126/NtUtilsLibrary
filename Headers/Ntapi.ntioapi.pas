@@ -33,6 +33,10 @@ const
   FILE_WRITE_ATTRIBUTES = $0100;     // all
   FILE_ALL_ACCESS = STANDARD_RIGHTS_ALL or $1FF;
 
+  FILE_GENERIC_READ = $00120089;
+  FILE_GENERIC_WRITE = $00120116;
+  FILE_GENERIC_EXECUTE = $001200A0;
+
   // SDK::winnt.h - sharing options
   FILE_SHARE_READ = $00000001;
   FILE_SHARE_WRITE = $00000002;
@@ -221,7 +225,7 @@ type
     [Hex] High: UInt64;
   end;
 
-  [FriendlyName('file object'), ValidMask(FILE_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('file object'), ValidBits(FILE_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(FILE_READ_DATA, 'Read Data / List Directory')]
   [FlagName(FILE_WRITE_DATA, 'Write Data / Add File')]
   [FlagName(FILE_APPEND_DATA, 'Append Data / Add Sub-directory / Create Pipe Instance')]
@@ -232,7 +236,7 @@ type
   [FlagName(FILE_WRITE_ATTRIBUTES, 'Write Attributes')]
   TFileAccessMask = type TAccessMask;
 
-  [FriendlyName('file'), ValidMask(FILE_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('file'), ValidBits(FILE_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(FILE_READ_DATA, 'Read Data')]
   [FlagName(FILE_WRITE_DATA, 'Write Data')]
   [FlagName(FILE_APPEND_DATA, 'Append Data')]
@@ -243,7 +247,7 @@ type
   [FlagName(FILE_WRITE_ATTRIBUTES, 'Write attributes')]
   TIoFileAccessMask = type TAccessMask;
 
-  [FriendlyName('directory'), ValidMask(FILE_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('directory'), ValidBits(FILE_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(FILE_LIST_DIRECTORY, 'List Directory')]
   [FlagName(FILE_ADD_FILE, 'Add File')]
   [FlagName(FILE_ADD_SUBDIRECTORY, 'Add Sub-directory')]
@@ -255,7 +259,7 @@ type
   [FlagName(FILE_WRITE_ATTRIBUTES, 'Write Attributes')]
   TIoDirectoryAccessMask = type TAccessMask;
 
-  [FriendlyName('pipe'), ValidMask(FILE_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('pipe'), ValidBits(FILE_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(FILE_READ_DATA, 'Read Data')]
   [FlagName(FILE_WRITE_DATA, 'Write Data')]
   [FlagName(FILE_CREATE_PIPE_INSTANCE, 'Create Pipe Instance')]
@@ -264,10 +268,10 @@ type
   TIoPipeAccessMask = type TAccessMask;
 
   [FriendlyName('I/O completion')]
-  [ValidMask(IO_COMPLETION_ALL_ACCESS), IgnoreUnnamed]
+  [ValidBits(IO_COMPLETION_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(IO_COMPLETION_QUERY_STATE, 'Query')]
   [FlagName(IO_COMPLETION_MODIFY_STATE, 'Modify')]
-  TIoCompeletionAccessMask = type TAccessMask;
+  TIoCompletionAccessMask = type TAccessMask;
 
   [FlagName(FILE_SHARE_READ, 'Share Read')]
   [FlagName(FILE_SHARE_WRITE, 'Share Write')]
@@ -391,10 +395,10 @@ type
     FileMailslotQueryInformation = 26,// q: TFileMailsoltQueryInformation
     FileMailslotSetInformation = 27,  // s: TULargeInteger (ReadTimeout)
     FileCompressionInformation = 28,  // q: TFileCompressionInformation
-    FileObjectIdInformation = 29,
+    FileObjectIdInformation = 29,     // d: TFileObjectIdInformation
     FileCompletionInformation = 30,   // s: TFileCompletionInformation
     FileMoveClusterInformation = 31,  // s:
-    FileQuotaInformation = 32,        // q, s:
+    FileQuotaInformation = 32,        // d: TFileQuotaInformation
     FileReparsePointInformation = 33, // d: TFileReparsePointInformation
     FileNetworkOpenInformation = 34,  // q: TFileNetworkOpenInformation
     FileAttributeTagInformation = 35, // q: TFileAttributeTagInformation
@@ -415,30 +419,30 @@ type
     FileIdGlobalTxDirectoryInformation = 50, // d: TFileIdGlobalTxDirInformation
     FileIsRemoteDeviceInformation = 51,      // q: Boolean (IsRemote)
     FileUnusedInformation = 52,
-    FileNumaNodeInformation = 53,
+    FileNumaNodeInformation = 53,            // q:
     FileStandardLinkInformation = 54,        // q: TFileStandardLinkInformation
-    FileRemoteProtocolInformation = 55,
+    FileRemoteProtocolInformation = 55,      // q:
     FileRenameInformationBypassAccessCheck = 56, // Kernel only, Win 8+
     FileLinkInformationBypassAccessCheck = 57,   // Kernel only
     FileVolumeNameInformation = 58,              // q: TFileNameInformation
     FileIdInformation = 59,                      // q: TFileIdInformation
     FileIdExtdDirectoryInformation = 60,         // d: TFileIdExtdDirInformation
-    FileReplaceCompletionInformation = 61,       // Win 8.1+
+    FileReplaceCompletionInformation = 61,       // s: TFileCompletionInformation, Win 8.1+
     FileHardLinkFullIdInformation = 62,
     FileIdExtdBothDirectoryInformation = 63,     // d: TFileIdExtdBothDirInformation, Win 10 TH1+
     FileDispositionInformationEx = 64,           // s: TFileDispositionFlags, Win 10 RS1+
-    FileRenameInformationEx = 65,                // s: TFileRenameInformationEx, Win 10 RS1+
+    FileRenameInformationEx = 65,                // s: TFileRenameInformationEx
     FileRenameInformationExBypassAccessCheck = 66, // Kernel only
-    FileDesiredStorageClassInformation = 67,     // Win 10 RS2+
+    FileDesiredStorageClassInformation = 67,     // q, s: , Win 10 RS2+
     FileStatInformation = 68,                    // q: TFileStatInformation
-    FileMemoryPartitionInformation = 69,         // Win 10 RS3+
+    FileMemoryPartitionInformation = 69,         // s: , Win 10 RS3+
     FileStatLxInformation = 70,                  // q: TFileStatLxInformation, Win 10 RS4+
     FileCaseSensitiveInformation = 71,           // q, s: TFileCsFlags
     FileLinkInformationEx = 72,                  // s: TFileLinkInformationEx, Win 10 RS5+
     FileLinkInformationExBypassAccessCheck = 73, // Kernel only
-    FileStorageReserveIdInformation = 74,
-    FileCaseSensitiveInformationForceAccessCheck = 75,
-    FileKnownFolderInformation = 76
+    FileStorageReserveIdInformation = 74,        // q, s:
+    FileCaseSensitiveInformationForceAccessCheck = 75, // q, s: TFileCsFlags
+    FileKnownFolderInformation = 76              // q, s: , Win 11+
   );
 
   [FlagName(FILE_ATTRIBUTE_READONLY, 'Read-only')]
@@ -534,7 +538,7 @@ type
   end;
   PFileStandardInformation = ^TFileStandardInformation;
 
-  // WDK::wdm.h - info class 4
+  // WDK::wdm.h - info class 5
   [MinOSVersion(OsWin10TH1)]
   [SDKName('FILE_STANDARD_INFORMATION_EX')]
   TFileStandardInformationEx = record
@@ -737,13 +741,43 @@ type
   end;
   PFileCompressionInformation = ^TFileCompressionInformation;
 
-  // WDK::ntifs.h - info class 30
+  // WDK::ntifs.h - info class 29 - for $Extend\$ObjId:$O:$INDEX_ALLOCATION
+  [SDKName('FILE_OBJECTID_INFORMATION')]
+  TFileObjectIdInformation = record
+    FileReference: TFileId;
+    BirthVolumeId: TGuid;
+    BirthObjectId: TFileId128;
+    DomainId: TGuid;
+  end;
+  PFileObjectIdInformation = ^TFileObjectIdInformation;
+
+  // WDK::ntifs.h - info class 30 & 61
   [SDKName('FILE_COMPLETION_INFORMATION')]
   TFileCompletionInformation = record
     Port: THandle;
-    Key: Pointer;
+    Key: NativeUInt;
   end;
   PFileCompletionInformation = ^TFileCompletionInformation;
+
+  TFileGetQuotaInformation = record
+    NextEntryOffset: Cardinal;
+    [Bytes] SidLength: Cardinal;
+    Sid: TPlaceholder<TSid>;
+  end;
+  PFileGetQuotaInformation = ^TFileGetQuotaInformation;
+
+  // WDK::ntifs.h - info class 32
+  [SDKName('FILE_QUOTA_INFORMATION')]
+  TFileQuotaInformation = record
+    NextEntryOffset: Cardinal;
+    [Bytes] SidLength: Cardinal;
+    ChangeTime: TLargeInteger;
+    QuotaUsed: UInt64;
+    QuotaThreshold: UInt64;
+    QuotaLimit: UInt64;
+    Sid: TPlaceholder<TSid>;
+  end;
+  PFileQuotaInformation = ^TFileQuotaInformation;
 
   [SubEnum(MAX_UINT, IO_REPARSE_TAG_MOUNT_POINT, 'Mount Point')]
   [SubEnum(MAX_UINT, IO_REPARSE_TAG_SIS, 'Single-Instance-Storage')]
@@ -778,7 +812,7 @@ type
   // WDK::ntifs.h - info class 33
   [SDKName('FILE_REPARSE_POINT_INFORMATION')]
   TFileReparsePointInformation = record
-    [Hex] FileReference: UInt64;
+    FileReference: TFileId;
     Tag: TReparseTag;
   end;
   PFileReparsePointInformation = ^TFileReparsePointInformation;
@@ -1127,7 +1161,7 @@ function NtCreateNamedPipeFile(
   [in] MaximumInstances: Cardinal;
   [in] InboundQuota: Cardinal;
   [in] OutboundQuota: Cardinal;
-  [in, opt] DefaultTimeout: PULargeInteger
+  [in] DefaultTimeout: PLargeInteger
 ): NTSTATUS; stdcall; external ntdll;
 
 // PHNT::ntioapi.h
@@ -1139,7 +1173,7 @@ function NtCreateMailslotFile(
   [in] CreateOptions: TFileOpenOptions;
   [in] MailslotQuota: Cardinal;
   [in] MaximumMessageSize: Cardinal;
-  [in] const [ref] ReadTimeout: TULargeInteger
+  [in] ReadTimeout: PLargeInteger
 ): NTSTATUS; stdcall; external ntdll;
 
 // WDK::ntifs.h
@@ -1236,8 +1270,8 @@ function NtQueryQuotaInformationFile(
   [out, WritesTo] Buffer: Pointer;
   [in, NumberOfBytes] Length: Cardinal;
   [in] ReturnSingleEntry: Boolean;
-  [in, opt, ReadsFrom] SidList: Pointer;
-  [in, opt, NumberOfBytes] SidListLength: Cardinal;
+  [in, opt, ReadsFrom] SidList: PFileGetQuotaInformation;
+  [in, NumberOfBytes] SidListLength: Cardinal;
   [in, opt] StartSid: PSid;
   [in] RestartScan: Boolean
 ): NTSTATUS; stdcall; external ntdll;
@@ -1246,7 +1280,7 @@ function NtQueryQuotaInformationFile(
 function NtSetQuotaInformationFile(
   [in] FileHandle: THandle;
   [out] out IoStatusBlock: TIoStatusBlock;
-  [in, ReadsFrom] Buffer: Pointer;
+  [in, ReadsFrom] Buffer: PFileQuotaInformation;
   [in, NumberOfBytes] Length: Cardinal
 ): NTSTATUS; stdcall; external ntdll;
 
@@ -1354,13 +1388,10 @@ function NtLockFile(
 // WDK::ntifs.h
 function NtUnlockFile(
   [in] FileHandle: THandle;
-  [in, opt] Event: THandle;
-  [in, opt] ApcRoutine: TIoApcRoutine;
-  [in, opt] ApcContext: Pointer;
-  [out] IoStatusBlock: PIoStatusBlock;
+  [out] out IoStatusBlock: TIoStatusBlock;
   [in] const [ref] ByteOffset: UInt64;
   [in] const [ref] Length: UInt64;
-  Key: Cardinal
+  [in] Key: Cardinal
 ): NTSTATUS; stdcall; external ntdll;
 
 // PHNT::ntioapi.h
@@ -1407,7 +1438,7 @@ function NtNotifyChangeDirectoryFileEx(
 // PHNT::ntioapi.h
 function NtCreateIoCompletion(
   [out, ReleaseWith('NtClose')] out IoCompletionHandle: THandle;
-  [in] DesiredAccess: TIoCompeletionAccessMask;
+  [in] DesiredAccess: TIoCompletionAccessMask;
   [in, opt] ObjectAttributes: PObjectAttributes;
   [in] Count: Cardinal
 ): NTSTATUS; stdcall; external ntdll;
@@ -1415,7 +1446,7 @@ function NtCreateIoCompletion(
 // PHNT::ntioapi.h
 function NtOpenIoCompletion(
   [out, ReleaseWith('NtClose')] out IoCompletionHandle: THandle;
-  [in] DesiredAccess: TIoCompeletionAccessMask;
+  [in] DesiredAccess: TIoCompletionAccessMask;
   [in] const ObjectAttributes: TObjectAttributes
 ): NTSTATUS; stdcall; external ntdll;
 
@@ -1466,10 +1497,64 @@ function NtRemoveIoCompletionEx(
   [in] Alertable: Boolean
 ): NTSTATUS; stdcall; external ntdll;
 
+{ Expected Access }
+
+function ExpectedFileQueryAccess(
+  [in] InfoClass: TFileInformationClass
+): TFileAccessMask;
+
+function ExpectedFileSetAccess(
+  [in] InfoClass: TFileInformationClass
+): TFileAccessMask;
+
 implementation
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
 {$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
+function ExpectedFileQueryAccess;
+begin
+  case InfoClass of
+    FileBasicInformation, FileAllInformation, FilePipeInformation,
+    FilePipeLocalInformation, FilePipeRemoteInformation,
+    FileNetworkOpenInformation, FileAttributeTagInformation,
+    FileIoCompletionNotificationInformation, FileIoStatusBlockRangeInformation,
+    FileSfioVolumeInformation, FileProcessIdsUsingFileInformation,
+    FileIsRemoteDeviceInformation, FileDesiredStorageClassInformation,
+    FileStatInformation, FileCaseSensitiveInformation,
+    FileStorageReserveIdInformation, FileKnownFolderInformation:
+      Result := FILE_READ_ATTRIBUTES;
+
+    FileIoPriorityHintInformation, FileSfioReserveInformation:
+      Result := FILE_READ_DATA;
+
+    FileStatLxInformation:
+      Result := FILE_READ_ATTRIBUTES or FILE_READ_EA;
+  else
+    Result := 0; // Either no access check or not supported for query
+  end;
+end;
+
+function ExpectedFileSetAccess;
+begin
+  case InfoClass of
+    FileBasicInformation, FilePipeInformation, FilePipeRemoteInformation,
+    FileDesiredStorageClassInformation, FileCaseSensitiveInformation,
+    FileStorageReserveIdInformation, FileKnownFolderInformation:
+      Result := FILE_WRITE_ATTRIBUTES;
+
+    FileAllocationInformation, FileEndOfFileInformation,
+    FileMoveClusterInformation, FileTrackingInformation,
+    FileValidDataLengthInformation:
+      Result := FILE_WRITE_DATA;
+
+    FileRenameInformation, FileDispositionInformation, FileShortNameInformation,
+    FileDispositionInformationEx, FileRenameInformationEx:
+      Result := _DELETE;
+  else
+    Result := 0; // Either no access check or not supported for setting
+  end;
+end;
 
 end.

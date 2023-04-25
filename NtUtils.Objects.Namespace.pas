@@ -48,8 +48,8 @@ function NtxCreateDirectoryEx(
 // Open directory object
 function NtxOpenDirectory(
   out hxDirectory: IHandle;
-  const Name: String;
   DesiredAccess: TDirectoryAccessMask;
+  const Name: String;
   [opt] const ObjectAttributes: IObjectAttributes = nil
 ): TNtxStatus;
 
@@ -99,8 +99,8 @@ function NtxCreateSymlink(
 // Open symbolic link
 function NtxOpenSymlink(
   out hxSymlink: IHandle;
-  const Name: String;
   DesiredAccess: TSymlinkAccessMask;
+  const Name: String;
   [opt] const ObjectAttributes: IObjectAttributes = nil
 ): TNtxStatus;
 
@@ -134,7 +134,8 @@ uses
 function RtlxGetNamedObjectPath;
 var
   SessionId: TSessionId;
-  ObjectPath: TNtUnicodeString;
+  Buffer: TNtUnicodeString;
+  BufferDeallocator: IAutoReleasable;
 begin
   // Uses the current process token by default
   if not Assigned(hxToken) then
@@ -161,21 +162,19 @@ begin
   end
   else
   begin
-    FillChar(ObjectPath, SizeOf(ObjectPath), 0);
+    Buffer := Default(TNtUnicodeString);
 
     // This function uses only NtQueryInformationToken under the hood and,
     // therefore, supports token pseudo-handles
     Result.Location := 'RtlGetTokenNamedObjectPath';
     Result.LastCall.Expects<TTokenAccessMask>(TOKEN_QUERY);
-
-    Result.Status := RtlGetTokenNamedObjectPath(hxToken.Handle, nil,
-      ObjectPath);
+    Result.Status := RtlGetTokenNamedObjectPath(hxToken.Handle, nil, Buffer);
 
     if not Result.IsSuccess then
       Exit;
 
-    RtlxDelayFreeUnicodeString(@ObjectPath);
-    Path := ObjectPath.ToString;
+    BufferDeallocator := RtlxDelayFreeUnicodeString(@Buffer);
+    Path := Buffer.ToString;
   end;
 end;
 

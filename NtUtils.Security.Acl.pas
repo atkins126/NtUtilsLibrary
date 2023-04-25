@@ -15,11 +15,13 @@ type
     AceType: TAceType;
     AceFlags: TAceFlags;
     Mask: TAccessMask;
-    SID: ISid;
-    ObjectFlags: TObjectAceFlags; // Object ACEs only
-    ObjectType: TGuid;            // Object ACEs only
-    InheritedObjctType: TGuid;    // Object ACEs only
-    ExtraData: IMemory;           // Depending on the ACE type
+    SID: ISid;                        // aka. Client SID for compound ACEs
+    ServerSID: ISid;                  // Compound ACEs only
+    CompoundAceType: TCompundAceType; // Compound ACEs only
+    ObjectFlags: TObjectAceFlags;     // Object ACEs only
+    ObjectType: TGuid;                // Object ACEs only
+    InheritedObjectType: TGuid;       // Object ACEs only
+    ExtraData: IMemory;
 
     class function New(
       AceType: TAceType;
@@ -41,7 +43,7 @@ type
 
 // Retrieve size information of an ACL
 function RtlxSizeAcl(
-  [in, opt] Acl: PAcl
+  [opt] const Acl: IAcl
 ): TAclSizeInformation;
 
 { Creation }
@@ -52,10 +54,11 @@ function RtlxCreateAcl(
   Size: Cardinal = 256
 ): TNtxStatus;
 
-// Create a copy of an ACL
+// Create a copy of an ACL.
+// The function returns a NULL ACL when the input is NULL
 function RtlxCopyAcl(
-  out NewAcl: IAcl;
-  [in] SourceAcl: PAcl
+  [MayReturnNil] out NewAcl: IAcl;
+  [in, opt] const SourceAcl: IAcl
 ): TNtxStatus;
 
 // Relocate the ACL if necessary to satisfy the size requirements
@@ -64,10 +67,18 @@ function RtlxEnsureFreeBytesAcl(
   RequiredFreeBytes: Cardinal
 ): TNtxStatus;
 
-// Append all ACEs from one ACL to another
+// Append all ACEs from one ACL to another.
+// The function returns a NULL ACL if both inputs are NULL
 function RtlxAppendAcl(
-  var TargetAcl: IAcl;
-  [in] SourceAcl: PAcl
+  [MayReturnNil] var TargetAcl: IAcl;
+  [in, opt] const SourceAcl: IAcl
+): TNtxStatus;
+
+// Capture an ACL from a raw pointer
+// The function returns a NULL ACL when the input is NULL
+function RtlxCaptureAcl(
+  [MayReturnNil] out Acl: IAcl;
+  [in, opt] Buffer: PAcl
 ): TNtxStatus;
 
 // Create an ACL from a collection of ACEs
@@ -80,13 +91,13 @@ function RtlxBuildAcl(
 
 // Export all ACEs from an ACL
 function RtlxDumpAcl(
-  [in] Acl: PAcl;
-  out AceData: TArray<TAceData>
+  [opt] const Acl: IAcl;
+  out Aces: TArray<TAceData>
 ): TNtxStatus;
 
 // Map a generic mapping for each ACE in the ACL
 function RtlxMapGenericMaskAcl(
-  [in, out] Acl: PAcl;
+  [in, out] const Acl: IAcl;
   const GenericMapping: TGenericMapping
 ): TNtxStatus;
 
@@ -100,19 +111,20 @@ function RtlxGetCategoryAce(
 
 // Check if an ACL matches requirements for being canonical
 function RtlxIsCanonicalAcl(
-  [in] Acl: PAcl;
+  [opt] const Acl: IAcl;
   out IsCanonical: Boolean
 ): TNtxStatus;
 
 // Determine appropriate location for insertion of an ACE
 function RtlxChooseIndexAce(
-  [in] Acl: PAcl;
+  [opt] const Acl: IAcl;
   Category: TAceCategory
 ): Integer;
 
 // Reorder ACEs to make a canonical ACL
+// The function returns a NULL ACL when the input is NULL
 function RtlxCanonicalizeAcl(
-  var Acl: IAcl
+  [MayReturnNil] var Acl: IAcl
 ): TNtxStatus;
 
 { ACE manipulation }
@@ -129,28 +141,28 @@ function RtlxCaptureAce(
   out AceData: TAceData
 ): TNtxStatus;
 
-// Insert an ACE preserving canonical order of an ACL
+// Insert an ACE preserving the canonical order of an ACL
 function RtlxAddAce(
-  [in, out] Acl: IAcl;
+  var Acl: IAcl;
   const Ace: TAceData
 ): TNtxStatus;
 
 // Insert an ACE into a particular location
 function RtlxInsertAce(
-  [in, out] Acl: IAcl;
+  var Acl: IAcl;
   const Ace: TAceData;
   Index: Integer
 ): TNtxStatus;
 
 // Remove an ACE by index
 function RtlxDeleteAce(
-  [in] Acl: PAcl;
+  var Acl: IAcl;
   Index: Integer
 ): TNtxStatus;
 
 // Obtain a copy of an ACE
 function RtlxGetAce(
-  [in] Acl: PAcl;
+  const Acl: IAcl;
   Index: Integer;
   out AceData: TAceData
 ): TNtxStatus;
@@ -168,7 +180,7 @@ uses
 
 function RtlxSizeAcl;
 begin
-  if not Assigned(Acl) or not RtlQueryInformationAcl(Acl, @Result,
+  if not Assigned(Acl) or not RtlQueryInformationAcl(Acl.Data, @Result,
     SizeOf(Result), AclSizeInformation).IsSuccess then
     Result := Default(TAclSizeInformation);
 end;
@@ -199,9 +211,17 @@ end;
 
 function RtlxCopyAcl;
 begin
+  // Duplicate NULL ACLs
+  if not Assigned(SourceAcl) then
+  begin
+    NewAcl := nil;
+    Result.Status := STATUS_SUCCESS;
+    Exit;
+  end;
+
   // Create a new ACL
-  Result := RtlxCreateAcl(NewAcl, AddExtraSpace(RtlxSizeAcl(
-    SourceAcl).AclBytesInUse));
+  Result := RtlxCreateAcl(NewAcl, AddExtraSpace(SizeOf(TAcl) +
+    RtlxSizeAcl(SourceAcl).AclBytesInUseByAces));
 
   if not Result.IsSuccess then
     Exit;
@@ -216,14 +236,15 @@ var
   RequiredSize: Cardinal;
   ExpandedAcl: IAcl;
 begin
-  SizeInfo := RtlxSizeAcl(Acl.Data);
-  RequiredSize := SizeInfo.AclBytesInUse + RequiredFreeBytes;
+  SizeInfo := RtlxSizeAcl(Acl);
+  RequiredSize := SizeOf(TAcl) + SizeInfo.AclBytesInUseByAces +
+    RequiredFreeBytes;
 
   // Can't grow enough
   if RequiredSize > MAX_ACL_SIZE then
   begin
-    Result.Location := 'RtlxEnsureSizeAcl';
-    Result.Status := STATUS_NO_MEMORY;
+    Result.Location := 'RtlxEnsureFreeBytesAcl';
+    Result.Status := STATUS_BUFFER_TOO_SMALL;
     Exit;
   end;
 
@@ -231,7 +252,7 @@ begin
   RequiredSize := AddExtraSpace(RequiredSize);
 
   // Already enough?
-  if RequiredSize <= SizeInfo.AclBytesTotal then
+  if Assigned(Acl) and (SizeInfo.AclBytesTotal >= RequiredSize) then
   begin
     Result.Status := STATUS_SUCCESS;
     Exit;
@@ -244,7 +265,7 @@ begin
     Exit;
 
   // Copy existing ACEs
-  Result := RtlxAppendAcl(ExpandedAcl, Acl.Data);
+  Result := RtlxAppendAcl(ExpandedAcl, Acl);
 
   // Swap the reference
   if Result.IsSuccess then
@@ -256,35 +277,82 @@ var
   SourceSize, TargetSize: TAclSizeInformation;
   FirstNewAce: PAce;
 begin
-  SourceSize := RtlxSizeAcl(SourceAcl);
-  TargetSize := RtlxSizeAcl(TargetAcl.Data);
-
-  if SourceSize.AceCount = 0 then
+  // NULL + NULL = NULL; the rest gives non-NULL output
+  if not Assigned(TargetAcl) and not Assigned(SourceAcl) then
   begin
     Result.Status := STATUS_SUCCESS;
     Exit;
   end;
 
+  SourceSize := RtlxSizeAcl(SourceAcl);
+  TargetSize := RtlxSizeAcl(TargetAcl);
+
   // Make sure the new ACEs fit
-  if TargetSize.AclBytesFree < SourceSize.AclBytesInUse - SizeOf(TAcl) then
+  Result := RtlxEnsureFreeBytesAcl(TargetAcl, SourceSize.AclBytesInUseByAces);
+
+  if SourceSize.AceCount > 0 then
   begin
-    Result := RtlxEnsureFreeBytesAcl(TargetAcl, SourceSize.AclBytesInUse -
-      SizeOf(TAcl));
+    // Copy ACEs
+    Result.Location := 'RtlGetAce';
+    Result.Status := RtlGetAce(SourceAcl.Data, 0, FirstNewAce);
 
     if not Result.IsSuccess then
       Exit;
+
+    Result.Location := 'RtlAddAce';
+    Result.Status := RtlAddAce(TargetAcl.Data, SourceAcl.Data.AclRevision, -1,
+      FirstNewAce, SourceSize.AclBytesInUseByAces);
+  end;
+end;
+
+function RtlxCaptureAcl;
+var
+  SizeInfo: TAclSizeInformation;
+  pAces: PAce;
+begin
+  // NULL ACL remains NULL
+  if not Assigned(Buffer) then
+  begin
+    Acl := nil;
+    Result.Status := STATUS_SUCCESS;
+    Exit;
   end;
 
-  // Copy ACEs
-  Result.Location := 'RtlGetAce';
-  Result.Status := RtlGetAce(SourceAcl, 0, FirstNewAce);
+  if not RtlValidAcl(Buffer) then
+  begin
+    Result.Location := 'RtlValidAcl';
+    Result.Status := STATUS_INVALID_ACL;
+    Exit;
+  end;
+
+  // Determine input's size
+  Result.Location := 'RtlQueryInformationAcl';
+  Result.LastCall.UsesInfoClass(AclSizeInformation, icQuery);
+  Result.Status := RtlQueryInformationAcl(Buffer, @SizeInfo, SizeOf(SizeInfo),
+    AclSizeInformation);
 
   if not Result.IsSuccess then
     Exit;
 
-  Result.Location := 'RtlAddAce';
-  Result.Status := RtlAddAce(TargetAcl.Data, SourceAcl.AclRevision, -1,
-    FirstNewAce, SourceSize.AclBytesInUse - SizeOf(TAcl));
+  // Make a new ACL of sufficient size
+  Result := RtlxCreateAcl(Acl, SizeInfo.AclBytesInUse);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  if SizeInfo.AceCount > 0 then
+  begin
+    // Copy ACEs
+    Result.Location := 'RtlGetAce';
+    Result.Status := RtlGetAce(Buffer, 0, pAces);
+
+    if not Result.IsSuccess then
+      Exit;
+
+    Result.Location := 'RtlAddAce';
+    Result.Status := RtlAddAce(Acl.Data, Buffer.AclRevision, -1,
+      pAces, SizeInfo.AclBytesInUseByAces);
+  end;
 end;
 
 function RtlxBuildAcl;
@@ -330,24 +398,18 @@ var
   i: Integer;
   Ace: PAce;
 begin
-  if not Assigned(Acl) then
-  begin
-    AceData := nil;
-    Result.Status := STATUS_SUCCESS;
-    Exit;
-  end;
+  Result.Status := STATUS_SUCCESS;
+  SetLength(Aces, RtlxSizeAcl(Acl).AceCount);
 
-  SetLength(AceData, RtlxSizeAcl(Acl).AceCount);
-
-  for i := 0 to High(AceData) do
+  for i := 0 to High(Aces) do
   begin
     Result.Location := 'RtlGetAce';
-    Result.Status := RtlGetAce(Acl, i, Ace);
+    Result.Status := RtlGetAce(Acl.Data, i, Ace);
 
     if not Result.IsSuccess then
       Exit;
 
-    Result := RtlxCaptureAce(Ace, AceData[i]);
+    Result := RtlxCaptureAce(Ace, Aces[i]);
   end;
 end;
 
@@ -356,15 +418,30 @@ var
   i: Integer;
   Ace: PAce;
 begin
+  Result.Status := STATUS_SUCCESS;
+
   for i := 0 to Pred(RtlxSizeAcl(Acl).AceCount) do
   begin
     Result.Location := 'RtlGetAce';
-    Result.Status := RtlGetAce(Acl, i, Ace);
+    Result.Status := RtlGetAce(Acl.Data, i, Ace);
 
     if not Result.IsSuccess then
       Exit;
 
-    RtlMapGenericMask(Ace.NonObjectAce.Mask, GenericMapping);
+    if Ace.Header.AceType in NonObjectAces then
+      RtlMapGenericMask(Ace.NonObjectAce.Mask, GenericMapping)
+    else if Ace.Header.AceType = ACCESS_ALLOWED_COMPOUND_ACE_TYPE then
+      RtlMapGenericMask(Ace.CompoundAce.Mask, GenericMapping)
+    else if Ace.Header.AceType in ObjectAces then
+      RtlMapGenericMask(Ace.ObjectAce.Mask, GenericMapping)
+    else
+    begin
+      // Unrecognized ACE type
+      Result.Location := 'RtlxMapGenericMaskAcl';
+      Result.LastCall.UsesInfoClass(Ace.Header.AceType, icParse);
+      Result.Status := STATUS_UNKNOWN_REVISION;
+      Exit;
+    end;
   end;
 end;
 
@@ -376,7 +453,8 @@ begin
   if not (AceType in AccessAllowedAces + AccessDeniedAces) then
     Exit(acUnspecified);
 
-  // Implicit (inherited) ACEs always come after expilcit ACEs
+  // Implicit (inherited) ACEs always come after expilcit ACEs.
+  // We preserve their order and so put into one category.
   if BitTest(AceFlags and INHERITED_ACE) then
     Exit(acImplicit);
 
@@ -413,7 +491,7 @@ begin
   for i := 0 to Pred(RtlxSizeAcl(Acl).AceCount) do
   begin
     Result.Location := 'RtlGetAce';
-    Result.Status := RtlGetAce(Acl, i, AceRef);
+    Result.Status := RtlGetAce(Acl.Data, i, AceRef);
 
     if not Result.IsSuccess then
       Exit;
@@ -450,7 +528,7 @@ begin
 
   for i := 0 to Pred(RtlxSizeAcl(Acl).AceCount) do
   begin
-    if not RtlGetAce(Acl, i, AceRef).IsSuccess then
+    if not RtlGetAce(Acl.Data, i, AceRef).IsSuccess then
       Exit;
 
     // Determine which category the ACE belongs to
@@ -475,12 +553,19 @@ var
   Category: TAceCategory;
   NewAcl: IAcl;
 begin
+  // No need to order NULL ACLs
+  if not Assigned(Acl) then
+  begin
+    Result.Status := STATUS_SUCCESS;
+    Exit;
+  end;
+
   // Each category is empty by default
   for Category := Low(TAceCategory) to High(TAceCategory) do
     Aces[Category] := nil;
 
   // Save each ACE under the corresponding category
-  for i := 0 to Pred(RtlxSizeAcl(Acl.Data).AceCount) do
+  for i := 0 to Pred(RtlxSizeAcl(Acl).AceCount) do
   begin
     Result.Location := 'RtlGetAce';
     Result.Status := RtlGetAce(Acl.Data, i, Ace);
@@ -494,8 +579,7 @@ begin
   end;
 
   // Allocate a new ACL
-  Result := RtlxCreateAcl(NewAcl, AddExtraSpace(RtlxSizeAcl(
-    Acl.Data).AclBytesInUse));
+  Result := RtlxCreateAcl(NewAcl, AddExtraSpace(RtlxSizeAcl(Acl).AclBytesInUse));
 
   // Add ACEs category-by-category preserving their order within each
   for Category := Low(TAceCategory) to High(TAceCategory) do
@@ -533,8 +617,7 @@ begin
   if AceData.AceType in NonObjectAces then
   begin
     // Non-object ACE
-    Size := SizeOf(TNonObjectAce) - SizeOf(Cardinal) +
-      RtlLengthSid(AceData.SID.Data);
+    Size := SizeOf(TKnownAce) + RtlLengthSid(AceData.SID.Data);
 
     if Assigned(AceData.ExtraData) then
       Inc(Size, AceData.ExtraData.Size);
@@ -553,11 +636,53 @@ begin
       Move(AceData.ExtraData.Data^, Buffer.Data.NonObjectAce.ExtraData^,
         AceData.ExtraData.Size);
   end
+  else if AceData.AceType = ACCESS_ALLOWED_COMPOUND_ACE_TYPE then
+  begin
+    if not Assigned(AceData.ServerSID) then
+    begin
+      Result.Location := 'RtlxAllocateAce';
+      Result.Status := STATUS_INVALID_SID;
+      Exit;
+    end;
+
+    Size := SizeOf(TKnownCompoundAce) +
+      RtlLengthSid(AceData.SID.Data) +
+      RtlLengthSid(AceData.ServerSID.Data);
+
+    if Assigned(AceData.ExtraData) then
+      Inc(Size, AceData.ExtraData.Size);
+
+    IMemory(Buffer) := Auto.AllocateDynamic(Size);
+
+    Buffer.Data.Header.AceType := AceData.AceType;
+    Buffer.Data.Header.AceFlags := AceData.AceFlags;
+    Buffer.Data.Header.AceSize := Size;
+    Buffer.Data.CompoundAce.Mask := AceData.Mask;
+    Buffer.Data.CompoundAce.CompoundAceType := AceData.CompoundAceType;
+
+    // Marshal the server SID first due to layout
+    Move(AceData.ServerSID.Data^, Buffer.Data.CompoundAce.ServerSid^,
+      RtlLengthSid(AceData.ServerSID.Data));
+
+    // Follow by the client SID
+    Move(AceData.SID.Data^, Buffer.Data.CompoundAce.ClientSid^,
+      RtlLengthSid(AceData.SID.Data));
+
+    if Assigned(AceData.ExtraData) then
+      Move(AceData.ExtraData.Data^, Buffer.Data.CompoundAce.ExtraData^,
+        AceData.ExtraData.Size);
+  end
   else if AceData.AceType in ObjectAces then
   begin
     // Object ACE
-    Size := SizeOf(TObjectAce) - SizeOf(Cardinal) +
-      RtlLengthSid(AceData.SID.Data);
+    Size := SizeOf(TKnownObjectAce) + RtlLengthSid(AceData.SID.Data);
+
+    // GUIDs  are optional
+    if BitTest(AceData.ObjectFlags and ACE_OBJECT_TYPE_PRESENT) then
+      Inc(Size, SizeOf(TGuid));
+
+    if BitTest(AceData.ObjectFlags and ACE_INHERITED_OBJECT_TYPE_PRESENT) then
+      Inc(Size, SizeOf(TGuid));
 
     if Assigned(AceData.ExtraData) then
       Inc(Size, AceData.ExtraData.Size);
@@ -569,8 +694,13 @@ begin
     Buffer.Data.Header.AceSize := Size;
     Buffer.Data.ObjectAce.Mask := AceData.Mask;
     Buffer.Data.ObjectAce.Flags := AceData.ObjectFlags;
-    Buffer.Data.ObjectAce.ObjectType := AceData.ObjectType;
-    Buffer.Data.ObjectAce.InheritedObjectType := AceData.InheritedObjctType;
+
+    // Marshal GUIDs in the right order before the SID
+    if BitTest(AceData.ObjectFlags and ACE_OBJECT_TYPE_PRESENT) then
+      Buffer.Data.ObjectAce.ObjectType^ := AceData.ObjectType;
+
+    if BitTest(AceData.ObjectFlags and ACE_INHERITED_OBJECT_TYPE_PRESENT) then
+      Buffer.Data.ObjectAce.InheritedObjectType^ := AceData.InheritedObjectType;
 
     Move(AceData.SID.Data^, Buffer.Data.ObjectAce.Sid^,
       RtlLengthSid(AceData.SID.Data));
@@ -582,6 +712,7 @@ begin
   else
   begin
     Result.Location := 'RtlxAllocateAce';
+    Result.LastCall.UsesInfoClass(AceData.AceType, icMarshal);
     Result.Status := STATUS_UNKNOWN_REVISION;
   end;
 end;
@@ -589,6 +720,8 @@ end;
 function RtlxCaptureAce;
 begin
   Result.Status := STATUS_SUCCESS;
+
+  AceData := Default(TAceData);
   AceData.AceType := Buffer.Header.AceType;
   AceData.AceFlags := Buffer.Header.AceFlags;
 
@@ -602,13 +735,35 @@ begin
       AceData.ExtraData := Auto.CopyDynamic(Buffer.NonObjectAce.ExtraData,
         Buffer.NonObjectAce.ExtraDataSize);
   end
+  else if AceData.AceType = ACCESS_ALLOWED_COMPOUND_ACE_TYPE then
+  begin
+    // Compound ACE
+    AceData.Mask := Buffer.CompoundAce.Mask;
+    AceData.CompoundAceType := Buffer.CompoundAce.CompoundAceType;
+
+    Result := RtlxCopySid(Buffer.CompoundAce.ClientSid, AceData.Sid);
+
+    if not Result.IsSuccess then
+      Exit;
+
+    Result := RtlxCopySid(Buffer.CompoundAce.ServerSid, AceData.ServerSID);
+
+    if Buffer.CompoundAce.ExtraDataSize > 0 then
+      AceData.ExtraData := Auto.CopyDynamic(Buffer.CompoundAce.ExtraData,
+        Buffer.CompoundAce.ExtraDataSize);
+  end
   else if AceData.AceType in ObjectAces then
   begin
     // Object ACE
     AceData.Mask := Buffer.ObjectAce.Mask;
     AceData.ObjectFlags := Buffer.ObjectAce.Flags;
-    AceData.ObjectType := Buffer.ObjectAce.ObjectType;
-    AceData.InheritedObjctType := Buffer.ObjectAce.InheritedObjectType;
+
+    if BitTest(AceData.ObjectFlags and ACE_OBJECT_TYPE_PRESENT) then
+      AceData.ObjectType := Buffer.ObjectAce.ObjectType^;
+
+    if BitTest(AceData.ObjectFlags and ACE_INHERITED_OBJECT_TYPE_PRESENT) then
+      AceData.InheritedObjectType := Buffer.ObjectAce.InheritedObjectType^;
+
     Result := RtlxCopySid(Buffer.ObjectAce.Sid, AceData.Sid);
 
     if Buffer.ObjectAce.ExtraDataSize > 0 then
@@ -618,13 +773,14 @@ begin
   else
   begin
     Result.Location := 'RtlxCaptureAce';
+    Result.LastCall.UsesInfoClass(Buffer.Header.AceType, icParse);
     Result.Status := STATUS_UNKNOWN_REVISION;
   end;
 end;
 
 function RtlxAddAce;
 begin
-  Result := RtlxInsertAce(Acl, Ace, RtlxChooseIndexAce(Acl.Data,
+  Result := RtlxInsertAce(Acl, Ace, RtlxChooseIndexAce(Acl,
     RtlxGetCategoryAce(Ace.AceType, Ace.AceFlags)));
 end;
 
@@ -649,16 +805,30 @@ end;
 
 function RtlxDeleteAce;
 begin
+  if not Assigned(Acl) then
+  begin
+    Result.Location := 'RtlxDeleteAce';
+    Result.Status := STATUS_INVALID_PARAMETER;
+    Exit;
+  end;
+
   Result.Location := 'RtlDeleteAce';
-  Result.Status := RtlDeleteAce(Acl, Index);
+  Result.Status := RtlDeleteAce(Acl.Data, Index);
 end;
 
 function RtlxGetAce;
 var
   AceRef: PAce;
 begin
+  if not Assigned(Acl) then
+  begin
+    Result.Location := 'RtlxGetAce';
+    Result.Status := STATUS_INVALID_PARAMETER;
+    Exit;
+  end;
+
   Result.Location := 'RtlGetAce';
-  Result.Status := RtlGetAce(Acl, Index, AceRef);
+  Result.Status := RtlGetAce(Acl.Data, Index, AceRef);
 
   if Result.IsSuccess then
     Result := RtlxCaptureAce(AceRef, AceData);

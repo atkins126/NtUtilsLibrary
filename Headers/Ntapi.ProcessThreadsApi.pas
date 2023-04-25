@@ -178,7 +178,9 @@ const
   PROC_THREAD_ATTRIBUTE_REPLACE_VALUE = $00000001;
 
   // For annotations
-  TOKEN_CREATE_PROCESS = TOKEN_ASSIGN_PRIMARY or TOKEN_QUERY or TOKEN_DUPLICATE;
+  TOKEN_CREATE_PROCESS = TOKEN_ASSIGN_PRIMARY or TOKEN_QUERY;
+  TOKEN_CREATE_PROCESS_EX = TOKEN_DUPLICATE or TOKEN_IMPERSONATE or TOKEN_QUERY
+    or TOKEN_ASSIGN_PRIMARY or TOKEN_ADJUST_DEFAULT or TOKEN_ADJUST_SESSIONID;
 
   // SDK::WinBase.h
   LOGON_WITH_PROFILE = $00000001;
@@ -257,7 +259,7 @@ type
 
   // PHNT::ntpsapi.h
   [SDKName('PROC_THREAD_ATTRIBUTE_NUM')]
-  [NamingStyle(nsCamelCase, 'ProcThreadAttribute'), ValidMask($0F4FEFFF)]
+  [NamingStyle(nsCamelCase, 'ProcThreadAttribute'), ValidBits([0..19, 22..28])]
   TProcThreadAttributeNum = (
     ProcThreadAttributeParentProcess = $0,        // THandle with PROCESS_CREATE_PROCESS
     ProcThreadAttributeExtendedFlags = $1,        // TProcExtendedFlag
@@ -270,7 +272,7 @@ type
     ProcThreadAttributePackageName = $8,          // PWideChar, Win 8+
     ProcThreadAttributeSecurityCapabilities = $9, // TSecurityCapabilities
     ProcThreadAttributeConsoleReference = $A,
-    ProcThreadAttributeProtectionLevel = $B,      // TProtectionLevelAttribute, Win 8.1+
+    ProcThreadAttributeProtectionLevel = $B,      // TProtectionLevel, Win 8.1+
     ProcThreadAttributeOsMaxVersionTested = $C,   // TMaxVersionTestedInfo, Win 10 TH1+
     ProcThreadAttributeJobList = $D,              // TAnysizeArray<THandle>
     ProcThreadAttributeChildProcessPolicy = $E,   // TProcessChildFlags, Win 10 TH2+
@@ -332,9 +334,6 @@ type
   [FlagName(EXTENDED_PROCESS_CREATION_FLAG_FORCE_BREAKAWAY, 'Force Breakaway')]
   TProcExtendedFlag = type Cardinal;
 
-  TSidAndAttributesArray = TAnysizeArray<TSidAndAttributes>;
-  PSidAndAttributesArray = ^TSidAndAttributesArray;
-
   // SDK::winnt.h - attribute 9
   [MinOSVersion(OsWin8)]
   [SDKName('SECURITY_CAPABILITIES')]
@@ -346,10 +345,10 @@ type
   end;
   PSecurityCapabilities = ^TSecurityCapabilities;
 
-  // SDK::winbasep.h - attribute $B
+  // SDK::winbase.h - attribute $B
   [MinOSVersion(OsWin81)]
   [NamingStyle(nsSnakeCase, 'PROTECTION_LEVEL')]
-  TProtectionLevelAttribute = (
+  TProtectionLevel = (
     PROTECTION_LEVEL_WINTCB_LIGHT = 0,
     PROTECTION_LEVEL_WINDOWS = 1,
     PROTECTION_LEVEL_WINDOWS_LIGHT = 2,
@@ -357,7 +356,8 @@ type
     PROTECTION_LEVEL_LSA_LIGHT = 4,
     PROTECTION_LEVEL_WINTCB = 5,
     PROTECTION_LEVEL_CODEGEN_LIGHT = 6,
-    PROTECTION_LEVEL_AUTHENTICODE = 7
+    PROTECTION_LEVEL_AUTHENTICODE = 7,
+    PROTECTION_LEVEL_PPL_APP = 8
   );
 
   // SDK::winnt.h - attribute $C
@@ -425,6 +425,9 @@ type
   [FlagName(LOGON_NETCREDENTIALS_ONLY, 'Network Credentials Only')]
   [FlagName(LOGON_ZERO_PASSWORD_BUFFER, 'Zero Password Buffer')]
   TProcessLogonFlags = type Cardinal;
+
+const
+  PROTECTION_LEVEL_SAME = TProtectionLevel(-1);
 
 // SDK::processthreadsapi.h
 [SetsLastError]
@@ -509,7 +512,7 @@ function CreateProcessWithLogonW(
 [SetsLastError]
 [RequiredPrivilege(SE_IMPERSONATE_PRIVILEGE, rpAlways)]
 function CreateProcessWithTokenW(
-  [in, Access(TOKEN_CREATE_PROCESS)] hToken: THandle;
+  [in, Access(TOKEN_CREATE_PROCESS_EX)] hToken: THandle;
   [in] LogonFlags: TProcessLogonFlags;
   [in, opt] ApplicationName: PWideChar;
   [in, out, opt] CommandLine: PWideChar;

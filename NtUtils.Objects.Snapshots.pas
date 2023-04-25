@@ -95,14 +95,15 @@ function RtlxFindObjectByAddress(
 { Types }
 
 // Enumerate kernel object types on the system
-function NtxEnumerateTypes(
+function NtxEnumerateKernelTypes(
   out Types: TArray<TObjectTypeInfo>
 ): TNtxStatus;
 
-// Find an index of a kernel object type by its name
+// Find information about a kernel object type by its name
 function RtlxFindKernelType(
   const TypeName: String;
-  out Index: Integer
+  out Info: TObjectTypeInfo;
+  UseCaching: Boolean = True
 ): TNtxStatus;
 
 { Filtration routines }
@@ -408,7 +409,7 @@ end;
 
 { Types }
 
-function NtxEnumerateTypes;
+function NtxEnumerateKernelTypes;
 var
   xMemory: IMemory<PObjectTypesInformation>;
   pType: PObjectTypeInformation;
@@ -446,31 +447,43 @@ begin
   until i > High(Types);
 end;
 
-function RtlxFindKernelType;
+var
+  TypesCacheInitialized: Boolean;
+  TypesCache: TArray<TObjectTypeInfo>;
+
+// Query information about a kernel object type
+function RtlxFindKernelType(
+  const TypeName: String;
+  out Info: TObjectTypeInfo;
+  UseCaching: Boolean = True
+): TNtxStatus;
 var
   Types: TArray<TObjectTypeInfo>;
+  i: Integer;
 begin
-  Result := NtxEnumerateTypes(Types);
-
-  if not Result.IsSuccess then
-    Exit;
-
-  Index := TArray.ConvertFirstOrDefault<TObjectTypeInfo, Integer>(Types,
-    function (const Entry: TObjectTypeInfo; out TypeIndex: Integer): Boolean
-    begin
-      Result := Entry.TypeName = TypeName;
-
-      if Result then
-        TypeIndex := Entry.Other.TypeIndex;
-    end,
-    -1
-  );
-
-  if Index < 0 then
+  if not TypesCacheInitialized or not UseCaching then
   begin
-    Result.Location := 'NtxFindType';
-    Result.Status := STATUS_NOT_FOUND;
+    Result := NtxEnumerateKernelTypes(Types);
+
+    if not Result.IsSuccess then
+      Exit;
+
+    // Refresh the cache
+    TypesCache := Types;
+    TypesCacheInitialized := True;
   end;
+
+  // Find the corresponding entry
+  for i := 0 to High(TypesCache) do
+    if TypesCache[i].TypeName = TypeName then
+    begin
+      Info := TypesCache[i];
+      Result.Status := STATUS_SUCCESS;
+      Exit;
+    end;
+
+  Result.Location := 'NtxFindKernelType';
+  Result.Status := STATUS_NOT_FOUND;
 end;
 
 { Filtration routines}

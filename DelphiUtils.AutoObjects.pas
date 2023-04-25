@@ -68,12 +68,12 @@ type
   // An wapper that automatically releases a memory region.
   // You can safely cast between IMemory<P1> and IMemory<P2> when necessary.
   IMemory<P> = interface(IAutoPointer<P>) // P must be a Pointer type
+    property Data: P read GetData;
     function GetSize: NativeUInt;
-    function GetRegion: TMemory;
-    function Offset(Bytes: NativeUInt): Pointer;
-
     property Size: NativeUInt read GetSize;
+    function GetRegion: TMemory;
     property Region: TMemory read GetRegion;
+    function Offset(Bytes: NativeUInt): Pointer;
   end;
 
   // An untyped automatic memory region
@@ -209,6 +209,11 @@ class function TMemory.From;
 begin
   Result.Address := Address;
   Result.Size := Size;
+
+  {$IFOPT Q+}
+  // Emit overflow checking
+  if UIntPtr(Address) + Size < UIntPtr(Address) then ;
+  {$ENDIF}
 end;
 
 function TMemory.Offset;
@@ -298,6 +303,11 @@ constructor TCustomAutoMemory.Capture;
 begin
   inherited Capture(Address);
   FSize := Size;
+
+  {$IFOPT Q+}
+  // Emit overflow checking
+  if UIntPtr(Address) + Size < UIntPtr(Address) then ;
+  {$ENDIF}
 end;
 
 function TCustomAutoMemory.GetRegion;

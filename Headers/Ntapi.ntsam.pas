@@ -23,7 +23,10 @@ const
   SAM_SERVER_ENUMERATE_DOMAINS = $0010;
   SAM_SERVER_LOOKUP_DOMAIN = $0020;
 
-  SAM_SERVER_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $3F;
+  SAM_SERVER_READ = STANDARD_RIGHTS_READ or $0010;
+  SAM_SERVER_WRITE = STANDARD_RIGHTS_WRITE or $000E;
+  SAM_SERVER_EXECUTE = STANDARD_RIGHTS_EXECUTE or $0021;
+  SAM_SERVER_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $003F;
 
   // domain access masks
   DOMAIN_READ_PASSWORD_PARAMETERS = $0001;
@@ -38,6 +41,9 @@ const
   DOMAIN_LOOKUP = $0200;
   DOMAIN_ADMINISTER_SERVER = $0400;
 
+  DOMAIN_READ = STANDARD_RIGHTS_READ or $0084;
+  DOMAIN_WRITE = STANDARD_RIGHTS_WRITE or $047A;
+  DOMAIN_EXECUTE = STANDARD_RIGHTS_EXECUTE or $0301;
   DOMAIN_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $7FF;
 
   // password properties
@@ -56,7 +62,10 @@ const
   GROUP_REMOVE_MEMBER = $0008;
   GROUP_LIST_MEMBERS = $0010;
 
-  GROUP_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $1F;
+  GROUP_READ = STANDARD_RIGHTS_READ or $0010;
+  GROUP_WRITE = STANDARD_RIGHTS_WRITE or $000E;
+  GROUP_EXECUTE = STANDARD_RIGHTS_EXECUTE or $0001;
+  GROUP_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $001F;
 
   // alias access masks
   ALIAS_ADD_MEMBER = $0001;
@@ -65,7 +74,10 @@ const
   ALIAS_READ_INFORMATION = $0008;
   ALIAS_WRITE_ACCOUNT = $0010;
 
-  ALIAS_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $1F;
+  ALIAS_READ = STANDARD_RIGHTS_READ or $0004;
+  ALIAS_WRITE = STANDARD_RIGHTS_WRITE or $0013;
+  ALIAS_EXECUTE = STANDARD_RIGHTS_EXECUTE or $0008;
+  ALIAS_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $001F;
 
   // user access masks
   USER_READ_GENERAL = $0001;
@@ -80,6 +92,9 @@ const
   USER_READ_GROUP_INFORMATION = $0200;
   USER_WRITE_GROUP_INFORMATION = $0400;
 
+  USER_READ = STANDARD_RIGHTS_READ or $031A;
+  USER_WRITE = STANDARD_RIGHTS_WRITE or $0044;
+  USER_EXECUTE = STANDARD_RIGHTS_EXECUTE or $0041;
   USER_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $7FF;
 
   // user control flags
@@ -154,7 +169,7 @@ type
   TNtUnicodeStringArray = TAnysizeArray<TNtUnicodeString>;
   PNtUnicodeStringArray = ^TNtUnicodeStringArray;
 
-  [FriendlyName('SAM server'), ValidMask(SAM_SERVER_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('SAM server'), ValidBits(SAM_SERVER_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(SAM_SERVER_CONNECT, 'Connect')]
   [FlagName(SAM_SERVER_SHUTDOWN, 'Shutdown')]
   [FlagName(SAM_SERVER_INITIALIZE, 'Initialize')]
@@ -220,7 +235,7 @@ type
 
   // Domain Info
 
-  [FriendlyName('domain'), ValidMask(DOMAIN_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('domain'), ValidBits(DOMAIN_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(DOMAIN_READ_PASSWORD_PARAMETERS, 'Read Password Parameters')]
   [FlagName(DOMAIN_WRITE_PASSWORD_PARAMS, 'Write Password Parameters')]
   [FlagName(DOMAIN_READ_OTHER_PARAMETERS, 'Read Other Parameters')]
@@ -432,7 +447,7 @@ type
 
   // Group
 
-  [FriendlyName('group'), ValidMask(GROUP_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('group'), ValidBits(GROUP_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(GROUP_READ_INFORMATION, 'Read Information')]
   [FlagName(GROUP_WRITE_ACCOUNT, 'Write Account')]
   [FlagName(GROUP_ADD_MEMBER, 'Add Member')]
@@ -471,7 +486,7 @@ type
 
   // Alias
 
-  [FriendlyName('alias'), ValidMask(ALIAS_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('alias'), ValidBits(ALIAS_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(ALIAS_ADD_MEMBER, 'Add Member')]
   [FlagName(ALIAS_REMOVE_MEMBER, 'Remove Member')]
   [FlagName(ALIAS_LIST_MEMBERS, 'List Members')]
@@ -501,7 +516,7 @@ type
 
   // User
 
-  [FriendlyName('user'), ValidMask(USER_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('user'), ValidBits(USER_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(USER_READ_GENERAL, 'Read General')]
   [FlagName(USER_READ_PREFERENCES, 'Read Preferences')]
   [FlagName(USER_WRITE_PREFERENCES, 'Write Preferences')]

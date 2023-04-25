@@ -55,31 +55,30 @@ const
   FLG_MAINTAIN_OBJECT_TYPELIST = $4000; // kernel
 
 type
-  [FriendlyName('event'), ValidMask(EVENT_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('event'), ValidBits(EVENT_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(EVENT_QUERY_STATE, 'Query State')]
   [FlagName(EVENT_MODIFY_STATE, 'Modify State')]
   TEventAccessMask = type TAccessMask;
 
-  [FriendlyName('mutex'), ValidMask(MUTANT_ALL_ACCESS)]
+  [FriendlyName('mutex'), ValidBits(MUTANT_ALL_ACCESS)]
   [FlagName(MUTANT_QUERY_STATE, 'Query State')]
   TMutantAccessMask = type TAccessMask;
 
-  [FriendlyName('semaphore'), ValidMask(SEMAPHORE_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('semaphore'), ValidBits(SEMAPHORE_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(SEMAPHORE_QUERY_STATE, 'Query State')]
   [FlagName(SEMAPHORE_MODIFY_STATE, 'Modify State')]
   TSemaphoreAccessMask = type TAccessMask;
 
-  [FriendlyName('timer'), ValidMask(TIMER_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('timer'), ValidBits(TIMER_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(TIMER_QUERY_STATE, 'Query State')]
   [FlagName(TIMER_MODIFY_STATE, 'Modify State')]
   TTimerAccessMask = type TAccessMask;
 
-  [FriendlyName('profile'), ValidMask(PROFILE_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('profile'), ValidBits(PROFILE_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(PROFILE_CONTROL, 'Control')]
   TProfileAccessMask = type TAccessMask;
 
-  [FriendlyName('keyed event')]
-  [ValidMask(KEYEDEVENT_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('keyed event'), ValidBits(KEYEDEVENT_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(KEYEDEVENT_WAIT, 'Wait')]
   [FlagName(KEYEDEVENT_WAKE, 'Wake')]
   TKeyedEventAccessMask = type TAccessMask;
@@ -660,7 +659,7 @@ type
 // PHNT::ntexapi.h
 function NtDelayExecution(
   [in] Alertable: Boolean;
-  [in, opt] DelayInterval: PLargeInteger
+  [in] DelayInterval: PLargeInteger
 ): NTSTATUS; stdcall; external ntdll;
 
 // Event
@@ -833,6 +832,39 @@ function NtQueryTimer(
   [out, WritesTo] TimerInformation: Pointer;
   [in, NumberOfBytes] TimerInformationLength: Cardinal;
   [out, opt, NumberOfBytes] ReturnLength: PCardinal
+): NTSTATUS; stdcall; external ntdll;
+
+// Keyed Events
+
+// PHNT::ntexapi.h
+function NtCreateKeyedEvent(
+  [out, ReleaseWith('NtClose')] out KeyedEventHandle: THandle;
+  [in] DesiredAccess: TKeyedEventAccessMask;
+  [in, opt] ObjectAttributes: PObjectAttributes;
+  [Reserved] Flags: Cardinal
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntexapi.h
+function NtOpenKeyedEvent(
+  [out, ReleaseWith('NtClose')] out KeyedEventHandle: THandle;
+  [in] DesiredAccess: TKeyedEventAccessMask;
+  [in] const ObjectAttributes: TObjectAttributes
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntexapi.h
+function NtReleaseKeyedEvent(
+  [in, Access(KEYEDEVENT_WAKE)] KeyedEventHandle: THandle;
+  [in] KeyValue: NativeUInt;
+  [in] Alertable: Boolean;
+  [in, opt] Timeout: PLargeInteger
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntexapi.h
+function NtWaitForKeyedEvent(
+  [in, Access(KEYEDEVENT_WAIT)] KeyedEventHandle: THandle;
+  [in] KeyValue: NativeUInt;
+  [in] Alertable: Boolean;
+  [in, opt] Timeout: PLargeInteger
 ): NTSTATUS; stdcall; external ntdll;
 
 // Time

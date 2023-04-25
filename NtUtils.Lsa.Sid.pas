@@ -140,6 +140,10 @@ begin
   );
 end;
 
+const
+  // Fake domain name for S-1-18
+  AUTHENTICATION_AUTHORITY_DOMAIN = 'Authentication Authority';
+
 { TTranslatedName }
 
 function TTranslatedName.FullName;
@@ -184,6 +188,7 @@ var
   SidData: TArray<PSid>;
   BufferDomains: PLsaReferencedDomainList;
   BufferNames: PLsaTranslatedNameArray;
+  DomainsDeallocator, NamesDeallocator: IAutoReleasable;
   i: Integer;
 begin
   // Always output at least raw SIDs to allow converting them to SDDL
@@ -194,7 +199,7 @@ begin
     Names[i].SID := Sids[i];
 
   // If there is nothing to translate, we are done
-  if Length(Sids) = 0 then
+  if Length(Sids) <= 0 then
   begin
     Result.Status := STATUS_SUCCESS;
     Exit;
@@ -222,8 +227,8 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  LsaxDelayFreeMemory(BufferDomains);
-  LsaxDelayFreeMemory(BufferNames);
+  DomainsDeallocator := LsaxDelayFreeMemory(BufferDomains);
+  NamesDeallocator := LsaxDelayFreeMemory(BufferNames);
 
   for i := 0 to High(Sids) do
   begin
@@ -253,6 +258,20 @@ begin
         BufferNames[i].DomainIndex]{$IFDEF R+}{$R+}{$ENDIF}.Name.ToString
     else
       Names[i].DomainName := '';
+
+    // Hack: when requesting bulk translation of SIDs one of which is S-1-5
+    // (aka., NT Pseudo Domain), it can change other SIDs's domain from the
+    // correct "NT AUTHORITY" to "NT Pseudo Domain". Fix it here.
+    if Names[i].IsValid and (RtlxIdentifierAuthoritySid(Names[i].SID) =
+      SECURITY_NT_AUTHORITY) and (RtlxSubAuthoritiesCountSid(Names[i].SID) > 0)
+      and (Names[i].UserName <> '') and RtlxEqualStrings(Names[i].DomainName,
+      'NT Pseudo Domain') then
+      Names[i].DomainName := 'NT AUTHORITY';
+
+    // Workaround missing domain for S-1-18-* SIDs
+    if Names[i].IsValid and (RtlxIdentifierAuthoritySid(Names[i].SID) =
+      SECURITY_AUTHENTICATION_AUTHORITY) and (Names[i].DomainName = '') then
+      Names[i].DomainName := AUTHENTICATION_AUTHORITY_DOMAIN;
   end;
 end;
 
@@ -287,20 +306,21 @@ end;
 
 function LsaxLookupName;
 const
-  APP_PACKAGE_DOMAIN = 'APPLICATION PACKAGE AUTHORITY\';
+  APP_PACKAGE_DOMAIN_PREFIX = 'APPLICATION PACKAGE AUTHORITY\';
+  AUTHENTICATION_DOMAIN_PREFIX = AUTHENTICATION_AUTHORITY_DOMAIN + '\';
 var
   BufferDomain: PLsaReferencedDomainList;
   BufferTranslatedSid: PLsaTranslatedSid2Array;
+  DomainDeallocator, SidDeallocator: IAutoReleasable;
 begin
   Result := LsaxpEnsureConnected(hxPolicy, POLICY_LOOKUP_NAMES);
 
   if not Result.IsSuccess then
     Exit;
 
-  // Fix LSA's lookup for package-related SIDs
-  if RtlxPrefixString(APP_PACKAGE_DOMAIN, AccountName) then
-    AccountName := Copy(AccountName, Length(APP_PACKAGE_DOMAIN),
-      Length(AccountName));
+  // Fix LSA's lookup for package-related SIDs and fake authentication domain
+  RtlxPrefixStripString(APP_PACKAGE_DOMAIN_PREFIX, AccountName);
+  RtlxPrefixStripString(AUTHENTICATION_DOMAIN_PREFIX, AccountName);
 
   // Request translation of one name
   Result.Location := 'LsaLookupNames2';
@@ -310,8 +330,8 @@ begin
   // LsaLookupNames2 allocates memory even on some errors
   if Result.IsSuccess or (Result.Status = STATUS_NONE_MAPPED) then
   begin
-    LsaxDelayFreeMemory(BufferDomain);
-    LsaxDelayFreeMemory(BufferTranslatedSid);
+    DomainDeallocator := LsaxDelayFreeMemory(BufferDomain);
+    SidDeallocator := LsaxDelayFreeMemory(BufferTranslatedSid);
   end;
 
   if not Result.IsSuccess then
@@ -373,6 +393,7 @@ end;
 function LsaxGetUserName;
 var
   BufferUser, BufferDomain: PLsaUnicodeString;
+  UserDeallocator, DomainDeallocator: IAutoReleasable;
 begin
   Result.Location := 'LsaGetUserName';
   Result.Status := LsaGetUserName(BufferUser, BufferDomain);
@@ -380,9 +401,8 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  LsaxDelayFreeMemory(BufferUser);
-  LsaxDelayFreeMemory(BufferDomain);
-
+  UserDeallocator := LsaxDelayFreeMemory(BufferUser);
+  DomainDeallocator := LsaxDelayFreeMemory(BufferDomain);
 
   Domain := BufferDomain.ToString;
   UserName := BufferUser.ToString;
@@ -417,6 +437,7 @@ function LsaxManageSidNameMapping(
 ): TNtxStatus;
 var
   pOutput: PLsaSidNameMappingOperationGenericOutput;
+  OutputDeallocator: IAutoReleasable;
 begin
   pOutput := nil;
 
@@ -428,7 +449,7 @@ begin
   // The function uses a custom way to report some errors
   if not Result.IsSuccess and Assigned(pOutput) then
   begin
-    LsaxDelayFreeMemory(pOutput);
+    OutputDeallocator := LsaxDelayFreeMemory(pOutput);
 
     case pOutput.ErrorCode of
       LsaSidNameMappingOperation_NameCollision,

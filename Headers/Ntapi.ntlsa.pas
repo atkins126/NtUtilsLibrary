@@ -46,7 +46,11 @@ const
   POLICY_LOOKUP_NAMES = $00000800;
   POLICY_NOTIFICATION = $00001000;
 
+  POLICY_READ = STANDARD_RIGHTS_READ or $0006;
+  POLICY_WRITE = STANDARD_RIGHTS_WRITE or $07F8;
+  POLICY_EXECUTE = STANDARD_RIGHTS_EXECUTE or $0801;
   POLICY_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $0FFF;
+  POLICY_ALL_ACCESS_EX = STANDARD_RIGHTS_REQUIRED or $1FFF;
 
   // SDK::ntlsa.h - name lookup flags
   LSA_LOOKUP_ISOLATED_AS_LOCAL = $80000000;
@@ -74,6 +78,9 @@ const
   ACCOUNT_ADJUST_QUOTAS = $00000004;
   ACCOUNT_ADJUST_SYSTEM_ACCESS = $00000008;
 
+  ACCOUNT_READ = STANDARD_RIGHTS_READ or $0001;
+  ACCOUNT_WRITE = STANDARD_RIGHTS_WRITE or $000E;
+  ACCOUNT_EXECUTE = STANDARD_RIGHTS_EXECUTE or $0000;
   ACCOUNT_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $000F;
 
   // DDK::lsalookupi.h
@@ -83,7 +90,7 @@ type
   TLsaHandle = Ntapi.NtSecApi.TLsaHandle;
   TLsaEnumerationHandle = Cardinal;
 
-  [FriendlyName('policy'), ValidMask(POLICY_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('policy'), ValidBits(POLICY_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(POLICY_VIEW_LOCAL_INFORMATION, 'View Local Information')]
   [FlagName(POLICY_VIEW_AUDIT_INFORMATION, 'View Audit Information')]
   [FlagName(POLICY_GET_PRIVATE_INFORMATION, 'Get Private Information')]
@@ -99,7 +106,7 @@ type
   [FlagName(POLICY_NOTIFICATION, 'Notification')]
   TLsaPolicyAccessMask = type TAccessMask;
 
-  [FriendlyName('account'), ValidMask(ACCOUNT_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('account'), ValidBits(ACCOUNT_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(ACCOUNT_VIEW, 'View')]
   [FlagName(ACCOUNT_ADJUST_PRIVILEGES, 'Adjust Privileges')]
   [FlagName(ACCOUNT_ADJUST_QUOTAS, 'Adjust Quotas')]
@@ -119,7 +126,7 @@ type
   TSystemAccess = type Cardinal;
 
   // Bit numbers for SECURITY_ACCESS_* constants
-  [NamingStyle(nsCamelCase, 'Se'), ValidMask($0FD7)]
+  [NamingStyle(nsCamelCase, 'Se'), ValidBits([0..2, 4, 6..11])]
   TSystemAccessIndex = (
     SeAllowInteractiveLogon = 0,
     SeAllowNetworkLogon = 1,
@@ -462,7 +469,7 @@ function LsaClose(
 
 // SDK::ntlsa.h
 function LsaDelete(
-  [in, Access(_DELETE)] ObjectHandle: TLsaHandle
+  [in, Access(_DELETE or ACCOUNT_VIEW)] ObjectHandle: TLsaHandle
 ): NTSTATUS; stdcall; external advapi32;
 
 // SDK::ntlsa.h

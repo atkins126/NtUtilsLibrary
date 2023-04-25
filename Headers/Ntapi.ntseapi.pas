@@ -115,7 +115,7 @@ const
   NtCurrentEffectiveToken = THandle(-6);
 
 type
-  [FriendlyName('token'), ValidMask(TOKEN_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('token'), ValidBits(TOKEN_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(TOKEN_DUPLICATE, 'Duplicate')]
   [FlagName(TOKEN_QUERY, 'Query')]
   [FlagName(TOKEN_QUERY_SOURCE, 'Query Source')]
@@ -240,6 +240,9 @@ type
     Attributes: TGroupAttributes;
   end;
   PSidAndAttributes = ^TSidAndAttributes;
+
+  TSidAndAttributesArray = TAnysizeArray<TSidAndAttributes>;
+  PSidAndAttributesArray = ^TSidAndAttributesArray;
 
   // SDK::winnt.h
   [SDKName('SID_AND_ATTRIBUTES_HASH')]
@@ -495,7 +498,7 @@ type
 
   // SDK::winnt.h
   {$MINENUMSIZE 2}
-  [NamingStyle(nsSnakeCase, 'SECURITY_ATTRIBUTE_TYPE'), ValidMask($1007E)]
+  [NamingStyle(nsSnakeCase, 'SECURITY_ATTRIBUTE_TYPE'), ValidBits([1..6, 16])]
   TSecurityAttributeType = (
     SECURITY_ATTRIBUTE_TYPE_INVALID = 0,
     SECURITY_ATTRIBUTE_TYPE_INT64 = 1,
@@ -855,7 +858,7 @@ procedure TTokenSource.SetName;
 var
   i, Count: integer;
 begin
-  FillChar(sourcename, SizeOf(sourcename), 0);
+  sourcename := Default(TTokenSourceName);
 
   Count := Length(Value);
   if Count > 8 then

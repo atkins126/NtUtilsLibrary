@@ -32,6 +32,7 @@ type
     [MinOSVersion(OsWin8)] LoadReason: TLdrDllLoadReason;
     LdrEntry: PLdrDataTableEntry;
     function IsInRange(Address: Pointer): Boolean;
+    function Region: TMemory;
   end;
 
   TDllNotification = reference to procedure(
@@ -43,12 +44,12 @@ type
 
 { Delayed Import Checks }
 
-// Check if a function presents in ntdll
+// Check if a function is present in ntdll
 function LdrxCheckNtDelayedImport(
   const Name: AnsiString
 ): TNtxStatus;
 
-// Check if a function presents in a dll. Loads the dll if necessary
+// Check if a function is present in a dll. Loads the dll if necessary
 function LdrxCheckModuleDelayedImport(
   const ModuleName: String;
   const ProcedureName: AnsiString
@@ -158,9 +159,7 @@ function LdrxCheckNtDelayedImport;
 var
   ProcAddr: Pointer;
 begin
-  Result.Location := 'LdrGetProcedureAddress("' + String(Name) + '")';
-  Result.Status := LdrGetProcedureAddress(hNtdll.DllBase,
-    TNtAnsiString.From(Name), 0, ProcAddr);
+  Result := LdrxGetProcedureAddress(hNtdll.DllBase, Name, ProcAddr);
 end;
 
 function LdrxCheckModuleDelayedImport;
@@ -168,45 +167,42 @@ var
   hDll: PDllBase;
   ProcAddr: Pointer;
 begin
-  Result.Location := 'LdrGetDllHandle';
-  Result.Status := LdrGetDllHandle(nil, nil, TNtUnicodeString.From(ModuleName),
-    hDll);
+  Result := LdrxGetDllHandle(ModuleName, hDll);
 
-  if not NT_SUCCESS(Result.Status) then
+  if not Result.IsSuccess then
   begin
     // Try to load it
-    Result.Location := 'LdrLoadDll';
-    Result.Status := LdrLoadDll(nil, nil, TNtUnicodeString.From(ModuleName),
-      hDll);
+    Result := LdrxLoadDll(ModuleName, hDll);
 
-    if not NT_SUCCESS(Result.Status) then
+    if not Result.IsSuccess then
       Exit;
   end;
 
-  Result.Location := 'LdrGetProcedureAddress';
-  Result.Status := LdrGetProcedureAddress(hDll,
-    TNtAnsiString.From(ProcedureName), 0, ProcAddr);
+  Result := LdrxGetProcedureAddress(hDll, ProcedureName, ProcAddr);
 end;
 
 { DLL Operations }
 
 function LdrxGetDllHandle;
 begin
-  Result.Location := 'LdrGetDllHandle("' + DllName + '")';
+  Result.Location := 'LdrGetDllHandle';
+  Result.LastCall.Parameter := DllName;
   Result.Status := LdrGetDllHandle(nil, nil, TNtUnicodeString.From(DllName),
     DllBase);
 end;
 
 function LdrxLoadDll;
 begin
-  Result.Location := 'LdrLoadDll("' + DllName + '")';
+  Result.Location := 'LdrLoadDll';
+  Result.LastCall.Parameter := DllName;
   Result.Status := LdrLoadDll(nil, nil, TNtUnicodeString.From(DllName),
     DllBase)
 end;
 
 function LdrxGetProcedureAddress;
 begin
-  Result.Location := 'LdrGetProcedureAddress("' + String(ProcedureName) + '")';
+  Result.Location := 'LdrGetProcedureAddress';
+  Result.LastCall.Parameter := String(ProcedureName);
   Result.Status := LdrGetProcedureAddress(DllBase,
     TNtAnsiString.From(ProcedureName), 0, Address);
 end;
@@ -223,6 +219,12 @@ begin
   Info.Language := ResourceLanguage;
 
   Result.Location := 'LdrFindResource_U';
+
+  if UIntPtr(ResourceName) < High(Word) then
+    Result.LastCall.Parameter := '#' + RtlxUIntPtrToStr(UIntPtr(ResourceName))
+  else
+    Result.LastCall.Parameter := String(ResourceName);
+
   Result.Status := LdrFindResource_U(DllBase, Info, RESOURCE_DATA_LEVEL, Data);
 
   if not Result.IsSuccess then
@@ -521,8 +523,12 @@ begin
 end;
 {$ENDIF}
 
+function TModuleEntry.Region;
+begin
+  Result.Address := DllBase;
+  Result.Size := SizeOfImage;
+end;
+
 initialization
   {$IFDEF Debug}OldFailureHook := SetDliFailureHook2(BreakOnFailure);{$ENDIF}
-finalization
-
 end.

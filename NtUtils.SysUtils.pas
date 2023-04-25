@@ -8,7 +8,7 @@ unit NtUtils.SysUtils;
 interface
 
 uses
-  Ntapi.WinNt, DelphiApi.Reflection, DelphiUtils.AutoObjects;
+  Ntapi.WinNt, DelphiUtils.AutoObjects, NtUtils;
 
 // Strings
 
@@ -99,10 +99,38 @@ function RtlxPrefixString(
   CaseSensitive: Boolean = False
 ): Boolean;
 
+// Check if a string has a matching prefix and remove it
+function RtlxPrefixStripString(
+  const Prefix: String;
+  var S: String;
+  CaseSensitive: Boolean = False
+): Boolean;
+
 // Check if an ANSI string has a matching prefix
 function RtlxPrefixAnsiString(
   const Prefix: AnsiString;
   const S: AnsiString;
+  CaseSensitive: Boolean = False
+): Boolean;
+
+// Check if an ANSI string has a matching prefix and remove it
+function RtlxPrefixStripAnsiString(
+  const Prefix: AnsiString;
+  var S: AnsiString;
+  CaseSensitive: Boolean = False
+): Boolean;
+
+// Check if a string has a matching suffix
+function RtlxSuffixString(
+  const Suffix: String;
+  const S: String;
+  CaseSensitive: Boolean = False
+): Boolean;
+
+// Check if a string has a matching suffix and remove it
+function RtlxSuffixStripString(
+  const Suffix: String;
+  var S: String;
   CaseSensitive: Boolean = False
 ): Boolean;
 
@@ -124,21 +152,24 @@ function RtlxFormatString(
 function RtlxUIntToStr(
   Value: Cardinal;
   Base: Cardinal = 10;
-  Width: Cardinal = 0
+  Width: Cardinal = 0;
+  PrefixNonDecimal: Boolean = True
 ): String;
 
 // Convert a 64-bit integer to a string
 function RtlxUInt64ToStr(
   Value: UInt64;
   Base: Cardinal = 10;
-  Width: Cardinal = 0
+  Width: Cardinal = 0;
+  PrefixNonDecimal: Boolean = True
 ): String;
 
 // Convert a native-size integer to a string
 function RtlxUIntPtrToStr(
   Value: UIntPtr;
   Base: Cardinal = 10;
-  Width: Cardinal = 0
+  Width: Cardinal = 0;
+  PrefixNonDecimal: Boolean = True
 ): String;
 
 // Convert a pointer value to a string
@@ -208,7 +239,7 @@ function RtlxIsPathUnderRoot(
 implementation
 
 uses
-  Ntapi.ntrtl, Ntapi.ntdef, Ntapi.crt, Ntapi.ntpebteb, NtUtils;
+  Ntapi.ntrtl, Ntapi.ntdef, Ntapi.crt, Ntapi.ntpebteb;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -268,45 +299,48 @@ end;
 
 function RtlxBuildWideMultiSz;
 var
-  S: String;
+  i: Integer;
   Size: Cardinal;
   Buffer: PWideMultiSz;
 begin
+  // Always include two terminating zeros
   Size := 2 * SizeOf(WideChar);
 
-  for S in Strings do
-    Inc(Size, Succ(Length(S)) * SizeOf(WideChar));
+  for i := 0 to High(Strings) do
+    Inc(Size, StringSizeZero(Strings[i]));
 
   // Allocate a buffer for all strings + additional zero terminators
-  Imemory(Result) := Auto.AllocateDynamic(Size);
+  IMemory(Result) := Auto.AllocateDynamic(Size);
   Buffer := Result.Data;
 
-  for S in Strings do
+  for i := 0 to High(Strings) do
   begin
-    memmove(Buffer, PWideChar(S), Length(S) * SizeOf(WideChar));
-    Inc(Buffer, Succ(Length(S)));
+    MarshalString(Strings[i], Buffer);
+    Inc(PByte(Buffer), StringSizeZero(Strings[i]));
   end;
 end;
 
 function RtlxBuildAnsiMultiSz;
 var
-  S: AnsiString;
+  i: Integer;
   Size: Cardinal;
   Buffer: PAnsiMultiSz;
 begin
+  // Always include two terminating zeros
   Size := 2 * SizeOf(AnsiChar);
 
-  for S in Strings do
-    Inc(Size, Succ(Length(S)) * SizeOf(AnsiChar));
+  for i := 0 to High(Strings) do
+    Inc(Size, Succ(Length(Strings[i])) * SizeOf(AnsiChar));
 
   // Allocate a buffer for all strings + additional zero terminators
   Imemory(Result) := Auto.AllocateDynamic(Size);
   Buffer := Result.Data;
 
-  for S in Strings do
+  for i := 0 to High(Strings) do
   begin
-    memmove(Buffer, PAnsiChar(S), Length(S) * SizeOf(AnsiChar));
-    Inc(Buffer, Succ(Length(S)));
+    Size := Succ(Length(Strings[i])) * SizeOf(AnsiChar);
+    Move(PAnsiChar(Strings[i])^, Buffer^, Size);
+    Inc(PByte(Buffer), Size);
   end;
 end;
 
@@ -443,10 +477,49 @@ begin
     TNtUnicodeString.From(S), not CaseSensitive);
 end;
 
+function RtlxPrefixStripString;
+begin
+  Result := RtlxPrefixString(Prefix, S, CaseSensitive);
+
+  if Result then
+    Delete(S, Low(S), Length(Prefix));
+end;
+
 function RtlxPrefixAnsiString;
 begin
   Result := RtlPrefixString(TNtAnsiString.From(Prefix),
     TNtAnsiString.From(S), not CaseSensitive);
+end;
+
+function RtlxPrefixStripAnsiString;
+begin
+  Result := RtlxPrefixAnsiString(Prefix, S, CaseSensitive);
+
+  if Result then
+    Delete(S, Low(S), Length(Prefix));
+end;
+
+function RtlxSuffixString;
+var
+  Str: TNtUnicodeString;
+begin
+  if Length(S) < Length(Suffix) then
+    Exit(False);
+
+  Str.Buffer := PWideChar(S) + Length(S) - Length(Suffix);
+  Str.Length := StringSizeNoZero(Suffix);
+  Str.MaximumLength := StringSizeZero(Suffix);
+
+  Result := RtlEqualUnicodeString(TNtUnicodeString.From(Suffix), Str,
+    not CaseSensitive);
+end;
+
+function RtlxSuffixStripString;
+begin
+  Result := RtlxSuffixString(Suffix, S, CaseSensitive);
+
+  if Result then
+    Delete(S, Low(S) + High(S) - Length(Suffix), Length(Suffix));
 end;
 
 function RtlxpAllocateVarArgs(
@@ -478,7 +551,7 @@ begin
       vtVariant:       Pointer(Buffer^) := Args[i].VVariant;
       vtInterface:     Pointer(Buffer^) := Args[i].VInterface;
       vtWideString:    Pointer(Buffer^) := Args[i].VWideString;
-      vtInt64:         Pointer(Buffer^) := Args[i].VInt64;
+      vtInt64:         Int64(Buffer^) := Args[i].VInt64^;
       vtUnicodeString: Pointer(Buffer^) := Args[i].VUnicodeString;
     end;
 
@@ -489,16 +562,18 @@ end;
 function RtlxFormatString;
 var
   Buffer: IMemory<PWideChar>;
+  VarArgsBuffer: IMemory;
   NewSize: Cardinal;
   Count: Integer;
 begin
   NewSize := $100;
+  VarArgsBuffer := RtlxpAllocateVarArgs(Args);
 
   repeat
     IMemory(Buffer) := Auto.AllocateDynamic(NewSize);
 
     Count := vswprintf_s(Buffer.Data, Buffer.Size div SizeOf(WideChar),
-      PWideChar(Format), RtlxpAllocateVarArgs(Args).Data);
+      PWideChar(Format), VarArgsBuffer.Data);
 
     if Count >= 0 then
     begin
@@ -524,23 +599,22 @@ var
 begin
   Str.Length := 0;
   Str.MaximumLength := SizeOf(Buffer);
-  Str.Buffer := PWideChar(@Buffer);
+  Str.Buffer := @Buffer[0];
 
-  if NT_SUCCESS(RtlIntegerToUnicodeString(Value, Base, Str)) then
-  begin
-    Result := Str.ToString;
+  if not NT_SUCCESS(RtlIntegerToUnicodeString(Value, Base, Str)) then
+    Exit('');
 
-    if Length(Result) < Integer(Width) then
-      Result := RtlxBuildString('0', Integer(Width) - Length(Result)) + Result;
+  Result := Str.ToString;
 
+  if Length(Result) < Integer(Width) then
+    Result := RtlxBuildString('0', Integer(Width) - Length(Result)) + Result;
+
+  if PrefixNonDecimal then
     case Base of
       2: Result := '0b' + Result;
       8: Result := '0o' + Result;
       16: Result := '0x' + Result;
     end;
-  end
-  else
-    Result := '';
 end;
 
 function RtlxUInt64ToStr;
@@ -550,31 +624,30 @@ var
 begin
   Str.Length := 0;
   Str.MaximumLength := SizeOf(Buffer);
-  Str.Buffer := PWideChar(@Buffer);
+  Str.Buffer := @Buffer[0];
 
-  if NT_SUCCESS(RtlInt64ToUnicodeString(Value, Base, Str)) then
-  begin
-    Result := Str.ToString;
+  if not NT_SUCCESS(RtlInt64ToUnicodeString(Value, Base, Str)) then
+    Exit('');
 
-    if Length(Result) < Integer(Width) then
-      Result := RtlxBuildString('0', Integer(Width) - Length(Result)) + Result;
+  Result := Str.ToString;
 
+  if Length(Result) < Integer(Width) then
+    Result := RtlxBuildString('0', Integer(Width) - Length(Result)) + Result;
+
+  if PrefixNonDecimal then
     case Base of
       2: Result := '0b' + Result;
       8: Result := '0o' + Result;
       16: Result := '0x' + Result;
     end;
-  end
-  else
-    Result := '';
 end;
 
 function RtlxUIntPtrToStr;
 begin
   {$IF SizeOf(Value) = SizeOf(UInt64)}
-  Result := RtlxUInt64ToStr(Value, Base, Width);
+  Result := RtlxUInt64ToStr(Value, Base, Width, PrefixNonDecimal);
   {$ELSE}
-  Result := RtlxUIntToStr(Value, Base, Width);
+  Result := RtlxUIntToStr(Value, Base, Width, PrefixNonDecimal);
   {$ENDIF}
 end;
 
@@ -625,15 +698,16 @@ end;
 
 function RtlxGuidToString;
 var
-  Str: TNtUnicodeString;
+  Buffer: TNtUnicodeString;
+  BufferDeallocator: IAutoReleasable;
 begin
-  Str := Default(TNtUnicodeString);
+  Buffer := Default(TNtUnicodeString);
 
-  if not NT_SUCCESS(RtlStringFromGUID(Guid, Str)) then
+  if not NT_SUCCESS(RtlStringFromGUID(Guid, Buffer)) then
     Exit('');
 
-  RtlxDelayFreeUnicodeString(@Str);
-  Result := Str.ToString;
+  BufferDeallocator := RtlxDelayFreeUnicodeString(@Buffer);
+  Result := Buffer.ToString;
 end;
 
 function RtlxSplitPath;

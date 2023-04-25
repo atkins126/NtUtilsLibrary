@@ -15,7 +15,7 @@ uses
 [SupportedOption(spoInheritHandles)]
 [SupportedOption(spoBreakawayFromJob)]
 [SupportedOption(spoForceBreakaway)]
-[SupportedOption(spoNewConsole)]
+[SupportedOption(spoInheritConsole)]
 [SupportedOption(spoRunAsInvoker)]
 [SupportedOption(spoIgnoreElevation)]
 [SupportedOption(spoEnvironment)]
@@ -32,6 +32,7 @@ uses
 [SupportedOption(spoAppContainer)]
 [SupportedOption(spoPackage)]
 [SupportedOption(spoPackageBreakaway)]
+[SupportedOption(spoProtection)]
 [RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
 [RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
 function AdvxCreateProcess(
@@ -46,6 +47,7 @@ function AdvxCreateProcess(
 [SupportedOption(spoWindowMode)]
 [SupportedOption(spoDesktop)]
 [SupportedOption(spoToken, omRequired)]
+[SupportedOption(spoLogonFlags)]
 [RequiredPrivilege(SE_IMPERSONATE_PRIVILEGE, rpAlways)]
 function AdvxCreateProcessWithToken(
   const Options: TCreateProcessOptions;
@@ -58,6 +60,7 @@ function AdvxCreateProcessWithToken(
 [SupportedOption(spoEnvironment)]
 [SupportedOption(spoWindowMode)]
 [SupportedOption(spoDesktop)]
+[SupportedOption(spoLogonFlags)]
 [SupportedOption(spoCredentials, omRequired)]
 function AdvxCreateProcessWithLogon(
   const Options: TCreateProcessOptions;
@@ -90,6 +93,7 @@ type
     hJob: THandle;
     ExtendedFlags: TProcExtendedFlag;
     ChildPolicy: TProcessChildFlags;
+    Protection: TProtectionLevel;
     Initilalized: Boolean;
     procedure Release; override;
   end;
@@ -158,6 +162,9 @@ begin
     Inc(Count);
 
   if [poIgnoreElevation, poForceBreakaway] * Options.Flags <> [] then
+    Inc(Count);
+
+  if poUseProtection in Options.Flags then
     Inc(Count);
 
   if Count = 0 then
@@ -298,10 +305,12 @@ begin
   // Package name
   if Options.PackageName <> '' then
   begin
-    Result := RtlxpUpdateProcThreadAttribute(xMemory.Data,
+    Result := RtlxpUpdateProcThreadAttribute(
+      xMemory.Data,
       PROC_THREAD_ATTRIBUTE_PACKAGE_NAME,
       PWideChar(PtAttributes.Options.PackageName)^,
-      Length(PtAttributes.Options.PackageName) * SizeOf(WideChar));
+      StringSizeNoZero(PtAttributes.Options.PackageName)
+    );
 
     if not Result.IsSuccess then
       Exit;
@@ -350,6 +359,18 @@ begin
     if not Result.IsSuccess then
       Exit;
   end;
+
+  if poUseProtection in Options.Flags then
+  begin
+    PtAttributes.Protection := Options.Protection;
+
+    Result := RtlxpUpdateProcThreadAttribute(xMemory.Data,
+      PROC_THREAD_ATTRIBUTE_PROTECTION_LEVEL, PtAttributes.Protection,
+      SizeOf(TProtectionLevel));
+
+    if not Result.IsSuccess then
+      Exit;
+  end;
 end;
 
 { Startup info preparation and supplimentary routines }
@@ -391,7 +412,7 @@ begin
     CreationFlags := CreationFlags or CREATE_BREAKAWAY_FROM_JOB;
 
   // Console
-  if poNewConsole in Options.Flags then
+  if not (poInheritConsole in Options.Flags) then
     CreationFlags := CreationFlags or CREATE_NEW_CONSOLE;
 
   // Environment
@@ -404,6 +425,10 @@ begin
     SI.ShowWindow := TShowMode16(Word(Options.WindowMode));
     SI.Flags := SI.Flags or STARTF_USESHOWWINDOW;
   end;
+
+  // Process protection
+  if poUseProtection in Options.Flags then
+    CreationFlags := CreationFlags or CREATE_PROTECTED_PROCESS;
 end;
 
 procedure CaptureResult(
@@ -517,7 +542,7 @@ begin
   if Assigned(hxExpandedToken) then
   begin
     // Allow using pseudo-handles
-    Result := NtxExpandToken(hxExpandedToken, TOKEN_CREATE_PROCESS);
+    Result := NtxExpandToken(hxExpandedToken, TOKEN_CREATE_PROCESS_EX);
 
     if not Result.IsSuccess then
       Exit;
@@ -527,7 +552,7 @@ begin
   Result.LastCall.ExpectedPrivilege := SE_IMPERSONATE_PRIVILEGE;
 
   if Assigned(Options.hxToken) then
-    Result.LastCall.Expects<TTokenAccessMask>(TOKEN_CREATE_PROCESS);
+    Result.LastCall.Expects<TTokenAccessMask>(TOKEN_CREATE_PROCESS_EX);
 
   Result.Win32Result := CreateProcessWithTokenW(
     HandleOrDefault(hxExpandedToken),

@@ -81,7 +81,7 @@ function LsaxCreateAccount(
 
 // Delete account from LSA database
 function LsaxDeleteAccount(
-  [Access(_DELETE)] hAccount: TLsaHandle
+  [Access(_DELETE or ACCOUNT_VIEW)] hAccount: TLsaHandle
 ): TNtxStatus;
 
 // Enumerate account in the LSA database
@@ -367,7 +367,7 @@ end;
 function LsaxDeleteAccount;
 begin
   Result.Location := 'LsaDelete';
-  Result.LastCall.Expects<TLsaAccountAccessMask>(_DELETE);
+  Result.LastCall.Expects<TLsaAccountAccessMask>(_DELETE or ACCOUNT_VIEW);
   Result.Status := LsaDelete(hAccount);
 end;
 
@@ -375,6 +375,7 @@ function LsaxEnumerateAccounts;
 var
   EnumContext: TLsaEnumerationHandle;
   Buffer: PSidArray;
+  BufferDeallocator: IAutoReleasable;
   Count, i: Integer;
 begin
   Result := LsaxpEnsureConnected(hxPolicy, POLICY_VIEW_LOCAL_INFORMATION);
@@ -392,7 +393,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  LsaxDelayFreeMemory(Buffer);
+  BufferDeallocator := LsaxDelayFreeMemory(Buffer);
   SetLength(Accounts, Count);
 
   for i := 0 to High(Accounts) do
@@ -406,22 +407,23 @@ end;
 
 function LsaxEnumeratePrivilegesAccount;
 var
-  PrivilegeSet: PPrivilegeSet;
+  Buffer: PPrivilegeSet;
+  BufferDeallocator: IAutoReleasable;
   i: Integer;
 begin
   Result.Location := 'LsaEnumeratePrivilegesOfAccount';
   Result.LastCall.Expects<TLsaAccountAccessMask>(ACCOUNT_VIEW);
 
-  Result.Status := LsaEnumeratePrivilegesOfAccount(hAccount, PrivilegeSet);
+  Result.Status := LsaEnumeratePrivilegesOfAccount(hAccount, Buffer);
 
   if not Result.IsSuccess then
     Exit;
 
-  LsaxDelayFreeMemory(PrivilegeSet);
-  SetLength(Privileges, PrivilegeSet.PrivilegeCount);
+  BufferDeallocator := LsaxDelayFreeMemory(Buffer);
+  SetLength(Privileges, Buffer.PrivilegeCount);
 
   for i := 0 to High(Privileges) do
-    Privileges[i] := PrivilegeSet.Privilege{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF};
+    Privileges[i] := Buffer.Privilege{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF};
 end;
 
 function LsaxEnumeratePrivilegesAccountBySid;
@@ -534,15 +536,18 @@ begin
 
     Result := LsaxCreateAccount(hxAccount, AccountSid, nil,
       ACCOUNT_ADJUST_SYSTEM_ACCESS);
-
-    if Result.IsSuccess then
-      Result := LsaxSetRightsAccount(hxAccount.Handle, SystemAccess);
   end;
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := LsaxSetRightsAccount(hxAccount.Handle, SystemAccess);
 end;
 
 function LsaxEnumerateAccountsWithRightOrPrivilege;
 var
   Buffer: PLsaEnumerationInformation;
+  BufferDeallocator: IAutoReleasable;
   Count: Cardinal;
   i: Integer;
 begin
@@ -570,9 +575,8 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  LsaxDelayFreeMemory(Buffer);
-
   // Save account SIDs
+  BufferDeallocator := LsaxDelayFreeMemory(Buffer);
   SetLength(Accounts, Count);
 
   for i := 0 to High(Accounts) do
@@ -591,6 +595,7 @@ var
   EnumContext: TLsaEnumerationHandle;
   Count, i: Integer;
   Buffer: PPolicyPrivilegeDefinitionArray;
+  BufferDeallocator: IAutoReleasable;
 begin
   Result := LsaxpEnsureConnected(hxPolicy, POLICY_VIEW_LOCAL_INFORMATION);
 
@@ -607,7 +612,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  LsaxDelayFreeMemory(Buffer);
+  BufferDeallocator := LsaxDelayFreeMemory(Buffer);
   SetLength(Privileges, Count);
 
   for i := 0 to High(Privileges) do
@@ -620,6 +625,7 @@ end;
 function LsaxQueryPrivilege;
 var
   NameBuffer, DisplayNameBuffer: PLsaUnicodeString;
+  NameBufferDeallocator, DisplayNameBufferDeallocator: IAutoReleasable;
   LangId: SmallInt;
 begin
   Result := LsaxpEnsureConnected(hxPolicy, POLICY_LOOKUP_NAMES);
@@ -635,7 +641,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  LsaxDelayFreeMemory(NameBuffer);
+  NameBufferDeallocator := LsaxDelayFreeMemory(NameBuffer);
   Name := NameBuffer.ToString;
 
   // Get description based on name
@@ -648,7 +654,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  LsaxDelayFreeMemory(DisplayNameBuffer);
+  DisplayNameBufferDeallocator := LsaxDelayFreeMemory(DisplayNameBuffer);
   DisplayName := DisplayNameBuffer.ToString;
 end;
 
@@ -738,8 +744,8 @@ begin
       Exit;
   end;
 
-  Result.Location := 'LsaLookupAuthenticationPackage("' + String(PackageName) +
-    '")';
+  Result.Location := 'LsaLookupAuthenticationPackage';
+  Result.LastCall.Parameter := String(PackageName);
   Result.Status := LsaLookupAuthenticationPackage(hxLsaConnection.Handle,
     TLsaAnsiString.From(PackageName), PackageId);
 end;

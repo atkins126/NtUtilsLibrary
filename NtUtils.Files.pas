@@ -16,76 +16,87 @@ type
     fnWin32
   );
 
-  // File open operation parameteres; see NtUtils.Files.Open
-  IFileOpenParameters = interface
+  TFileSyncMode = (
+    fsSynchronousNonAlert,
+    fsSynchronousAlert,
+    fsAsynchronous
+  );
+
+  // File open/create operation parameteres; see NtUtils.Files.Open
+  IFileParameters = interface
     // Fluent builder
-    function UseFileName(const FileName: String; Mode: TFileNameMode = fnNative): IFileOpenParameters;
-    function UseFileId(const FileId: TFileId): IFileOpenParameters;
-    function UseAccess(const AccessMask: TFileAccessMask): IFileOpenParameters;
-    function UseRoot(const RootDirectory: IHandle): IFileOpenParameters;
-    function UseHandleAttributes(const Attributes: TObjectAttributesFlags): IFileOpenParameters;
-    function UseShareMode(const ShareMode: TFileShareMode): IFileOpenParameters;
-    function UseOpenOptions(const OpenOptions: TFileOpenOptions): IFileOpenParameters;
+    function UseFileName(const FileName: String; Mode: TFileNameMode = fnNative): IFileParameters;
+    function UseFileId(const FileId: TFileId; const FileIdHigh: UInt64 = 0): IFileParameters;
+    function UseAccess(const AccessMask: TFileAccessMask): IFileParameters;
+    function UseRoot(const RootDirectory: IHandle): IFileParameters;
+    function UseHandleAttributes(const Attributes: TObjectAttributesFlags): IFileParameters;
+    function UseSecurity(const SecurityDescriptor: ISecurityDescriptor): IFileParameters;
+    function UseShareMode(const ShareMode: TFileShareMode): IFileParameters;
+    function UseOptions(const Options: TFileOpenOptions): IFileParameters;
+    function UseSyncMode(const SyncMode: TFileSyncMode): IFileParameters;
+    function UseFileAttributes(const Attributes: TFileAttributes): IFileParameters;
+    function UseAllocationSize(const Size: UInt64): IFileParameters;
+    function UseDisposition(const Disposition: TFileDisposition): IFileParameters;
+    function UseTimeout(const Timeout: Int64): IFileParameters;
+    function UsePipeType(const PipeType: TFilePipeType): IFileParameters;
+    function UsePipeReadMode(const ReadMode: TFilePipeReadMode): IFileParameters;
+    function UsePipeCompletion(const CompletionMode: TFilePipeCompletion): IFileParameters;
+    function UsePipeMaximumInstances(const MaximumInstances: Cardinal): IFileParameters;
+    function UsePipeInboundQuota(const InboundQuota: Cardinal): IFileParameters;
+    function UsePipeOutboundQuota(const OutboundQuota: Cardinal): IFileParameters;
+    function UseMailslotQuota(const MailslotQuota: Cardinal): IFileParameters;
+    function UseMailslotMaximumMessageSize(const MaximumMessageSize: Cardinal): IFileParameters;
 
     // Accessor functions
     function GetFileName: String;
     function GetFileId: TFileId;
-    function GetAccess: TFileAccessMask;
-    function GetRoot: IHandle;
-    function GetHandleAttributes: TObjectAttributesFlags;
-    function GetShareMode: TFileShareMode;
-    function GetOpenOptions: TFileOpenOptions;
-    function GetObjectAttributes: PObjectAttributes;
-
-    // Accessors
-    property FileName: String read GetFileName;
-    property FileId: TFileId read GetFileId;
-    property Access: TFileAccessMask read GetAccess;
-    property Root: IHandle read GetRoot;
-    property HandleAttributes: TObjectAttributesFlags read GetHandleAttributes;
-    property ShareMode: TFileShareMode read GetShareMode;
-    property OpenOptions: TFileOpenOptions read GetOpenOptions;
-    property ObjectAttributes: PObjectAttributes read GetObjectAttributes;
-  end;
-
-  // File create operation parameteres; see NtUtils.Files.Open
-  IFileCreateParameters = interface
-    // Fluent builder
-    function UseFileName(const FileName: String; Mode: TFileNameMode = fnNative): IFileCreateParameters;
-    function UseAccess(const AccessMask: TFileAccessMask): IFileCreateParameters;
-    function UseRoot(const RootDirectory: IHandle): IFileCreateParameters;
-    function UseHandleAttributes(const Attributes: TObjectAttributesFlags): IFileCreateParameters;
-    function UseSecurity(const SecurityDescriptor: ISecurityDescriptor): IFileCreateParameters;
-    function UseShareMode(const ShareMode: TFileShareMode): IFileCreateParameters;
-    function UseCreateOptions(const CreateOptions: TFileOpenOptions): IFileCreateParameters;
-    function UseFileAttributes(const Attributes: TFileAttributes): IFileCreateParameters;
-    function UseAllocationSize(const Size: UInt64): IFileCreateParameters;
-    function UseDisposition(const Disposition: TFileDisposition): IFileCreateParameters;
-
-    // Accessor functions
-    function GetFileName: String;
+    function GetFileIdHigh: UInt64;
+    function GetHasFileId: Boolean;
     function GetAccess: TFileAccessMask;
     function GetRoot: IHandle;
     function GetHandleAttributes: TObjectAttributesFlags;
     function GetSecurity: ISecurityDescriptor;
     function GetShareMode: TFileShareMode;
-    function GetCreateOptions: TFileOpenOptions;
+    function GetOptions: TFileOpenOptions;
+    function GetSyncMode: TFileSyncMode;
     function GetFileAttributes: TFileAttributes;
     function GetAllocationSize: UInt64;
     function GetDisposition: TFileDisposition;
+    function GetTimeout: Int64;
+    function GetPipeType: TFilePipeType;
+    function GetPipeReadMode: TFilePipeReadMode;
+    function GetPipeCompletion: TFilePipeCompletion;
+    function GetPipeMaximumInstances: Cardinal;
+    function GetPipeInboundQuota: Cardinal;
+    function GetPipeOutboundQuota: Cardinal;
+    function GetMailslotQuota: Cardinal;
+    function GetMailslotMaximumMessageSize: Cardinal;
     function GetObjectAttributes: PObjectAttributes;
 
     // Accessors
     property FileName: String read GetFileName;
+    property FileId: TFileId read GetFileId;
+    property FileIdHigh: UInt64 read GetFileIdHigh;
+    property HasFileId: Boolean read GetHasFileId;
     property Access: TFileAccessMask read GetAccess;
     property Root: IHandle read GetRoot;
     property HandleAttributes: TObjectAttributesFlags read GetHandleAttributes;
     property Security: ISecurityDescriptor read GetSecurity;
     property ShareMode: TFileShareMode read GetShareMode;
-    property CreateOptions: TFileOpenOptions read GetCreateOptions;
+    property Options: TFileOpenOptions read GetOptions;
+    property SyncMode: TFileSyncMode read GetSyncMode;
     property FileAttributes: TFileAttributes read GetFileAttributes;
     property AllocationSize: UInt64 read GetAllocationSize;
     property Disposition: TFileDisposition read GetDisposition;
+    property Timeout: Int64 read GetTimeout;
+    property PipeType: TFilePipeType read GetPipeType;
+    property PipeReadMode: TFilePipeReadMode read GetPipeReadMode;
+    property PipeCompletion: TFilePipeCompletion read GetPipeCompletion;
+    property PipeMaximumInstances: Cardinal read GetPipeMaximumInstances;
+    property PipeInboundQuota: Cardinal read GetPipeInboundQuota;
+    property PipeOutboundQuota: Cardinal read GetPipeOutboundQuota;
+    property MailslotQuota: Cardinal read GetMailslotQuota;
+    property MailslotMaximumMessageSize: Cardinal read GetMailslotMaximumMessageSize;
     property ObjectAttributes: PObjectAttributes read GetObjectAttributes;
   end;
 
@@ -153,37 +164,56 @@ end;
 
 function RtlxDosPathToNativePath;
 var
-  NtPathStr: TNtUnicodeString;
+  Buffer: TNtUnicodeString;
+  BufferDeallocator: IAutoReleasable;
 begin
-  NtPathStr := Default(TNtUnicodeString);
+  Buffer := Default(TNtUnicodeString);
 
   if not NT_SUCCESS(RtlDosPathNameToNtPathName_U_WithStatus(
-    PWideChar(Path), NtPathStr, nil, nil)) then
+    PWideChar(Path), Buffer, nil, nil)) then
     Exit('');
 
-  RtlxDelayFreeUnicodeString(@NtPathStr);
-  Result := NtPathStr.ToString;
+  BufferDeallocator := RtlxDelayFreeUnicodeString(@Buffer);
+  Result := Buffer.ToString;
 end;
 
 function RtlxNativePathToDosPath;
+type
+  TPathSubstitution = record
+    NativePath, Win32Path: String;
+  end;
 const
-  DOS_DEVICES = '\??\';
+  SUBSTITUTIONS: array [0..2] of TPathSubstitution = (
+    (NativePath: '\Device\Mup\'; Win32Path: '\\'),
+    (NativePath: '\??\UNC\';     Win32Path: '\\'),
+    (NativePath: '\??\';         Win32Path: '')
+  );
   SYSTEM_ROOT = '\SystemRoot';
+var
+  i: Integer;
 begin
   Result := Path;
 
-  // Remove the DOS devices prefix
-  if RtlxPrefixString(DOS_DEVICES, Result) then
-    Delete(Result, Low(String), Length(DOS_DEVICES))
+  if Result = '' then
+    Exit;
 
   // Expand the SystemRoot symlink
-  else if RtlxPrefixString(SYSTEM_ROOT, Result) then
-    Result := USER_SHARED_DATA.NtSystemRoot + Copy(Result,
-      Succ(Length(SYSTEM_ROOT)), Length(Result))
+  if RtlxPrefixStripString(SYSTEM_ROOT, Result) then
+  begin
+    Result := USER_SHARED_DATA.NtSystemRoot + Result;
+    Exit;
+  end;
+
+  // Convert known locations
+  for i := Low(SUBSTITUTIONS) to High(SUBSTITUTIONS) do
+    if RtlxPrefixStripString(SUBSTITUTIONS[i].NativePath, Result) then
+    begin
+      Insert(SUBSTITUTIONS[i].Win32Path, Result, Low(String));
+      Exit;
+    end;
 
   // Otherwise, follow the symlink to the global root of the namespace
-  else if Path <> '' then
-    Result := '\\.\GlobalRoot' + Path;
+  Insert('\\.\GlobalRoot', Result, Low(String));
 end;
 
 function RltxGetFinalNameFile;
@@ -213,9 +243,8 @@ begin
   SetString(FileName, Buffer.Data, Required);
 
   // Remove the excessive prefix
-  if (Flags and VOLUME_NAME_MASK = VOLUME_NAME_DOS) and
-    RtlxPrefixString('\\?\', FileName, True) then
-    Delete(FileName, 1, Length('\\?\'));
+  if (Flags and VOLUME_NAME_MASK = VOLUME_NAME_DOS) then
+    RtlxPrefixStripString('\\?\', FileName, True);
 end;
 
 function RtlxGetCurrentDirectory;

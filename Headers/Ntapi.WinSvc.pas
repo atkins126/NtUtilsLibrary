@@ -44,7 +44,10 @@ const
   SC_MANAGER_QUERY_LOCK_STATUS = $0010;
   SC_MANAGER_MODIFY_BOOT_CONFIG = $0020;
 
-  SC_MANAGER_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $3F;
+  SC_MANAGER_READ = STANDARD_RIGHTS_READ or $0014;
+  SC_MANAGER_WRITE = STANDARD_RIGHTS_WRITE or $0022;
+  SC_MANAGER_EXECUTE = STANDARD_RIGHTS_EXECUTE or $0009;
+  SC_MANAGER_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $003F;
 
   // SDK::winsvc.h - service access masks
   SERVICE_QUERY_CONFIG = $0001;
@@ -57,6 +60,9 @@ const
   SERVICE_INTERROGATE = $0080;
   SERVICE_USER_DEFINED_CONTROL = $0100;
 
+  SERVICE_READ = STANDARD_RIGHTS_READ or $008D;
+  SERVICE_WRITE = STANDARD_RIGHTS_WRITE or $0002;
+  SERVICE_EXECUTE = STANDARD_RIGHTS_EXECUTE or $0170;
   SERVICE_ALL_ACCESS = STANDARD_RIGHTS_REQUIRED or $1FF;
 
   // For annotations
@@ -149,7 +155,7 @@ type
   TScLock = NativeUInt;
   PScEnumerationHandle = PCardinal;
 
-  [FriendlyName('SCM'), ValidMask(SC_MANAGER_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('SCM'), ValidBits(SC_MANAGER_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(SC_MANAGER_CONNECT, 'Connect')]
   [FlagName(SC_MANAGER_CREATE_SERVICE, 'Create Service')]
   [FlagName(SC_MANAGER_ENUMERATE_SERVICE, 'Enumerate Services')]
@@ -158,7 +164,7 @@ type
   [FlagName(SC_MANAGER_MODIFY_BOOT_CONFIG, 'Modify Boot Config')]
   TScmAccessMask = type TAccessMask;
 
-  [FriendlyName('service'), ValidMask(SERVICE_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('service'), ValidBits(SERVICE_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(SERVICE_QUERY_CONFIG, 'Query Config')]
   [FlagName(SERVICE_CHANGE_CONFIG, 'Change Config')]
   [FlagName(SERVICE_QUERY_STATUS, 'Query Status')]

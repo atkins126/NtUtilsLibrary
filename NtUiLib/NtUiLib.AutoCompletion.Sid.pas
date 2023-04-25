@@ -7,30 +7,62 @@ unit NtUiLib.AutoCompletion.Sid;
 interface
 
 uses
-  Ntapi.WinUser, Ntapi.Shlwapi, NtUtils, NtUiLib.AutoCompletion;
+  Ntapi.WinNt, Ntapi.WinUser, Ntapi.Shlwapi, Ntapi.ntlsa, Ntapi.ntsam,
+  NtUtils, NtUtils.Lsa, NtUtils.Lsa.Sid,  NtUtils.Sam, NtUiLib.AutoCompletion;
+
+type
+  TSidSource = (
+    ssWellKnown,         // Well-known SIDs from winnt
+    ssVirtualAccounts,   // Virtual domains from the SID name mapping range
+    ssCurrentToken,      // SIDs from the current token
+    ssSamAccounts,       // SIDs of accounts in SAM domains
+    ssLsaAccounts,       // SIDs of accounts from the LSA database
+    ssLogonSessions,     // SIDs from logon session enumeration
+    ssPerSession,        // Font Driver Host & Window Manager SIDs
+    ssLogonSID,          // The SID from the window station/desktop
+    ssServices,          // NT SERVICE SIDs
+    ssTasks,             // NT TASK SIDs
+    ssAppCapability,     // Known APP CAPABILITY SIDs
+    ssGroupCapability    // Known GROUP CAPABILITY SIDs
+  );
+
+  TSidSourceSet = set of TSidSource;
+  TSidTypes = set of TSidNameUse;
+
+const
+  ALL_SID_SOURCES = [Low(TSidSource)..High(TSidSource)];
+
+// Collect SID suggestions from various sources
+function LsaxSuggestSIDs(
+  Sources: TSidSourceSet = ALL_SID_SOURCES;
+  SidTypeFilter: TSidTypes = VALID_SID_TYPES;
+  [opt, Access(POLICY_LOOKUP_NAMES)] const hxLsaPolicy: ILsaHandle = nil;
+  [opt, Access(SAM_SERVER_ENUMERATE_DOMAINS or SAM_SERVER_LOOKUP_DOMAIN)]
+    const hxSamServer: ISamHandle = nil
+): TArray<TTranslatedName>;
 
 // Add dynamic SID suggestion to an edit-derived control
 function ShlxEnableSidSuggestions(
   EditControl: THwnd;
-  Options: Cardinal = ACO_AUTOSUGGEST or ACO_UPDOWNKEYDROPSLIST
+  Options: Cardinal = ACO_AUTOSUGGEST or ACO_UPDOWNKEYDROPSLIST;
+  SidTypeFilter: TSidTypes = VALID_SID_TYPES
 ): TNtxStatus;
 
 implementation
 
 uses
-  Ntapi.WinNt, Ntapi.ntsam, Ntapi.ntseapi, Ntapi.WinSvc, Ntapi.ntrtl,
-  Ntapi.ntioapi, Ntapi.ntpebteb, Ntapi.Versions, NtUtils.Security.Sid,
-  NtUtils.Lsa.Sid, NtUtils.Sam, NtUtils.Svc, NtUtils.WinUser, NtUtils.Tokens,
-  NtUtils.Tokens.Info, NtUtils.SysUtils, NtUtils.Files, NtUtils.Files.Open,
-  NtUtils.Files.Folders, NtUtils.WinStation, NtUtils.Security.Capabilities,
-  DelphiUtils.Arrays, DelphiUtils.AutoObjects, NtUtils.Lsa.Logon;
+  Ntapi.ntseapi, Ntapi.WinSvc, Ntapi.ntrtl, Ntapi.ntioapi, Ntapi.ntpebteb,
+  Ntapi.Versions, NtUtils.Security.Sid, NtUtils.Svc, NtUtils.WinUser,
+  NtUtils.Tokens, NtUtils.Tokens.Info, NtUtils.SysUtils, NtUtils.Files,
+  NtUtils.Security.Sid.Parsing, NtUtils.Files.Open, NtUtils.Files.Directories,
+  NtUtils.WinStation, NtUtils.Security.Capabilities, DelphiUtils.Arrays,
+  DelphiUtils.AutoObjects, NtUtils.Lsa.Logon, NtUtils.Security.AppContainer;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
 {$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
-// Prepare well-known SIDs from constants
-function EnumerateKnownSIDs: TArray<ISid>;
+function RtlxpSuggestWellKnownSIDs: TArray<ISid>;
 var
   KnownDefinitions: TArray<TArray<Cardinal>>;
 begin
@@ -104,10 +136,10 @@ begin
     [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_NTLM_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_SCHANNEL_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_DIGEST_RID],
-    [SECURITY_NT_AUTHORITY, SECURITY_CRED_TYPE_BASE_RID, SECURITY_CRED_TYPE_THIS_ORG_CERT_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_NTLM_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_SCHANNEL_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_PACKAGE_BASE_RID, SECURITY_PACKAGE_DIGEST_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_CRED_TYPE_BASE_RID, SECURITY_CRED_TYPE_THIS_ORG_CERT_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_SERVICE_ID_BASE_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_SERVICE_ID_BASE_RID, SECURITY_SERVICE_ID_GROUP_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_VIRTUALSERVER_ID_BASE_RID],
@@ -134,13 +166,31 @@ begin
     [SECURITY_APP_PACKAGE_AUTHORITY, SECURITY_CAPABILITY_BASE_RID, SECURITY_CAPABILITY_REMOVABLE_STORAGE],
     [SECURITY_APP_PACKAGE_AUTHORITY, SECURITY_CAPABILITY_BASE_RID, SECURITY_CAPABILITY_APPOINTMENTS],
     [SECURITY_APP_PACKAGE_AUTHORITY, SECURITY_CAPABILITY_BASE_RID, SECURITY_CAPABILITY_CONTACTS],
+    [SECURITY_MANDATORY_LABEL_AUTHORITY],
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_UNTRUSTED_RID],
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_LOW_RID],
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_MEDIUM_RID],
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_MEDIUM_PLUS_RID],
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_HIGH_RID],
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_SYSTEM_RID],
-    [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_PROTECTED_PROCESS_RID]
+    [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_PROTECTED_PROCESS_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_AUTHORITY_ASSERTED_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_SERVICE_ASSERTED_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_FRESH_KEY_AUTH_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_KEY_TRUST_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_KEY_PROPERTY_MFA_RID],
+    [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_KEY_PROPERTY_ATTESTATION_RID],
+    [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_NONE_RID, SECURITY_PROCESS_PROTECTION_LEVEL_NONE_RID],
+    [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_LITE_RID, SECURITY_PROCESS_PROTECTION_LEVEL_AUTHENTICODE_RID],
+    [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_LITE_RID, SECURITY_PROCESS_PROTECTION_LEVEL_ANTIMALWARE_RID],
+    [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_LITE_RID, SECURITY_PROCESS_PROTECTION_LEVEL_APP_RID],
+    [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_LITE_RID, SECURITY_PROCESS_PROTECTION_LEVEL_WINDOWS_RID],
+    [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_LITE_RID, SECURITY_PROCESS_PROTECTION_LEVEL_WINTCB_RID],
+    [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_FULL_RID, SECURITY_PROCESS_PROTECTION_LEVEL_AUTHENTICODE_RID],
+    [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_FULL_RID, SECURITY_PROCESS_PROTECTION_LEVEL_ANTIMALWARE_RID],
+    [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_FULL_RID, SECURITY_PROCESS_PROTECTION_LEVEL_APP_RID],
+    [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_FULL_RID, SECURITY_PROCESS_PROTECTION_LEVEL_WINDOWS_RID],
+    [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_FULL_RID, SECURITY_PROCESS_PROTECTION_LEVEL_WINTCB_RID]
   ];
 
   Result := TArray.Convert<TArray<Cardinal>, ISid>(KnownDefinitions,
@@ -155,19 +205,33 @@ begin
   );
 end;
 
-// Enumerate SIDs related to the caller
-function EnumerateRuntimeSIDs: TArray<ISid>;
+function RtlxpSuggestVirtualAccountSIDs: TArray<ISid>;
+var
+  i, j: Cardinal;
+begin
+  SetLength(Result, (SECURITY_MAX_BASE_RID - SECURITY_MIN_BASE_RID + 1) * 2);
+
+  j := 0;
+  for i := SECURITY_MIN_BASE_RID to SECURITY_MAX_BASE_RID do
+  begin
+    // Domain account
+    if RtlxCreateSid(Result[j], SECURITY_NT_AUTHORITY, [i]).IsSuccess then
+      Inc(j);
+
+    // All members group
+    if RtlxCreateSid(Result[j], SECURITY_NT_AUTHORITY, [i, 0]).IsSuccess then
+      Inc(j);
+  end;
+
+  SetLength(Result, j);
+end;
+
+function RtlxpSuggestCurrentTokenSIDs: TArray<ISid>;
 var
   Sid: ISid;
   Groups: TArray<TGroup>;
-  Sessions: TArray<TSessionIdW>;
-  LogonSessions: TArray<TLogonId>;
 begin
   Result := nil;
-
-  // Current window station's/desktop's logon SID
-  if UsrxQuerySid(GetProcessWindowStation, Sid).IsSuccess and Assigned(Sid) then
-    Result := [Sid];
 
   // Current user
   if NtxQuerySidToken(NtxCurrentEffectiveToken, TokenUser, Sid).IsSuccess then
@@ -182,124 +246,211 @@ begin
         Result := Group.Sid;
       end
     );
-
-  // Logon session owners
-  if LsaxEnumerateLogonSessions(LogonSessions).IsSuccess then
-    Result := Result + TArray.Convert<TLogonId, ISid>(LogonSessions,
-      function (const LogonId: TLogonId; out Sid: ISid): Boolean
-      var
-        Info: ILogonSession;
-      begin
-        Result := LsaxQueryLogonSession(LogonId, Info).IsSuccess and
-          Assigned(Info.Data.SID) and RtlxCopySid(Info.Data.SID, Sid).IsSuccess;
-      end
-    );
-
-  // Add per-session SIDs
-  if RtlOsVersionAtLeast(OsWin8) then
-  begin
-    // Lookup all sessions when possible
-    if not WsxEnumerateSessions(Sessions).IsSuccess then
-    begin
-      SetLength(Sessions, 2);
-      Sessions[0].SessionID := 0;
-      Sessions[0].SessionID := RtlGetCurrentPeb.SessionID;
-    end;
-
-    // Font Driver Host\UMFD-X
-    Result := Result + TArray.Map<TSessionIdW, ISid>(Sessions,
-      function (const Session: TSessionIdW): ISid
-      begin
-        Result := RtlxMakeSid(SECURITY_NT_AUTHORITY,
-          [SECURITY_UMFD_BASE_RID, 0, Session.SessionID]);
-      end
-    );
-
-    // Window Manager\DWM-X
-    Result := Result + TArray.Map<TSessionIdW, ISid>(Sessions,
-      function (const Session: TSessionIdW): ISid
-      begin
-        Result := RtlxMakeSid(SECURITY_NT_AUTHORITY,
-          [SECURITY_WINDOW_MANAGER_BASE_RID, SECURITY_WINDOW_MANAGER_GROUP,
-            Session.SessionID]);
-      end
-    );
-  end;
 end;
 
-// Enumerate domains registered in SAM
-function EnumerateKnownDomains: TArray<ISid>;
+function RtlxpCollectSamAccounts(
+  const hxDomain: ISamHandle;
+  SidTypes: TSidTypes
+): TArray<ISid>;
 var
-  Status: TNtxStatus;
-  hxSamServer: ISamHandle;
-  DomainNames: TArray<String>;
+  Members, AllMembers: TArray<TRidAndName>;
+  RIDs: TArray<Cardinal>;
+  i: Integer;
 begin
-  Status := SamxConnect(hxSamServer, SAM_SERVER_ENUMERATE_DOMAINS or
-    SAM_SERVER_LOOKUP_DOMAIN);
+  Result := nil;
+  AllMembers := nil;
 
-  if not Status.IsSuccess then
-    Exit(nil);
+  // Add users
+  if (SidTypeUser in SidTypes) and
+    SamxEnumerateUsers(hxDomain.Handle, Members).IsSuccess then
+    AllMembers := AllMembers + Members;
 
-  Status := SamxEnumerateDomains(DomainNames, hxSamServer);
+  // Add groups
+  if (SidTypeGroup in SidTypes) and
+    SamxEnumerateGroups(hxDomain.Handle, Members).IsSuccess then
+    AllMembers := AllMembers + Members;
 
-  if not Status.IsSuccess then
-    Exit(nil);
+  // Add aliases
+  if (SidTypeAlias in SidTypes) and
+    SamxEnumerateAliases(hxDomain.Handle, Members).IsSuccess then
+    AllMembers := AllMembers + Members;
 
-  Result := TArray.Convert<String, ISid>(DomainNames,
-    function (const Name: String; out Sid: ISid): Boolean
-    begin
-      Result := SamxLookupDomain(Name, Sid, hxSamServer).IsSuccess;
-    end
-  );
+  if Length(AllMembers) = 0 then
+    Exit;
+
+  // Convers RIDs to SIDs
+  SetLength(RIDs, Length(AllMembers));
+
+  for i := 0 to High(AllMembers) do
+    RIDs[i] := AllMembers[i].RelativeID;
+
+  if not SamxRidsToSids(hxDomain.Handle, RIDs, Result).IsSuccess then
+    Result := nil;
 end;
 
-// Enumerate accounts of a domain via SAM
-function EnumerateDomainAccounts(
-  const Name: String
+function RtlxpSuggestSamSIDs(
+  SidTypes: TSidTypes;
+  [opt, Access(SAM_SERVER_ENUMERATE_DOMAINS or SAM_SERVER_LOOKUP_DOMAIN)]
+    hxServer: ISamHandle = nil
 ): TArray<ISid>;
 var
   Status: TNtxStatus;
   hxDomain: ISamHandle;
-  Groups, Aliases, Users: TArray<TRidAndName>;
-  RIDs: TArray<Cardinal>;
+  DomainNames: TArray<String>;
+  DomainSid: ISid;
+  i: Integer;
 begin
-  Status := SamxOpenDomainByName(hxDomain, Name, DOMAIN_LIST_ACCOUNTS);
+  Result := nil;
+
+  if [SidTypeDomain, SidTypeUser, SidTypeGroup, SidTypeAlias] *
+    SidTypes = [] then
+    Exit;
+
+  if not Assigned(hxServer) then
+  begin
+    Status := SamxConnect(hxServer, SAM_SERVER_ENUMERATE_DOMAINS or
+      SAM_SERVER_LOOKUP_DOMAIN);
+
+    if not Status.IsSuccess then
+      Exit;
+  end;
+
+  // Retrieve domain names
+  Status := SamxEnumerateDomains(DomainNames, hxServer);
 
   if not Status.IsSuccess then
+    Exit;
+
+  for i := 0 to High(DomainNames) do
+  begin
+    // Convert the name to the SID
+    Status := SamxLookupDomain(DomainNames[i], DomainSid, hxServer);
+
+    if not Status.IsSuccess then
+      Continue;
+
+    // Include it if necessary
+    if SidTypeDomain in SidTypes then
+      Result := Result + [DomainSid];
+
+    if [SidTypeUser, SidTypeGroup, SidTypeAlias] * SidTypes <> [] then
+    begin
+      // Open the domain for listing accounts
+      Status := SamxOpenDomain(hxDomain, DomainSid, DOMAIN_LIST_ACCOUNTS,
+        hxServer);
+
+      // Save nested accounts
+      if Status.IsSuccess then
+        Result := Result + RtlxpCollectSamAccounts(hxDomain, SidTypes);
+    end;
+  end;
+end;
+
+function RtlxpSuggestLsaSIDs: TArray<ISid>;
+begin
+  if not LsaxEnumerateAccounts(Result).IsSuccess then
+    Result := nil;
+end;
+
+function RtlxpSuggestLogonOwnerSIDs: TArray<ISid>;
+var
+  LogonSessions: TArray<TLogonId>;
+begin
+  // Snapshot logon sessions
+  if not LsaxEnumerateLogonSessions(LogonSessions).IsSuccess then
     Exit(nil);
 
-  SamxEnumerateGroups(hxDomain.Handle, Groups);
-  SamxEnumerateAliases(hxDomain.Handle, Aliases);
-  SamxEnumerateUsers(hxDomain.Handle, Users);
+  Result := TArray.Convert<TLogonId, ISid>(LogonSessions,
+    function (const LogonId: TLogonId; out Sid: ISid): Boolean
+    var
+      Info: ILogonSession;
+     begin
+      // Lookup ownwer of each logon session
+      Result := LsaxQueryLogonSession(LogonId, Info).IsSuccess and
+        Assigned(Info.Data.SID) and RtlxCopySid(Info.Data.SID, Sid).IsSuccess;
+    end
+  );
+end;
 
-  RIDs := TArray.Map<TRidAndName, Cardinal>(Groups + Aliases + Users,
-    function (const Entry: TRidAndName): Cardinal
+function RtlxpSuggestPerSessionSIDs: TArray<ISid>;
+var
+  Sessions: TArray<TSessionIdW>;
+begin
+  if not RtlOsVersionAtLeast(OsWin8) then
+    Exit(nil);
+
+  // Add common SIDs
+  Result := [
+    RtlxMakeSid(SECURITY_NT_AUTHORITY, [SECURITY_UMFD_BASE_RID]),
+    RtlxMakeSid(SECURITY_NT_AUTHORITY, [SECURITY_WINDOW_MANAGER_BASE_RID]),
+    RtlxMakeSid(SECURITY_NT_AUTHORITY, [SECURITY_WINDOW_MANAGER_BASE_RID,
+      SECURITY_WINDOW_MANAGER_GROUP])
+  ];
+
+  // Lookup all sessions when possible; otherwise use the ones we know about
+  if not WsxEnumerateSessions(Sessions).IsSuccess then
+  begin
+    SetLength(Sessions, 2);
+    Sessions[0].SessionID := 0;
+    Sessions[0].SessionID := RtlGetCurrentPeb.SessionID;
+  end;
+
+  // Font Driver Host\UMFD-X
+  Result := Result + TArray.Map<TSessionIdW, ISid>(Sessions,
+    function (const Session: TSessionIdW): ISid
     begin
-      Result := Entry.RelativeID;
+      Result := RtlxMakeSid(SECURITY_NT_AUTHORITY,
+        [SECURITY_UMFD_BASE_RID, 0, Session.SessionID]);
     end
   );
 
-  SamxRidsToSids(hxDomain.Handle, RIDs, Result);
+  // Window Manager\DWM-X
+  Result := Result + TArray.Map<TSessionIdW, ISid>(Sessions,
+    function (const Session: TSessionIdW): ISid
+    begin
+      Result := RtlxMakeSid(SECURITY_NT_AUTHORITY,
+        [SECURITY_WINDOW_MANAGER_BASE_RID, SECURITY_WINDOW_MANAGER_GROUP,
+          Session.SessionID]);
+    end
+  );
 end;
 
-// Enumerate service SIDs
-function EnumerateKnownServices: TArray<ISid>;
+function RtlxSuggestLogonSIDs: TArray<ISid>;
+var
+  Sid: ISid;
+begin
+  if UsrxQuerySid(GetProcessWindowStation, Sid).IsSuccess and Assigned(Sid) then
+    Result := [Sid]
+  else
+    Result := nil;
+end;
+
+function RtlxpSuggestServiceSIDs: TArray<ISid>;
 var
   ServiceTypes: TServiceType;
   Status: TNtxStatus;
   Services: TArray<TServiceEntry>;
 begin
+  // Add common SIDs
+  Result := [
+    RtlxMakeSid(SECURITY_NT_AUTHORITY, [SECURITY_SERVICE_ID_BASE_RID]),
+    RtlxMakeSid(SECURITY_NT_AUTHORITY, [SECURITY_SERVICE_ID_BASE_RID,
+      SECURITY_SERVICE_ID_GROUP_RID])
+  ];
+
   ServiceTypes := SERVICE_WIN32;
 
   if RtlOsVersionAtLeast(OsWin10) then
     ServiceTypes := ServiceTypes or SERVICE_USER_SERVICE;
 
+  // Snapshot the list of services
   Status := ScmxEnumerateServices(Services, ServiceTypes);
 
   if not Status.IsSuccess then
-    Exit(nil);
+    Exit;
 
-  Result := TArray.Convert<TServiceEntry, ISid>(Services,
+  // Add their SIDs
+  Result := Result + TArray.Convert<TServiceEntry, ISid>(Services,
     function (const Service: TServiceEntry; out Sid: ISid): Boolean
     begin
       Result := RtlxCreateServiceSid(Service.ServiceName, Sid).IsSuccess;
@@ -307,22 +458,23 @@ begin
   );
 end;
 
-// Enumerate scheduled task SIDs
-function EnumerateKnownTasks: TArray<ISid>;
+function RtlxpSuggestTaskSIDs: TArray<ISid>;
 const
   TASK_ROOT = '\SystemRoot\system32\Tasks';
 var
   Status: TNtxStatus;
   TaskPrefix: String;
-  OpenParameters: IFileOpenParameters;
+  OpenParameters: IFileParameters;
   Tasks: TArray<ISid>;
   hxTaskDirecty: IHandle;
 begin
-  Result := nil;
+  // Add base SID
+  Result := [RtlxMakeSid(SECURITY_NT_AUTHORITY, [SECURITY_TASK_ID_BASE_RID])];
+
   TaskPrefix := '';
-  OpenParameters := FileOpenParameters
-    .UseAccess(FILE_DIRECTORY_FILE)
-    .UseOpenOptions(FILE_DIRECTORY_FILE or FILE_SYNCHRONOUS_IO_NONALERT);
+  OpenParameters := FileParameters
+    .UseAccess(FILE_LIST_DIRECTORY)
+    .UseOptions(FILE_DIRECTORY_FILE);
 
   // Try opening the root of all scheduled tasks
   Status := NtxOpenFile(hxTaskDirecty, OpenParameters.UseFileName(TASK_ROOT));
@@ -342,9 +494,9 @@ begin
   Tasks := nil;
 
   // Traverse the tasks and collect their names
-  Status := NtxTraverseFolder(hxTaskDirecty, OpenParameters,
+  Status := NtxTraverseDirectoryFile(hxTaskDirecty, OpenParameters,
     function(
-      const FileInfo: TFolderEntry;
+      const FileInfo: TDirectoryFileEntry;
       const Root: IHandle;
       const RootName: String;
       var ContinuePropagation: Boolean
@@ -375,13 +527,114 @@ begin
         Tasks[High(Tasks)] := TaskSid;
       end;
     end,
-    [ftInvokeOnFiles, ftIgnoreCallbackFailures,
-      ftIgnoreTraverseFailures, ftSkipReparsePoints],
+    [ftInvokeOnFiles, ftIgnoreCallbackFailures, ftIgnoreTraverseFailures],
+    FileDirectoryInformation,
     8
   );
 
   if Status.IsSuccess then
     Result := Tasks;
+end;
+
+function RtlxpSuggestCapabilitySIDs(
+  Source: TSidSource
+): TArray<TTranslatedName>;
+var
+  Names: TArray<String>;
+  Domain: String;
+  Mode: TCapabilityType;
+begin
+  case Source of
+    ssAppCapability:
+    begin
+      Domain := APP_CAPABILITY_DOMAIN;
+      Mode := ctAppCapability;
+    end;
+
+    ssGroupCapability:
+    begin
+      Domain := GROUP_CAPABILITY_DOMAIN;
+      Mode := ctGroupCapability;
+    end;
+  else
+    Exit(nil);
+  end;
+
+  // Get known capability names
+  Names := RtlxEnumerateKnownCapabilities;
+
+  // Prepare SIDs and a fake lookup for them
+  Result := TArray.Convert<String, TTranslatedName>(Names,
+    function (const Name: String; out Translated: TTranslatedName): Boolean
+    begin
+      Translated.IsFake := True;
+      Translated.SidType := SidTypeWellKnownGroup;
+      Translated.DomainName := Domain;
+      Translated.UserName := Name;
+      Result := RtlxDeriveCapabilitySid(Translated.SID, Name, Mode).IsSuccess;
+    end
+  );
+end;
+
+function LsaxSuggestSIDs;
+var
+  SIDs: TArray<ISid>;
+begin
+  // Collect translatable SIDs
+  SIDs := nil;
+
+  if ssWellKnown in Sources then
+    SIDs := SIDs + RtlxpSuggestWellKnownSIDs;
+
+  if ssVirtualAccounts in Sources then
+    SIDs := SIDs + RtlxpSuggestVirtualAccountSIDs;
+
+  if ssCurrentToken in Sources then
+    SIDs := SIDs + RtlxpSuggestCurrentTokenSIDs;
+
+  if ssSamAccounts in Sources then
+    SIDs := SIDs + RtlxpSuggestSamSIDs(SidTypeFilter, hxSamServer);
+
+  if ssLsaAccounts in Sources then
+    SIDs := SIDs + RtlxpSuggestLsaSIDs;
+
+  if ssLogonSessions in Sources then
+    SIDs := SIDs + RtlxpSuggestLogonOwnerSIDs;
+
+  if ssPerSession in Sources then
+    SIDs := SIDs + RtlxpSuggestPerSessionSIDs;
+
+  if ssLogonSID in Sources then
+    SIDs := SIDs + RtlxSuggestLogonSIDs;
+
+  if ssServices in Sources then
+    SIDs := SIDs + RtlxpSuggestServiceSIDs;
+
+  if ssTasks in Sources then
+    SIDs := SIDs + RtlxpSuggestTaskSIDs;
+
+  SIDs := TArray.RemoveDuplicates<ISid>(SIDs, RtlxEqualSids);
+
+  // Translate the SIDs
+  LsaxLookupSids(SIDs, Result, hxLsaPolicy);
+
+  // Add fake translated names for capabilities
+  if SidTypeWellKnownGroup in SidTypeFilter then
+  begin
+    if ssAppCapability in Sources then
+      Result := Result + RtlxpSuggestCapabilitySIDs(ssAppCapability);
+
+    if ssGroupCapability in Sources then
+      Result := Result + RtlxpSuggestCapabilitySIDs(ssGroupCapability);
+  end;
+
+  // Filter by type
+  TArray.FilterInline<TTranslatedName>(Result,
+    function (const Entry: TTranslatedName): Boolean
+    begin
+      Result := Entry.SidType in SidTypeFilter;
+    end
+  );
 end;
 
 type
@@ -395,14 +648,12 @@ type
 
   // An instance of SID suggestion provider that maintains its state
   TSidSuggestionProvider = class (TCustomAutoReleasable, ISuggestionProvider)
-    Names: TArray<String>;
-    SamDomains: TArray<String>;
+    Names: TArray<TTranslatedName>;
+    Filter: TSidTypes;
     procedure Release; override;
-    constructor Create;
-
-    function PerformLookup(
-      const SIDs: TArray<ISid>
-    ): TArray<String>;
+    constructor Create(
+      SidTypeFilter: TSidTypes = VALID_SID_TYPES
+    );
 
     function Suggest(
       const Root: String;
@@ -413,72 +664,54 @@ type
 constructor TSidSuggestionProvider.Create;
 begin
   inherited Create;
-
-  // Save SAM domains, well-known SIDs, and user-related SIDs
-  SamDomains := PerformLookup(EnumerateKnownDomains);
-  Names := SamDomains + PerformLookup(EnumerateKnownSIDs + EnumerateRuntimeSIDs)
+  Filter := SidTypeFilter;
+  Names := LsaxSuggestSIDs([ssWellKnown, ssVirtualAccounts, ssCurrentToken,
+    ssSamAccounts, ssLsaAccounts, ssLogonSessions, ssPerSession, ssLogonSID],
+    Filter);
 end;
 
 function TSidSuggestionProvider.Suggest;
-const
-  APP_CAPABILITY_PREFIX = APP_CAPABILITY_DOMAIN + '\';
-  GROUP_CAPABILITY_PREFIX = GROUP_CAPABILITY_DOMAIN + '\';
 var
-  i: Integer;
+  FilteredNames: TArray<TTranslatedName>;
 begin
   Result.Status := STATUS_SUCCESS;
 
   if Root = '' then
   begin
     // Include top-level accounts only
-    Suggestions := TArray.Map<String, String>(Names,
-      function (const Account: String): String
+    Suggestions := TArray.Map<TTranslatedName, String>(Names,
+      function (const Account: TTranslatedName): String
       begin
-        Result := RtlxExtractRootPath(Account);
+        Result := RtlxExtractRootPath(Account.FullName);
       end
     );
 
-    // Include capability domains
-    if RtlOsVersionAtLeast(OsWin10) and (Length(Suggestions) > 0) then
+    // Make capabilities discoverable
+    if RtlOsVersionAtLeast(OsWin10) then
       Suggestions := Suggestions + [APP_CAPABILITY_DOMAIN,
         GROUP_CAPABILITY_DOMAIN];
   end
   else
   begin
-    // Include well-known names under the specified root
-    Suggestions := TArray.Filter<String>(Names,
-      function (const Name: String): Boolean
+    if RtlxEqualStrings(SERVICE_SID_DOMAIN + '\', Root) then
+      FilteredNames := LsaxSuggestSIDs([ssServices], Filter)
+    else if RtlxEqualStrings(TASK_SID_DOMAIN + '\', Root) then
+      FilteredNames := LsaxSuggestSIDs([ssTasks], Filter)
+    else if RtlxEqualStrings(APP_CAPABILITY_DOMAIN + '\', Root) then
+      FilteredNames := LsaxSuggestSIDs([ssAppCapability], Filter)
+    else if RtlxEqualStrings(GROUP_CAPABILITY_DOMAIN + '\', Root) then
+      FilteredNames := LsaxSuggestSIDs([ssGroupCapability], Filter)
+    else
+      FilteredNames := Names;
+
+    // Include names under the specified root
+    Suggestions := TArray.Convert<TTranslatedName, String>(FilteredNames,
+      function (const Entry: TTranslatedName; out Name: String): Boolean
       begin
+        Name := Entry.FullName;
         Result := RtlxPrefixString(Root, Name);
       end
     );
-
-    // Include accounts from SAM domains
-    for i := 0 to High(SamDomains) do
-      if RtlxEqualStrings(SamDomains[i] + '\', Root) then
-      begin
-        Suggestions := Suggestions + PerformLookup(
-          EnumerateDomainAccounts(SamDomains[i]));
-        Break;
-      end;
-
-    // Include service accounts
-    if RtlxEqualStrings('NT SERVICE\', Root) then
-      Suggestions := Suggestions + PerformLookup(EnumerateKnownServices);
-
-    // Enumerate schedule task accounts
-    if RtlxEqualStrings('NT TASK\', Root) then
-      Suggestions := Suggestions + PerformLookup(EnumerateKnownTasks);
-
-    // Enumerate known app capabilities
-    if RtlxEqualStrings(APP_CAPABILITY_PREFIX, Root) then
-      Suggestions := Suggestions + RtlxEnumerateKnownCapabilities(
-        APP_CAPABILITY_PREFIX);
-
-    // Enumerate known group capabilities
-    if RtlxEqualStrings(GROUP_CAPABILITY_PREFIX, Root) then
-      Suggestions := Suggestions + RtlxEnumerateKnownCapabilities(
-        GROUP_CAPABILITY_PREFIX);
   end;
 
   // Clean-up duplicates
@@ -486,28 +719,6 @@ begin
     function (const A, B: String): Boolean
     begin
       Result := RtlxEqualStrings(A, B);
-    end
-  );
-end;
-
-function TSidSuggestionProvider.PerformLookup;
-var
-  TranslatedNames: TArray<TTranslatedName>;
-begin
-  if Length(SIDs) <= 0 then
-    Exit(nil);
-
-  if not LsaxLookupSids(SIDs, TranslatedNames).IsSuccess then
-    Exit(nil);
-
-  // Include only valid names
-  Result := TArray.Convert<TTranslatedName, String>(TranslatedNames,
-    function (const Lookup: TTranslatedName; out Suggestion: String): Boolean
-    begin
-      Result := Lookup.IsValid;
-
-      if Result then
-        Suggestion := Lookup.FullName;
     end
   );
 end;

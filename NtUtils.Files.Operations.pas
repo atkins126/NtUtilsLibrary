@@ -7,8 +7,8 @@ unit NtUtils.Files.Operations;
 interface
 
 uses
-  Ntapi.WinNt, Ntapi.ntioapi,DelphiApi.Reflection, DelphiUtils.AutoObjects,
-  DelphiUtils.Async, NtUtils;
+  Ntapi.WinNt, Ntapi.ntioapi, Ntapi.ntioapi.fsctl, DelphiApi.Reflection,
+  DelphiUtils.AutoObjects, DelphiUtils.Async, NtUtils, NtUtils.Files;
 
 type
   TFileStreamInfo = record
@@ -71,6 +71,35 @@ function NtxHardlinkFile(
   Flags: TFileLinkFlags = 0;
   [opt] RootDirectory: THandle = 0;
   InfoClass: TFileInformationClass = FileLinkInformation
+): TNtxStatus;
+
+// Lock a range of bytes in a file
+function NtxLockFile(
+  [Access(FILE_READ_DATA), {or} Access(FILE_WRITE_DATA)] hFile: THandle;
+  const ByteOffset: UInt64;
+  const Length: UInt64;
+  ExclusiveLock: Boolean = True;
+  FailImmediately: Boolean = True;
+  Key: Cardinal = 0
+): TNtxStatus;
+
+// Unlock a range of bytes in a file
+function NtxUnlockFile(
+  [Access(FILE_READ_DATA), {or} Access(FILE_WRITE_DATA)] hFile: THandle;
+  const ByteOffset: UInt64;
+  const Length: UInt64;
+  Key: Cardinal = 0
+): TNtxStatus;
+
+// Lock a range of bytes in a file and automaticaly unlock it later
+function NtxLockFileAuto(
+  out Unlocker: IAutoReleasable;
+  [Access(FILE_READ_DATA), {or} Access(FILE_WRITE_DATA)] const hxFile: IHandle;
+  ByteOffset: UInt64;
+  Length: UInt64;
+  ExclusiveLock: Boolean;
+  FailImmediately: Boolean = True;
+  Key: Cardinal = 0
 ): TNtxStatus;
 
 { Information }
@@ -142,6 +171,27 @@ function NtxSetShortNameFile(
   const ShortName: String
 ): TNtxStatus;
 
+{ Volume information }
+
+// Query variable-length information about a volume of a file
+function NtxQueryVolume(
+  hFile: THandle;
+  InfoClass: TFsInfoClass;
+  out Buffer: IMemory;
+  InitialBuffer: Cardinal = 0;
+  [opt] GrowthMethod: TBufferGrowthMethod = nil
+): TNtxStatus;
+
+type
+  NtxVolume = class abstract
+    // Query fixed-size information
+    class function Query<T>(
+      hFile: THandle;
+      InfoClass: TFsInfoClass;
+      out Buffer: T
+    ): TNtxStatus; static;
+  end;
+
 { Enumeration }
 
 // Enumerate file streams
@@ -165,8 +215,7 @@ function NtxEnumerateUsingProcessesFile(
 implementation
 
 uses
-  Ntapi.ntstatus, Ntapi.ntrtl, NtUtils.Objects, NtUtils.SysUtils, NtUtils.Ldr,
-  NtUtils.Files.Open, NtUtils.Synchronization;
+  Ntapi.ntstatus, NtUtils.Ldr, NtUtils.Files.Open, NtUtils.Synchronization;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -254,14 +303,13 @@ var
   xMemory: IMemory<PFileRenameInformationEx>; // aka PFileLinkInformationEx
 begin
   IMemory(xMemory) := Auto.AllocateDynamic(SizeOf(TFileRenameInformation) +
-    Length(TargetName) * SizeOf(WideChar));
+    StringSizeNoZero(TargetName));
 
   // Prepare a variable-length buffer for rename or hardlink operations
   xMemory.Data.Flags := Flags;
   xMemory.Data.RootDirectory := RootDirectory;
-  xMemory.Data.FileNameLength := Length(TargetName) * SizeOf(WideChar);
-  Move(PWideChar(TargetName)^, xMemory.Data.FileName,
-    xMemory.Data.FileNameLength);
+  xMemory.Data.FileNameLength := StringSizeNoZero(TargetName);
+  MarshalString(TargetName, @xMemory.Data.FileName);
 
   Result := NtxSetFile(hFile, InfoClass, xMemory.Data, xMemory.Size);
 end;
@@ -282,6 +330,45 @@ begin
     RootDirectory, InfoClass);
 end;
 
+function NtxLockFile;
+var
+  xIsb: IMemory<PIoStatusBlock>;
+begin
+  IMemory(xIsb) := Auto.AllocateDynamic(SizeOf(TIoStatusBlock));
+
+  Result.Location := 'NtLockFile';
+  Result.LastCall.Expects<TIoFileAccessMask>(FILE_READ_DATA);
+  Result.LastCall.Expects<TIoFileAccessMask>(FILE_WRITE_DATA);
+
+  Result.Status := NtLockFile(hFile, 0, nil, nil, xIsb.Data, ByteOffset, Length,
+    Key, FailImmediately, ExclusiveLock);
+
+  AwaitFileOperation(Result, hFile, xIsb);
+end;
+
+function NtxUnlockFile;
+var
+  Isb: TIoStatusBlock;
+begin
+  Result.Location := 'NtUnlockFile';
+  Result.LastCall.Expects<TIoFileAccessMask>(FILE_READ_DATA);
+  Result.LastCall.Expects<TIoFileAccessMask>(FILE_WRITE_DATA);
+  Result.Status := NtUnlockFile(hFile, Isb, ByteOffset, Length, Key);
+end;
+
+function NtxLockFileAuto;
+begin
+  Result := NtxLockFile(hxFile.Handle, ByteOffset, Length, ExclusiveLock,
+    FailImmediately, Key);
+
+  if Result.IsSuccess then
+    Unlocker := Auto.Delay(procedure
+      begin
+        NtxUnlockFile(hxFile.Handle, ByteOffset, Length, Key);
+      end
+    );
+end;
+
 { Information }
 
 function GrowFileDefault(
@@ -298,6 +385,7 @@ var
 begin
   Result.Location := 'NtQueryInformationFile';
   Result.LastCall.UsesInfoClass(InfoClass, icQuery);
+  Result.LastCall.Expects(ExpectedFileQueryAccess(InfoClass));
 
   // NtQueryInformationFile does not return the required size. We either need
   // to know how to grow the buffer, or we should guess.
@@ -335,6 +423,7 @@ var
 begin
   Result.Location := 'NtSetInformationFile';
   Result.LastCall.UsesInfoClass(InfoClass, icSet);
+  Result.LastCall.Expects(ExpectedFileSetAccess(InfoClass));
 
   Result.Status := NtSetInformationFile(hFile, Isb, Buffer,
     BufferSize, InfoClass);
@@ -346,6 +435,7 @@ var
 begin
   Result.Location := 'NtQueryInformationFile';
   Result.LastCall.UsesInfoClass(InfoClass, icQuery);
+  Result.LastCall.Expects(ExpectedFileQueryAccess(InfoClass));
 
   Result.Status := NtQueryInformationFile(hFile, Isb, @Buffer,
     SizeOf(Buffer), InfoClass);
@@ -372,10 +462,12 @@ begin
   else
   begin
     // Fallback to opening the file manually on older versions
-    Result := NtxOpenFile(hxFile, FileOpenParameters
+    Result := NtxOpenFile(hxFile, FileParameters
       .UseFileName(FileName)
       .UseRoot(AttributeBuilder(ObjectAttributes).Root)
       .UseAccess(FILE_READ_ATTRIBUTES)
+      .UseOptions(FILE_OPEN_NO_RECALL)
+      .UseSyncMode(fsAsynchronous)
     );
 
     if Result.IsSuccess then
@@ -413,13 +505,48 @@ var
   Buffer: IMemory<PFileNameInformation>;
 begin
   IMemory(Buffer) := Auto.AllocateDynamic(SizeOf(TFileNameInformation) +
-    Length(ShortName) * SizeOf(WideChar));
+    StringSizeNoZero(ShortName));
 
-  Buffer.Data.FileNameLength := Length(ShortName) * SizeOf(WideChar);
-  Move(PWideChar(ShortName)^, Buffer.Data.FileName, Buffer.Data.FileNameLength);
+  Buffer.Data.FileNameLength := StringSizeNoZero(ShortName);
+  MarshalString(ShortName, @Buffer.Data.FileName);
 
   Result := NtxSetFile(hFile, FileShortNameInformation, Buffer.Data,
     Buffer.Size);
+end;
+
+{ Volume information }
+
+function NtxQueryVolume;
+var
+  Isb: TIoStatusBlock;
+begin
+  Result.Location := 'NtQueryVolumeInformationFile';
+  Result.LastCall.UsesInfoClass(InfoClass, icQuery);
+  Result.LastCall.Expects(ExpectedFsQueryAccess(InfoClass));
+
+  if not Assigned(GrowthMethod) then
+    GrowthMethod := GrowFileDefault;
+
+  Buffer := Auto.AllocateDynamic(InitialBuffer);
+  repeat
+    Isb.Information := 0;
+
+    Result.Status := NtQueryVolumeInformationFile(hFile, Isb, Buffer.Data,
+      Buffer.Size, InfoClass);
+
+  until not NtxExpandBufferEx(Result, Buffer, Isb.Information, GrowthMethod);
+end;
+
+class function NtxVolume.Query<T>;
+var
+  Isb: TIoStatusBlock;
+begin
+  Result.Location := 'NtQueryVolumeInformationFile';
+  Result.LastCall.UsesInfoClass(InfoClass, icQuery);
+  Result.LastCall.Expects(ExpectedFsQueryAccess(InfoClass));
+
+  Result.Status := NtQueryVolumeInformationFile(hFile, Isb, @Buffer,
+    SizeOf(Buffer), InfoClass);
 end;
 
 { Enumeration }

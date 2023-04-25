@@ -20,7 +20,7 @@ const
 [SupportedOption(spoSuspended)]
 [SupportedOption(spoInheritHandles)]
 [SupportedOption(spoBreakawayFromJob)]
-[SupportedOption(spoNewConsole)]
+[SupportedOption(spoInheritConsole)]
 [SupportedOption(spoDesktop)]
 [SupportedOption(spoParentProcess, omRequired)]
 [SupportedOption(spoTimeout)]
@@ -158,34 +158,22 @@ begin
     Result := Result or CREATE_BREAKAWAY_FROM_JOB;
 
   // Console
-  if poNewConsole in Options.Flags then
+  if not (poInheritConsole in Options.Flags) then
     Result := Result or CREATE_NEW_CONSOLE;
 end;
 
-function StringSize(const Source: String): NativeUInt;
-begin
-  if Length(Source) > 0 then
-    Result := Succ(Length(Source)) * SizeOf(WideChar)
-  else
-    Result := 0;
-end;
-
-function MarshalString(
+function MarshalStringRemote(
   Source: String;
   var Target: Pointer;
   var RemoteTarget: Pointer
 ): Pointer;
-var
-  Size: NativeUInt;
 begin
-  Size := StringSize(Source);
-
-  if Size > 0 then
+  if Length(Source) > 0 then
   begin
     Result := RemoteTarget;
-    Move(PWideChar(Source)^, Target^, Size);
-    Inc(PByte(Target), Size);
-    Inc(PByte(RemoteTarget), Size);
+    MarshalString(Source, Target);
+    Inc(PByte(Target), StringSizeZero(Source));
+    Inc(PByte(RemoteTarget), StringSizeZero(Source));
   end
   else
     Result := nil;
@@ -232,8 +220,8 @@ begin
   // Map a shared region of memory
   Result := RtlxMapSharedMemory(
     Options.hxParentProcess,
-    SizeOf(TCreateProcessContext) + CodeRef.Size + StringSize(CommandLine) +
-      StringSize(Options.Desktop) + StringSize(Options.CurrentDirectory),
+    SizeOf(TCreateProcessContext) + CodeRef.Size + StringSizeZero(CommandLine) +
+      StringSizeZero(Options.Desktop) + StringSizeZero(Options.CurrentDirectory),
     IMemory(LocalMapping),
     RemoteMapping,
     [mmAllowWrite, mmAllowExecute]
@@ -270,12 +258,12 @@ begin
   DynamicPartRemote := RemoteMapping.Offset(SizeOf(TCreateProcessContext) +
     CodeRef.Size);
 
-  LocalMapping.Data.CommandLine := MarshalString(CommandLine, DynamicPartLocal,
-    DynamicPartRemote);
-  LocalMapping.Data.Desktop := MarshalString(Options.Desktop, DynamicPartLocal,
-    DynamicPartRemote);
-  LocalMapping.Data.CurrentDirectory := MarshalString(Options.CurrentDirectory,
+  LocalMapping.Data.CommandLine := MarshalStringRemote(CommandLine,
     DynamicPartLocal, DynamicPartRemote);
+  LocalMapping.Data.Desktop := MarshalStringRemote(Options.Desktop,
+    DynamicPartLocal, DynamicPartRemote);
+  LocalMapping.Data.CurrentDirectory := MarshalStringRemote(
+    Options.CurrentDirectory, DynamicPartLocal, DynamicPartRemote);
 
   if Options.Timeout <> 0 then
     Timeout := Options.Timeout

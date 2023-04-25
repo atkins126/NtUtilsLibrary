@@ -74,6 +74,22 @@ const
   PROCESS_CREATE_FLAGS_AUXILIARY_PROCESS = $00008000;      // both, SeTcb
   PROCESS_CREATE_FLAGS_STORE_PROCESS = $00020000;          // both
 
+  // PHNT::ntpsapi.h
+  PS_PROTECTED_TYPE_MASK = $07;
+  PS_PROTECTED_AUDIT_MASK = $08;
+  PS_PROTECTED_AUDIT_SHIFT = 3;
+  PS_PROTECTED_SIGNER_MASK = $F0;
+  PS_PROTECTED_SIGNER_SHIFT = 4;
+
+  // STD handle attribute flags
+  PS_STD_STATE_NEVER_DUPLICATE = $00;
+  PS_STD_STATE_REQUEST_DUPLICATE = $01;
+  PS_STD_STATE_ALWAYS_DUPLICATE = $02;
+  PS_STD_STATE_MASK = $03;
+  PS_STD_PSEUDO_HANDLE_INPUT = $04;
+  PS_STD_PSEUDO_HANDLE_OUTPUT = $08;
+  PS_STD_PSEUDO_HANDLE_ERROR = $10;
+
   // Extracted from bit union TPsCreateInfo.PsCreateInitialState
   PS_CREATE_INTIAL_STATE_WRITE_OUTPUT_ON_EXIT = $0001;
   PS_CREATE_INTIAL_STATE_DETECT_MANIFEST = $0002;
@@ -237,7 +253,7 @@ const
 type
   // Processes
 
-  [FriendlyName('process'), ValidMask(PROCESS_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('process'), ValidBits(PROCESS_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(PROCESS_TERMINATE, 'Terminate')]
   [FlagName(PROCESS_CREATE_THREAD, 'Create Threads')]
   [FlagName(PROCESS_SET_SESSIONID, 'Set Session ID')]
@@ -254,7 +270,7 @@ type
   [FlagName(PROCESS_SET_LIMITED_INFORMATION, 'Set Limited Information')]
   TProcessAccessMask = type TAccessMask;
 
-  [FriendlyName('process state'), ValidMask(PROCESS_STATE_ALL_ACCESS)]
+  [FriendlyName('process state'), ValidBits(PROCESS_STATE_ALL_ACCESS)]
   [FlagName(PROCESS_STATE_CHANGE_STATE, 'Change State')]
   TProcessStateAccessMask = type TAccessMask;
 
@@ -341,8 +357,8 @@ type
     ProcessWorkingSetControl = 57,         // s: 
     ProcessHandleTable = 58,               // q: Cardinal[] Win 8.1+
     ProcessCheckStackExtentsMode = 59,     // q, s:
-    ProcessCommandLineInformation = 60,    // q TNtUnicodeString, Win 8.1 +
-    ProcessProtectionInformation = 61,
+    ProcessCommandLineInformation = 60,    // q: TNtUnicodeString, Win 8.1 +
+    ProcessProtectionInformation = 61,     // q: TPsProtection
     ProcessMemoryExhaustion = 62,          // s: Win 10 TH1+
     ProcessFaultInformation = 63,          // s: 
     ProcessTelemetryIdInformation = 64,    // q: TProcessTelemetryIdInformation
@@ -688,7 +704,7 @@ type
 
   // Threads
 
-  [FriendlyName('thread'), ValidMask(THREAD_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('thread'), ValidBits(THREAD_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(THREAD_TERMINATE, 'Terminate')]
   [FlagName(THREAD_SUSPEND_RESUME, 'Suspend/Resume')]
   [FlagName(THREAD_ALERT, 'Alert')]
@@ -704,7 +720,7 @@ type
   [FlagName(THREAD_RESUME, 'Resume')]
   TThreadAccessMask = type TAccessMask;
 
-  [FriendlyName('thread state'), ValidMask(THREAD_STATE_ALL_ACCESS)]
+  [FriendlyName('thread state'), ValidBits(THREAD_STATE_ALL_ACCESS)]
   [FlagName(THREAD_STATE_CHANGE_STATE, 'Change State')]
   TThreadStateAccessMask = type TAccessMask;
 
@@ -866,18 +882,18 @@ type
     PsAttributeMemoryReserve = $7,       // in: TPsMemoryReserve
     PsAttributePriorityClass = $8,       // in: Byte
     PsAttributeErrorMode = $9,           // in: Cardinal
-    PsAttributeStdHandleInfo = $A,
+    PsAttributeStdHandleInfo = $A,       // in: TPsStdHandleInfo
     PsAttributeHandleList = $B,          // in: TAnysizeArray<THandle>
     PsAttributeGroupAffinity = $C,       // in: TGroupAffinity
     PsAttributePreferredNode = $D,       // in: Word
     PsAttributeIdealProcessor = $E,
     PsAttributeUmsThread = $F,
     PsAttributeMitigationOptions = $10,  // in: TPsMitigationOptionsMap, Win 8+
-    PsAttributeProtectionLevel = $11,    // Win 8.1+
+    PsAttributeProtectionLevel = $11,    // in: TPsProtection, Win 8.1+
     PsAttributeSecureProcess = $12,      // Win 10 TH1+
     PsAttributeJobList = $13,            // in: TAnysizeArray<THandle> with JOB_OBJECT_ASSIGN_PROCESS
-    PsAttributeChildProcessPolicy = $14, // Win 10 TH2+
-    PsAttributeAllApplicationPackagesPolicy = $15, // Win 10 RS1+
+    PsAttributeChildProcessPolicy = $14, // in: TProcessChildFlags, Win 10 TH2+
+    PsAttributeAllApplicationPackagesPolicy = $15, // in: TProcessAllPackagesFlags, Win 10 RS1+
     PsAttributeWin32kFilter = $16,                 // in: TWin32kSyscallFilter
     PsAttributeSafeOpenPromptOriginClaim = $17,    //
     PsAttributeBnoIsolation = $18,                 // Win 10 RS2+
@@ -953,12 +969,76 @@ type
     ReserveSize: NativeUInt;
   end;
 
+  [SubEnum(PS_STD_STATE_MASK, PS_STD_STATE_NEVER_DUPLICATE, 'Never Duplicate')]
+  [SubEnum(PS_STD_STATE_MASK, PS_STD_STATE_REQUEST_DUPLICATE, 'Request Duplicate')]
+  [SubEnum(PS_STD_STATE_MASK, PS_STD_STATE_ALWAYS_DUPLICATE, 'Always Duplicate')]
+  [FlagName(PS_STD_PSEUDO_HANDLE_INPUT, 'Input Handle')]
+  [FlagName(PS_STD_PSEUDO_HANDLE_OUTPUT, 'Output Handle')]
+  [FlagName(PS_STD_PSEUDO_HANDLE_ERROR, 'Error Handle')]
+  TPsStdHandleFlags = type Cardinal;
+
+  // SDK::winnt.h
+  [NamingStyle(nsSnakeCase, 'IMAGE_SUBSYSTEM')]
+  TPsImageSubsystem = (
+    IMAGE_SUBSYSTEM_UNKNOWN = 0,
+    IMAGE_SUBSYSTEM_NATIVE = 1,
+    IMAGE_SUBSYSTEM_WINDOWS_GUI = 2,
+    IMAGE_SUBSYSTEM_WINDOWS_CUI = 3
+  );
+
+  // PHNT::ntpsapi.h, attribute $A
+  [SDKName('PS_STD_HANDLE_INFO')]
+  TPsStdHandleInfo = record
+    Flags: TPsStdHandleFlags;
+    StdHandleSubsystemType: TPsImageSubsystem;
+  end;
+  PPsStdHandleInfo = ^TPsStdHandleInfo;
+
   // PHNT::ntpsapi.h, attribute $10
   [MinOSVersion(OsWin8)]
   [SDKName('PS_MITIGATION_OPTIONS_MAP')]
   TPsMitigationOptionsMap = record
     Map: array [0..5] of Cardinal;
   end;
+
+  [MinOSVersion(OsWin8)]
+  [NamingStyle(nsCamelCase, 'PsProtectedType')]
+  [SDKName('PS_PROTECTED_TYPE')]
+  TPsProtectionType = (
+    PsProtectedTypeNone = 0,
+    PsProtectedTypeProtectedLight = 1,
+    PsProtectedTypeProtected = 2
+  );
+
+  [MinOSVersion(OsWin8)]
+  [NamingStyle(nsCamelCase, 'PsProtectedSigner')]
+  [SDKName('PS_PROTECTED_SIGNER')]
+  TPsProtectionSigner = (
+    PsProtectedSignerNone = 0,
+    PsProtectedSignerAuthenticode = 1,
+    PsProtectedSignerCodeGen = 2,
+    PsProtectedSignerAntimalware = 3,
+    PsProtectedSignerLsa = 4,
+    PsProtectedSignerWindows = 5,
+    PsProtectedSignerWinTcb = 6,
+    PsProtectedSignerWinSystem = 7,
+    PsProtectedSignerApp = 8
+  );
+
+  [FlagName(PS_PROTECTED_AUDIT_MASK, 'Audit')]
+  [SubEnum(PS_PROTECTED_SIGNER_MASK, Cardinal(PsProtectedSignerNone), 'No Signer')]
+  [SubEnum(PS_PROTECTED_SIGNER_MASK, Cardinal(PsProtectedSignerAuthenticode), 'Authenticode')]
+  [SubEnum(PS_PROTECTED_SIGNER_MASK, Cardinal(PsProtectedSignerCodeGen), 'CodeGen')]
+  [SubEnum(PS_PROTECTED_SIGNER_MASK, Cardinal(PsProtectedSignerAntimalware), 'Antimalware')]
+  [SubEnum(PS_PROTECTED_SIGNER_MASK, Cardinal(PsProtectedSignerLsa), 'LSA')]
+  [SubEnum(PS_PROTECTED_SIGNER_MASK, Cardinal(PsProtectedSignerWindows), 'Windows')]
+  [SubEnum(PS_PROTECTED_SIGNER_MASK, Cardinal(PsProtectedSignerWinTcb), 'WinTcb')]
+  [SubEnum(PS_PROTECTED_SIGNER_MASK, Cardinal(PsProtectedSignerWinSystem), 'WinSystem')]
+  [SubEnum(PS_PROTECTED_SIGNER_MASK, Cardinal(PsProtectedSignerApp), 'App')]
+  [SubEnum(PS_PROTECTED_TYPE_MASK, Cardinal(PsProtectedTypeProtectedLight), 'No protection')]
+  [SubEnum(PS_PROTECTED_TYPE_MASK, Cardinal(PsProtectedTypeProtectedLight), 'Light')]
+  [SubEnum(PS_PROTECTED_TYPE_MASK, Cardinal(PsProtectedTypeProtected), 'Full')]
+  TPsProtection = type Byte;
 
   // attribute $16
   [MinOSVersion(OsWin10RS1)]
@@ -1037,7 +1117,7 @@ type
   end;
 
   // Jobs
-  [FriendlyName('job object'), ValidMask(JOB_OBJECT_ALL_ACCESS), IgnoreUnnamed]
+  [FriendlyName('job object'), ValidBits(JOB_OBJECT_ALL_ACCESS), IgnoreUnnamed]
   [FlagName(JOB_OBJECT_ASSIGN_PROCESS, 'Assign Process')]
   [FlagName(JOB_OBJECT_SET_ATTRIBUTES, 'Set Attributes')]
   [FlagName(JOB_OBJECT_QUERY, 'Query')]
@@ -1181,14 +1261,14 @@ type
   );
 
   // SDK::winnt.h
-  [NamingStyle(nsSnakeCase, 'JOB_OBJECT_MSG'), ValidMask($3FDE)]
+  [NamingStyle(nsSnakeCase, 'JOB_OBJECT_MSG'), ValidBits([1..4, 6..13])]
   TJobObjectMsg = (
-    JOB_OBJECT_MSG_RESERVED0 = 0,
+    [Reserved] JOB_OBJECT_MSG_RESERVED0 = 0,
     JOB_OBJECT_MSG_END_OF_JOB_TIME = 1,
     JOB_OBJECT_MSG_END_OF_PROCESS_TIME = 2,
     JOB_OBJECT_MSG_ACTIVE_PROCESS_LIMIT = 3,
     JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO = 4,
-    JOB_OBJECT_MSG_RESERVED5 = 5,
+    [Reserved] JOB_OBJECT_MSG_RESERVED5 = 5,
     JOB_OBJECT_MSG_NEW_PROCESS = 6,
     JOB_OBJECT_MSG_EXIT_PROCESS = 7,
     JOB_OBJECT_MSG_ABNORMAL_EXIT_PROCESS = 8,
@@ -1310,8 +1390,8 @@ type
   [MinOSVersion(OsWin8)]
   [SDKName('JOBOBJECT_WAKE_FILTER')]
   TJobObjectWakeFilter = record
-    HighEdgeFilter: Cardinal;
-    LowEdgeFilter: Cardinal;
+    [Hex] HighEdgeFilter: Cardinal;
+    [Hex] LowEdgeFilter: Cardinal;
   end;
 
   [FlagName(JOB_OBJECT_OPERATION_FREEZE, 'Freeze')]

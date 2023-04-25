@@ -8,8 +8,7 @@ interface
 
 uses
   Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntcsrapi, Ntapi.ntpsapi, Ntapi.actctx,
-  Ntapi.ImageHlp, DelphiApi.Reflection, NtUtils, NtUtils.ActCtx,
-  DelphiUtils.AutoObjects;
+  Ntapi.ImageHlp, NtUtils, NtUtils.ActCtx, DelphiUtils.AutoObjects;
 
 type
   ICsrCaptureHeader = IMemory<PCsrCaptureHeader>;
@@ -194,8 +193,8 @@ begin
   CsrCaptureMessageString(
     CaptureBuffer.Data,
     PWideChar(StringData),
-    Length(StringData) * SizeOf(WideChar),
-    Succ(Length(StringData)) * SizeOf(WideChar),
+    StringSizeNoZero(StringData),
+    StringSizeZero(StringData),
     CapturedString
   );
 end;
@@ -277,8 +276,8 @@ var
   Msg: TBaseDefineDosDeviceMsg;
 begin
   // Allocate a Csr buffer for capturing string pointers
-  Result := CsrxAllocateCaptureBuffer(CaptureBuffer, Succ(Length(DeviceName)) *
-    SizeOf(WideChar) + Succ(Length(TargetPath)) * SizeOf(WideChar), 2);
+  Result := CsrxAllocateCaptureBuffer(CaptureBuffer, StringSizeZero(DeviceName)
+    + StringSizeZero(TargetPath), 2);
 
   if not Result.IsSuccess then
     Exit;
@@ -429,10 +428,11 @@ var
   FileInfo: TFileStandardInformation;
 begin
   // Open the manifest file
-  Result := NtxOpenFile(hxFile, FileOpenParameters
-    .UseOpenOptions(FILE_SYNCHRONOUS_IO_NONALERT or FILE_NON_DIRECTORY_FILE)
+  Result := NtxOpenFile(hxFile, FileParameters
     .UseFileName(FileName, fnWin32)
     .UseAccess(FILE_READ_DATA)
+    .UseOptions(FILE_NON_DIRECTORY_FILE)
+    .UseSyncMode(fsAsynchronous)
   );
 
   if not Result.IsSuccess then
@@ -543,10 +543,11 @@ var
   FileInfo: TFileStandardInformation;
 begin
   // Open the manifest file
-  Result := NtxOpenFile(hxFile, FileOpenParameters
-    .UseOpenOptions(FILE_SYNCHRONOUS_IO_NONALERT or FILE_NON_DIRECTORY_FILE)
+  Result := NtxOpenFile(hxFile, FileParameters
     .UseFileName(FileName, fnWin32)
     .UseAccess(FILE_READ_DATA)
+    .UseOptions(FILE_NON_DIRECTORY_FILE)
+    .UseSyncMode(fsAsynchronous)
   );
 
   if not Result.IsSuccess then
