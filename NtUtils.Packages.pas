@@ -341,6 +341,41 @@ function PkgxEnumerateAppUserModeIds(
   const InfoReference: IPackageInfoReference
 ): TNtxStatus;
 
+{ Verification }
+
+// Check if a string represents a valid package full name
+[MinOSVersion(OsWin10TH1)]
+function PkgxIsValidFullName(
+  const PackageFullName: String
+): Boolean;
+
+// Check if a string represents a valid package family name
+[MinOSVersion(OsWin10TH1)]
+function PkgxIsValidFamilyName(
+  const PackageFamilyName: String
+): Boolean;
+
+// Check if a string represents a valid package application user-mode ID
+[MinOSVersion(OsWin10TH1)]
+function PkgxIsValidAppUserModelId(
+  const AppUserModelId: String
+): Boolean;
+
+{ PRI Resources }
+
+// Resolve a "@{PackageFullName?ms-resource://ResourceName}" string
+[MinOSVersion(OsWin8)]
+function PkgxExpandResourceString(
+  const ResourceDefinition: String;
+  out ResourceValue: String
+): TNtxStatus;
+
+// Resolve a "@{PackageFullName?ms-resource://ResourceName}" string in place
+[MinOSVersion(OsWin8)]
+function PkgxExpandResourceStringVar(
+  var Resource: String
+): TNtxStatus;
+
 implementation
 
 uses
@@ -359,8 +394,8 @@ type
 
 procedure TAutoPackageInfoReference.Release;
 begin
-  if Assigned(FData) and LdrxCheckModuleDelayedImport(kernelbase,
-    'ClosePackageInfo').IsSuccess then
+  if Assigned(FData) and LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_ClosePackageInfo).IsSuccess then
     ClosePackageInfo(FData);
 
   FData := nil;
@@ -411,7 +446,8 @@ var
   BufferLength: Cardinal;
   Buffer: IMemory<PWideChar>;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'PackageFullNameFromId');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_PackageFullNameFromId);
 
   if not Result.IsSuccess then
     Exit;
@@ -439,7 +475,8 @@ var
   BufferLength: Cardinal;
   Buffer: IMemory<PWideChar>;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'PackageFamilyNameFromId');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_PackageFamilyNameFromId);
 
   if not Result.IsSuccess then
     Exit;
@@ -466,8 +503,8 @@ var
   BufferLength: Cardinal;
   Buffer: IMemory<PWideChar>;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'PackageFamilyNameFromFullName');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_PackageFamilyNameFromFullName);
 
   if not Result.IsSuccess then
     Exit;
@@ -492,8 +529,8 @@ var
   NameLength, PublisherIdLength: Cardinal;
   NameBuffer, PublisherBuffer: IMemory<PWideChar>;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'PackageNameAndPublisherIdFromFamilyName');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_PackageNameAndPublisherIdFromFamilyName);
 
   if not Result.IsSuccess then
     Exit;
@@ -529,7 +566,8 @@ var
   BufferSize: Cardinal;
   Buffer: IMemory<PPackageId>;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'PackageIdFromFullName');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_PackageIdFromFullName);
 
   if not Result.IsSuccess then
     Exit;
@@ -550,7 +588,8 @@ end;
 
 function PkgxQueryOriginByFullName;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'GetStagedPackageOrigin');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetStagedPackageOrigin);
 
   if not Result.IsSuccess then
     Exit;
@@ -562,7 +601,8 @@ end;
 
 function PkgxQueryIsMsixByFullName;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'CheckIsMSIXPackage');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_CheckIsMSIXPackage);
 
   if not Result.IsSuccess then
     Exit;
@@ -573,7 +613,8 @@ end;
 
 function PkgxQueryInstallTimeByFullName;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'GetPackageInstallTime');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageInstallTime);
 
   if not Result.IsSuccess then
     Exit;
@@ -587,8 +628,8 @@ var
   Buffer: PSid;
   BufferDeallocator: IAutoReleasable;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'PackageSidFromFamilyName');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_PackageSidFromFamilyName);
 
   if not Result.IsSuccess then
     Exit;
@@ -606,8 +647,8 @@ end;
 
 function PkgxQueryOSMaxVersionTestedByFullName;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'AppXGetOSMaxVersionTested');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_AppXGetOSMaxVersionTested);
 
   if not Result.IsSuccess then
     Exit;
@@ -619,8 +660,8 @@ end;
 
 function PkgxQueryDevelopmentModeByFullName;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'AppXGetDevelopmentMode');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_AppXGetDevelopmentMode);
 
   if not Result.IsSuccess then
     Exit;
@@ -637,8 +678,8 @@ begin
   Result := Auto.Delay(
     procedure
     begin
-      if LdrxCheckModuleDelayedImport(kernelbase,
-        'AppXFreeMemory').IsSuccess then
+      if LdrxCheckDelayedImport(delayed_kernelbase,
+        delayed_AppXFreeMemory).IsSuccess then
         AppXFreeMemory(Buffer);
     end
   );
@@ -649,7 +690,8 @@ var
   Buffer: PSid;
   BufferDeallocator: IAutoReleasable;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'AppXGetPackageSid');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_AppXGetPackageSid);
 
   if not Result.IsSuccess then
     Exit;
@@ -671,8 +713,8 @@ var
   Count: Cardinal;
   i: Integer;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'AppXGetPackageCapabilities');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_AppXGetPackageCapabilities);
 
   if not Result.IsSuccess then
     Exit;
@@ -706,8 +748,8 @@ var
   Buffer: IMemory<PWideChar>;
   i: Integer;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackagesByPackageFamily');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackagesByPackageFamily);
 
   if not Result.IsSuccess then
     Exit;
@@ -744,8 +786,8 @@ var
   Properties: IMemory<PPackagePropertiesArray>;
   i: Integer;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'FindPackagesByPackageFamily');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_FindPackagesByPackageFamily);
 
   if not Result.IsSuccess then
     Exit;
@@ -787,8 +829,8 @@ function PkgxOpenPackageInfo;
 var
   PackageInfoReference: TPackageInfoReference;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'OpenPackageInfoByFullName');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_OpenPackageInfoByFullName);
 
   if not Result.IsSuccess then
     Exit;
@@ -805,8 +847,8 @@ function PkgxOpenPackageInfoForUser;
 var
   PackageInfoReference: TPackageInfoReference;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'OpenPackageInfoByFullNameForUser');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_OpenPackageInfoByFullNameForUser);
 
   if not Result.IsSuccess then
     Exit;
@@ -824,7 +866,8 @@ end;
 
 function PkgxLocatePackageContext;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'GetPackageContext');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageContext);
 
   if not Result.IsSuccess then
     Exit;
@@ -836,8 +879,8 @@ end;
 
 function PkgxLocatePackageApplicationContext;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageApplicationContext');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageApplicationContext);
 
   if not Result.IsSuccess then
     Exit;
@@ -849,8 +892,8 @@ end;
 
 function PkgxLocatePackageResourcesContext;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageResourcesContext');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageResourcesContext);
 
   if not Result.IsSuccess then
     Exit;
@@ -862,8 +905,8 @@ end;
 
 function PkgxLocatePackageApplicationResourcesContext;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageApplicationResourcesContext');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageApplicationResourcesContext);
 
   if not Result.IsSuccess then
     Exit;
@@ -875,8 +918,8 @@ end;
 
 function PkgxLocatePackageSecurityContext;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageSecurityContext');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageSecurityContext);
 
   if not Result.IsSuccess then
     Exit;
@@ -888,8 +931,8 @@ end;
 
 function PkgxLocatePackageTargetPlatformContext;
 begin
-   Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetTargetPlatformContext');
+   Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetTargetPlatformContext);
 
   if not Result.IsSuccess then
     Exit;
@@ -901,8 +944,8 @@ end;
 
 function PkgxLocatePackageGlobalizationContext;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageGlobalizationContext');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageGlobalizationContext);
 
   if not Result.IsSuccess then
     Exit;
@@ -921,7 +964,7 @@ var
   Count: Cardinal;
   i: Integer;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'GetPackageInfo');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase, delayed_GetPackageInfo);
 
   if not Result.IsSuccess then
     Exit;
@@ -953,7 +996,7 @@ var
   Count: Cardinal;
   i: Integer;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'GetPackageInfo2');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase, delayed_GetPackageInfo2);
 
   if not Result.IsSuccess then
     Exit;
@@ -984,7 +1027,8 @@ var
   Buffer: IWideChar;
   BufferLength: Cardinal;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'GetPackagePropertyString');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackagePropertyString);
 
   if not Result.IsSuccess then
     Exit;
@@ -1022,8 +1066,8 @@ function PkgxQueryOSMaxVersionTestedPackage;
 var
   Context: PPackageContextReference;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageOSMaxVersionTested');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageOSMaxVersionTested);
 
   if not Result.IsSuccess then
     Exit;
@@ -1043,8 +1087,8 @@ var
   Buffer: IWideChar;
   BufferLength: Cardinal;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageApplicationPropertyString');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageApplicationPropertyString);
 
   if not Result.IsSuccess then
     Exit;
@@ -1084,8 +1128,8 @@ var
   Context: PPackageSecurityContextReference;
   BufferLength: Cardinal;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageSecurityProperty');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageSecurityProperty);
 
   if not Result.IsSuccess then
     Exit;
@@ -1114,7 +1158,8 @@ var
   Context: PPackageContextReference;
   BufferSize: Cardinal;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'GetPackageProperty');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageProperty);
 
   if not Result.IsSuccess then
     Exit;
@@ -1138,8 +1183,8 @@ var
   Context: PPackageApplicationContextReference;
   BufferSize: Cardinal;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageApplicationProperty');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageApplicationProperty);
 
   if not Result.IsSuccess then
     Exit;
@@ -1164,8 +1209,8 @@ var
   Context: PPackageSecurityContextReference;
   BufferSize: Cardinal;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageSecurityProperty');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageSecurityProperty);
 
   if not Result.IsSuccess then
     Exit;
@@ -1189,8 +1234,8 @@ var
   Context: PTargetPlatformContextReference;
   BufferSize: Cardinal;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageTargetPlatformProperty');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageTargetPlatformProperty);
 
   if not Result.IsSuccess then
     Exit;
@@ -1214,8 +1259,8 @@ var
   Context: PPackageGlobalizationContextReference;
   BufferSize: Cardinal;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase,
-    'GetPackageGlobalizationProperty');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageGlobalizationProperty);
 
   if not Result.IsSuccess then
     Exit;
@@ -1241,7 +1286,8 @@ var
   BufferSize, Count: Cardinal;
   i: Integer;
 begin
-  Result := LdrxCheckModuleDelayedImport(kernelbase, 'GetPackageApplicationIds');
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_GetPackageApplicationIds);
 
   if not Result.IsSuccess then
     Exit;
@@ -1272,6 +1318,70 @@ begin
 
   for i := 0 to High(AppUserModeIds) do
     AppUserModeIds[i] := String(Buffer.Data{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF});
+end;
+
+{ Verification }
+
+function PkgxIsValidFullName;
+begin
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_VerifyPackageFullName).IsSuccess and
+    (VerifyPackageFullName(PWideChar(PackageFullName)) = ERROR_SUCCESS);
+end;
+
+function PkgxIsValidFamilyName;
+begin
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_VerifyPackageFamilyName).IsSuccess and
+    (VerifyPackageFamilyName(PWideChar(PackageFamilyName)) = ERROR_SUCCESS);
+end;
+
+function PkgxIsValidAppUserModelId;
+begin
+  Result := LdrxCheckDelayedImport(delayed_kernelbase,
+    delayed_VerifyApplicationUserModelId).IsSuccess and
+    (VerifyApplicationUserModelId(PWideChar(AppUserModelId)) = ERROR_SUCCESS);
+end;
+
+{ PRI }
+
+function PkgxExpandResourceString;
+var
+  Buffer: IWideChar;
+  RequiredLength: NativeUInt;
+begin
+  Result := LdrxCheckDelayedImport(delayed_MrmCoreR,
+    delayed_ResourceManagerQueueGetString);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result.Location := 'ResourceManagerQueueGetString';
+
+  IMemory(Buffer) := Auto.AllocateDynamic(SizeOf(WideChar));
+  repeat
+    RequiredLength := 0;
+    Result.HResult := ResourceManagerQueueGetString(
+      PWideChar(ResourceDefinition), nil, nil, Buffer.Data,
+      Buffer.Size div SizeOf(WideChar), @RequiredLength);
+  until not NtxExpandBufferEx(Result, IMemory(Buffer), RequiredLength *
+    SizeOf(WideChar), nil);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  ResourceValue := RtlxCaptureString(Buffer.Data,
+    Buffer.Size div SizeOf(WideChar));
+end;
+
+function PkgxExpandResourceStringVar;
+var
+  Expanded: String;
+begin
+  Result := PkgxExpandResourceString(Resource, Expanded);
+
+  if Result.IsSuccess then
+    Resource := Expanded;
 end;
 
 end.

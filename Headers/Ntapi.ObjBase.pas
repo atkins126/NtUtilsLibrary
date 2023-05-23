@@ -9,12 +9,17 @@ interface
 {$MINENUMSIZE 4}
 
 uses
-  Ntapi.WinNt, Ntapi.ObjIdl, DelphiApi.Reflection;
+  Ntapi.WinNt, DelphiApi.Reflection, DelphiApi.DelayLoad;
 
 const
   ole32 = 'ole32.dll';
   oleaut32 = 'oleaut32.dll';
 
+var
+  delayed_ole32: TDelayedLoadDll = (DllName: ole32);
+  delayed_oleaut32: TDelayedLoadDll = (DllName: oleaut32);
+
+const
   // SDK::objbase.h - COM initialization mode
   COINIT_MULTITHREADED = $0;
   COINIT_APARTMENTTHREADED = $2;
@@ -62,6 +67,10 @@ const
   GUID_NULL: TGUID = '{00000000-0000-0000-0000-000000000000}';
 
 type
+  TIid = TGuid;
+  TClsid = TGuid;
+  TVariantBool = type SmallInt;
+
   // SDK::oleauto.h
   [Hex] TDispID = type Cardinal;
 
@@ -91,6 +100,10 @@ type
   [FlagName(CLSCTX_PS_DLL, 'PS DLL')]
   TClsCtx = type Cardinal;
 
+  // Annotation for components requiring COM to be initialized
+  RequiresCOMAttribute = class (TCustomAttribute)
+  end;
+
   // SDK::oaidl.h
   [SDKName('DISPPARAMS')]
   TDispParams = record
@@ -101,7 +114,7 @@ type
   end;
 
   PExcepInfo = ^TExcepInfo;
-  TFNDeferredFillIn = function([in] ExInfo: PExcepInfo): HResult stdcall;
+  TFNDeferredFillIn = function([out] ExInfo: PExcepInfo): HResult stdcall;
 
   // SDK::oaidl.h
   [SDKName('EXCEPINFO')]
@@ -115,6 +128,31 @@ type
     pvReserved: Pointer;
     pfnDeferredFillIn: TFNDeferredFillIn;
     scode: HResult;
+  end;
+
+  // SDK::combaseapi.h
+  TDllGetClassObject = function (
+    [in] const clsid: TClsid;
+    [in] const iid: TIid;
+    out pv
+  ): HResult; stdcall;
+
+  // SDK::combaseapi.h
+  TDllCanUnloadNow = function (
+  ): HResult; stdcall;
+
+  // SDK::Unknwnbase.h
+  IClassFactory = interface (IUnknown)
+    ['{00000001-0000-0000-C000-000000000046}']
+    function CreateInstance(
+      [in, opt] const UnkOuter: IUnknown;
+      [in] const riid: TIid;
+      [out] out pvObject
+    ): HResult; stdcall;
+
+    function LockServer(
+      [in] Lock: LongBool
+    ): HResult; stdcall;
   end;
 
   // WMI's Win32_Process.Create return codes
@@ -208,26 +246,23 @@ function CoInitializeEx(
 ): HResult; stdcall; external ole32;
 
 // SDK::combaseapi.h
+[RequiresCOM]
 function CoCreateInstance(
-  [in] const clsid: TCLSID;
+  [in] const Clsid: TClsid;
   [in, opt] unkOuter: IUnknown;
   [in] ClsContext: TClsCtx;
   [in] const iid: TIID;
   [out] out pv
 ): HResult; stdcall; external ole32;
 
-// SDK::objbase.h
-function MkParseDisplayName(
-  [in] bc: IBindCtx;
-  [in] UserName: PWideChar;
-  [out, NumberOfElements] out chEaten: Cardinal;
-  [out] out mk: IMoniker
-): HResult; stdcall; external ole32;
-
-// SDK::objbase.h
-function CreateBindCtx(
-  [Reserved] reserved: Longint;
-  [out] out bc: IBindCtx
+// SDK::combaseapi.h
+[RequiresCOM]
+function CoGetClassObject(
+  [in] const Clsid: TClsid;
+  [in] ClsContext: TClsCtx;
+  [in, opt] pvReserved: Pointer;
+  [in] const iid: TIID;
+  [out] out pv
 ): HResult; stdcall; external ole32;
 
 implementation

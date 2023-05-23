@@ -11,7 +11,13 @@ interface
 
 uses
   Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntseapi, Ntapi.ntpebteb, Ntapi.Versions,
-  Ntapi.WinUser, DelphiApi.Reflection;
+  Ntapi.WinUser, DelphiApi.Reflection, DelphiApi.DelayLoad;
+
+const
+  MrmCoreR = 'MrmCoreR.dll';
+
+var
+  delayed_MrmCoreR: TDelayedLoadDll = (DllName: MrmCoreR);
 
 const
   // SDK::appmodel.h - information flags
@@ -442,6 +448,11 @@ function GetPackagePath(
   [out, WritesTo] path: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackagePath: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackagePath';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin81)]
 function GetPackagePathByFullName(
@@ -450,6 +461,11 @@ function GetPackagePathByFullName(
   [out, WritesTo] path: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackagePathByFullName: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackagePathByFullName';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin81)]
 function GetStagedPackagePathByFullName(
@@ -457,6 +473,11 @@ function GetStagedPackagePathByFullName(
   [in, out, NumberOfElements] var pathLength: Cardinal;
   [out, WritesTo] path: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetStagedPackagePathByFullName: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetStagedPackagePathByFullName';
+);
 
 // SDK::appmodel.h
 [MinOSVersion(OsWin1019H1)]
@@ -467,6 +488,11 @@ function GetPackagePathByFullName2(
   [out, WritesTo] path: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackagePathByFullName2: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackagePathByFullName2';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin1019H1)]
 function GetStagedPackagePathByFullName2(
@@ -476,6 +502,11 @@ function GetStagedPackagePathByFullName2(
   [out, WritesTo] path: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetStagedPackagePathByFullName2: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetStagedPackagePathByFullName2';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin10TH1)]
 function GetApplicationUserModelIdFromToken(
@@ -483,6 +514,11 @@ function GetApplicationUserModelIdFromToken(
   [in, out, NumberOfElements] var applicationUserModelIdLength: Cardinal;
   [out, WritesTo] applicationUserModelId: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetApplicationUserModelIdFromToken: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetApplicationUserModelIdFromToken';
+);
 
 // SDK::appmodel.h
 [MinOSVersion(OsWin8)]
@@ -493,6 +529,11 @@ function PackageIdFromFullName(
   [out, WritesTo] buffer: PPackageId
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_PackageIdFromFullName: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'PackageIdFromFullName';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin8)]
 function PackageFullNameFromId(
@@ -500,6 +541,11 @@ function PackageFullNameFromId(
   [in, out, NumberOfElements] var packageFullNameLength: Cardinal;
   [out, WritesTo] packageFullName: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_PackageFullNameFromId: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'PackageFullNameFromId';
+);
 
 // SDK::appmodel.h
 [MinOSVersion(OsWin8)]
@@ -509,6 +555,11 @@ function PackageFamilyNameFromId(
   [out, WritesTo] packageFamilyName: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_PackageFamilyNameFromId: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'PackageFamilyNameFromId';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin8)]
 function PackageFamilyNameFromFullName(
@@ -516,6 +567,11 @@ function PackageFamilyNameFromFullName(
   [in, out, NumberOfElements] var packageFamilyNameLength: Cardinal;
   [out, WritesTo] packageFamilyName: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_PackageFamilyNameFromFullName: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'PackageFamilyNameFromFullName';
+);
 
 // SDK::appmodel.h
 [MinOSVersion(OsWin8)]
@@ -527,6 +583,11 @@ function PackageNameAndPublisherIdFromFamilyName(
   [out, WritesTo] packagePublisherId: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_PackageNameAndPublisherIdFromFamilyName: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'PackageNameAndPublisherIdFromFamilyName';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin81)]
 function FormatApplicationUserModelId(
@@ -535,6 +596,11 @@ function FormatApplicationUserModelId(
   [in, out, NumberOfElements] var applicationUserModelIdLength: Cardinal;
   [out, WritesTo] applicationUserModelId: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_FormatApplicationUserModelId: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'FormatApplicationUserModelId';
+);
 
 // SDK::appmodel.h
 [MinOSVersion(OsWin81)]
@@ -546,6 +612,11 @@ function ParseApplicationUserModelId(
   [out, WritesTo] packageRelativeApplicationId: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_ParseApplicationUserModelId: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'ParseApplicationUserModelId';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin8)]
 function GetPackagesByPackageFamily(
@@ -555,6 +626,11 @@ function GetPackagesByPackageFamily(
   [in, out, NumberOfElements] var bufferLength: Cardinal;
   [out, WritesTo] buffer: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetPackagesByPackageFamily: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackagesByPackageFamily';
+);
 
 // SDK::appmodel.h
 [MinOSVersion(OsWin81)]
@@ -567,6 +643,11 @@ function FindPackagesByPackageFamily(
   [out, WritesTo] buffer: PWideChar;
   [out, WritesTo] packageProperties: PPackagePropertiesArray
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_FindPackagesByPackageFamily: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'FindPackagesByPackageFamily';
+);
 
 // PHNT::ntrtl.h
 [MinOSVersion(OsWin10TH1)]
@@ -581,12 +662,22 @@ function RtlQueryPackageClaims(
   [out, opt] AttributesPresent: PPackagePresentAttributes
 ): NTSTATUS; stdcall; external ntdll delayed;
 
+var delayed_RtlQueryPackageClaims: TDelayedLoadFunction = (
+  DllName: ntdll;
+  FunctionName: 'RtlQueryPackageClaims';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin81)]
 function GetStagedPackageOrigin(
   [in] packageFullName: PWideChar;
   [out] out origin: TPackageOrigin
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetStagedPackageOrigin: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetStagedPackageOrigin';
+);
 
 // SDK::appmodel.h
 [MinOSVersion(OsWin8)]
@@ -596,6 +687,11 @@ function OpenPackageInfoByFullName(
   [out, ReleaseWith('ClosePackageInfo')]
     out packageInfoReference: TPackageInfoReference
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_OpenPackageInfoByFullName: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'OpenPackageInfoByFullName';
+);
 
 // SDK::appmodel.h
 [MinOSVersion(OsWin10TH1)]
@@ -607,11 +703,21 @@ function OpenPackageInfoByFullNameForUser(
     out packageInfoReference: TPackageInfoReference
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_OpenPackageInfoByFullNameForUser: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'OpenPackageInfoByFullNameForUser';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin8)]
 function ClosePackageInfo(
   [in] packageInfoReference: TPackageInfoReference
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_ClosePackageInfo: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'ClosePackageInfo';
+);
 
 // SDK::appmodel.h
 [MinOSVersion(OsWin8)]
@@ -622,6 +728,11 @@ function GetPackageInfo(
   [out, opt, WritesTo] buffer: PPackageInfoArray;
   [out, opt] count: PCardinal
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetPackageInfo: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageInfo';
+);
 
 // SDK::appmodel.h
 [MinOSVersion(OsWin1019H1)]
@@ -634,6 +745,11 @@ function GetPackageInfo2(
   [out, opt] count: PCardinal
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackageInfo2: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageInfo2';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin81)]
 function GetPackageApplicationIds(
@@ -643,6 +759,11 @@ function GetPackageApplicationIds(
   [out, opt] count: PCardinal
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackageApplicationIds: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageApplicationIds';
+);
+
 // SDK::appmodel.h
 [MinOSVersion(OsWin1021H1)]
 function CheckIsMSIXPackage(
@@ -650,12 +771,22 @@ function CheckIsMSIXPackage(
   [out] out isMSIXPackage: LongBool
 ): HRESULT; stdcall; external kernelbase delayed;
 
+var delayed_CheckIsMSIXPackage: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'CheckIsMSIXPackage';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function GetPackageInstallTime(
   [in] packageFullName: PWideChar;
   [out] out InstallTime: TLargeInteger
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetPackageInstallTime: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageInstallTime';
+);
 
 // rev
 [MinOSVersion(OsWin1020H1)]
@@ -665,6 +796,11 @@ function PublisherFromPackageFullName(
   [out, WritesTo] Buffer: PWideChar
 ): HResult; stdcall; external kernelbase delayed;
 
+var delayed_PublisherFromPackageFullName: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'PublisherFromPackageFullName';
+);
+
 // rev
 [MinOSVersion(OsWin10TH1)]
 function PackageSidFromFamilyName(
@@ -672,12 +808,79 @@ function PackageSidFromFamilyName(
   [out, ReleaseWith('RtlFreeSid')] out Sid: PSid
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_PackageSidFromFamilyName: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'PackageSidFromFamilyName';
+);
+
 // rev
 [MinOSVersion(OsWin10TH1)]
 function PackageSidFromProductId(
   [in] PackageInfoReference: TPackageInfoReference;
   [out, ReleaseWith('RtlFreeSid')] out Sid: PSid
 ): HResult; stdcall; external kernelbase delayed;
+
+var delayed_PackageSidFromProductId: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'PackageSidFromProductId';
+);
+
+// Verification
+
+// SDK::appmodel.h
+[MinOSVersion(OsWin10TH1)]
+function VerifyPackageFullName(
+  [in] packageFullName: PWideChar
+): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_VerifyPackageFullName: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'VerifyPackageFullName';
+);
+
+// SDK::appmodel.h
+[MinOSVersion(OsWin10TH1)]
+function VerifyPackageFamilyName(
+  [in] packageFamilyName: PWideChar
+): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_VerifyPackageFamilyName: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'VerifyPackageFamilyName';
+);
+
+// SDK::appmodel.h
+[MinOSVersion(OsWin10TH1)]
+function VerifyPackageId(
+  [in] const packageId: TPackageId
+): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_VerifyPackageId: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'VerifyPackageId';
+);
+
+// SDK::appmodel.h
+[MinOSVersion(OsWin10TH1)]
+function VerifyApplicationUserModelId(
+  [in] applicationUserModelId: PWideChar
+): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_VerifyApplicationUserModelId: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'VerifyApplicationUserModelId';
+);
+
+// SDK::appmodel.h
+[MinOSVersion(OsWin10TH1)]
+function VerifyPackageRelativeApplicationId(
+  [in] packageRelativeApplicationId: PWideChar
+): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_VerifyPackageRelativeApplicationId: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'VerifyPackageRelativeApplicationId';
+);
 
 // Appx functions
 
@@ -687,12 +890,22 @@ procedure AppXFreeMemory(
   [in] Buffer: Pointer
 ); stdcall; external kernelbase delayed;
 
+var delayed_AppXFreeMemory: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'AppXFreeMemory';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function AppXGetOSMaxVersionTested(
   [in] PackageFullName: PWideChar;
   [out] out OSMaxVersionTested: TPackageVersion
 ): HRESULT; stdcall; external kernelbase delayed;
+
+var delayed_AppXGetOSMaxVersionTested: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'AppXGetOSMaxVersionTested';
+);
 
 // rev
 [MinOSVersion(OsWin81)]
@@ -701,12 +914,22 @@ function AppXGetDevelopmentMode(
   [out] out DevelopmentMode: LongBool
 ): HRESULT; stdcall; external kernelbase delayed;
 
+var delayed_AppXGetDevelopmentMode: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'AppXGetDevelopmentMode';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function AppXGetPackageSid(
   [in] PackageFullName: PWideChar;
   [out, ReleaseWith('AppXFreeMemory')] out Sid: PSid
 ): HRESULT; stdcall; external kernelbase delayed;
+
+var delayed_AppXGetPackageSid: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'AppXGetPackageSid';
+);
 
 // rev
 [MinOSVersion(OsWin81)]
@@ -717,6 +940,11 @@ function AppXGetPackageCapabilities(
   [out] out Count: Cardinal
 ): HRESULT; stdcall; external kernelbase delayed;
 
+var delayed_AppXGetPackageCapabilities: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'AppXGetPackageCapabilities';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function AppXLookupDisplayName(
@@ -724,12 +952,22 @@ function AppXLookupDisplayName(
   [out, ReleaseWith('AppXFreeMemory')] out DisplayName: PWideChar
 ): HRESULT; stdcall; external kernelbase delayed;
 
+var delayed_AppXLookupDisplayName: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'AppXLookupDisplayName';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function AppXLookupMoniker(
   [in] PackageSid: PSid;
   [out, ReleaseWith('AppXFreeMemory')] out Moniker: PWideChar
 ): HRESULT; stdcall; external kernelbase delayed;
+
+var delayed_AppXLookupMoniker: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'AppXLookupMoniker';
+);
 
 // Package Properties
 
@@ -741,6 +979,11 @@ function GetCurrentPackageContext(
   [out] out PackageContext: PPackageContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetCurrentPackageContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetCurrentPackageContext';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function GetPackageContext(
@@ -749,6 +992,11 @@ function GetPackageContext(
   [Reserved] Unused: NativeUInt;
   [out] out PackageContext: PPackageContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetPackageContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageContext';
+);
 
 // rev
 [MinOSVersion(OsWin81)]
@@ -759,6 +1007,11 @@ function GetPackageProperty(
   [out, WritesTo] Buffer: Pointer
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackageProperty: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageProperty';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function GetPackagePropertyString(
@@ -768,12 +1021,22 @@ function GetPackagePropertyString(
   [out, WritesTo] Buffer: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackagePropertyString: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackagePropertyString';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function GetPackageOSMaxVersionTested(
   [in] PackageContext: PPackageContextReference;
   [out] out OSMaxVersionTested: TPackageVersion
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetPackageOSMaxVersionTested: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageOSMaxVersionTested';
+);
 
 // Package Application Properties
 
@@ -785,6 +1048,11 @@ function GetCurrentPackageApplicationContext(
   [out] out PackageApplicationContext: PPackageApplicationContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetCurrentPackageApplicationContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetCurrentPackageApplicationContext';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function GetPackageApplicationContext(
@@ -793,6 +1061,11 @@ function GetPackageApplicationContext(
   [Reserved] Unused: NativeUInt;
   [out] out PackageApplicationContext: PPackageApplicationContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetPackageApplicationContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageApplicationContext';
+);
 
 // rev
 [MinOSVersion(OsWin81)]
@@ -803,6 +1076,11 @@ function GetPackageApplicationProperty(
   [out, WritesTo] Buffer: Pointer
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackageApplicationProperty: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageApplicationProperty';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function GetPackageApplicationPropertyString(
@@ -811,6 +1089,11 @@ function GetPackageApplicationPropertyString(
   [in, out, NumberOfElements] var BufferLength: Cardinal;
   [out, WritesTo] Buffer: PWideChar
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetPackageApplicationPropertyString: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageApplicationPropertyString';
+);
 
 // Package Resource Properties
 
@@ -822,6 +1105,11 @@ function GetCurrentPackageResourcesContext(
   [out] out PackageResourcesContext: PPackageResourcesContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetCurrentPackageResourcesContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetCurrentPackageResourcesContext';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function GetPackageResourcesContext(
@@ -831,6 +1119,11 @@ function GetPackageResourcesContext(
   [out] out PackageResourcesContext: PPackageResourcesContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackageResourcesContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageResourcesContext';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function GetCurrentPackageApplicationResourcesContext(
@@ -838,6 +1131,11 @@ function GetCurrentPackageApplicationResourcesContext(
   [Reserved] Unused: NativeUInt;
   [out] out PackageResourcesContext: PPackageResourcesContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetCurrentPackageApplicationResourcesContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetCurrentPackageApplicationResourcesContext';
+);
 
 // rev
 [MinOSVersion(OsWin81)]
@@ -848,6 +1146,11 @@ function GetPackageApplicationResourcesContext(
   [out] out PackageResourcesContext: PPackageResourcesContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackageApplicationResourcesContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageApplicationResourcesContext';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function GetPackageResourcesProperty(
@@ -856,6 +1159,11 @@ function GetPackageResourcesProperty(
   [in, out, NumberOfBytes] var BufferLength: Cardinal;
   [out, WritesTo] Buffer: Pointer
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetPackageResourcesProperty: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageResourcesProperty';
+);
 
 // Package Security Properties
 
@@ -866,6 +1174,11 @@ function GetCurrentPackageSecurityContext(
   [out] out PackageSecurityContext: PPackageSecurityContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetCurrentPackageSecurityContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetCurrentPackageSecurityContext';
+);
+
 // rev
 [MinOSVersion(OsWin81)]
 function GetPackageSecurityContext(
@@ -873,6 +1186,11 @@ function GetPackageSecurityContext(
   [Reserved] Unused: NativeUInt;
   [out] out PackageSecurityContext: PPackageSecurityContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetPackageSecurityContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageSecurityContext';
+);
 
 // rev
 [MinOSVersion(OsWin81)]
@@ -883,6 +1201,11 @@ function GetPackageSecurityProperty(
   [out, WritesTo] Buffer: Pointer
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackageSecurityProperty: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageSecurityProperty';
+);
+
 // Target Platform Properties
 
 // rev
@@ -892,12 +1215,22 @@ function GetCurrentTargetPlatformContext(
   [out] out TargetPlatformContext: PTargetPlatformContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetCurrentTargetPlatformContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetCurrentTargetPlatformContext';
+);
+
 [MinOSVersion(OsWin10TH1)]
 function GetTargetPlatformContext(
   [in] PackageInfoReference: TPackageInfoReference;
   [Reserved] Unused: NativeUInt;
   [out] out TargetPlatformContext: PTargetPlatformContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetTargetPlatformContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetTargetPlatformContext';
+);
 
 // rev
 [MinOSVersion(OsWin10TH1)]
@@ -907,6 +1240,11 @@ function GetPackageTargetPlatformProperty(
   [in, out, NumberOfBytes] var BufferLength: Cardinal;
   [out, WritesTo] Buffer: Pointer
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetPackageTargetPlatformProperty: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageTargetPlatformProperty';
+);
 
 // Package Globalization Properties
 
@@ -918,6 +1256,11 @@ function GetCurrentPackageGlobalizationContext(
   [out] out PackageGlobalizationContext: PPackageGlobalizationContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetCurrentPackageGlobalizationContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetCurrentPackageGlobalizationContext';
+);
+
 // rev
 [MinOSVersion(OsWin1020H1)]
 function GetPackageGlobalizationContext(
@@ -927,6 +1270,11 @@ function GetPackageGlobalizationContext(
   [out] out PackageGlobalizationContext: PPackageGlobalizationContextReference
 ): TWin32Error; stdcall; external kernelbase delayed;
 
+var delayed_GetPackageGlobalizationContext: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageGlobalizationContext';
+);
+
 // rev
 [MinOSVersion(OsWin1020H1)]
 function GetPackageGlobalizationProperty(
@@ -935,6 +1283,40 @@ function GetPackageGlobalizationProperty(
   [in, out, NumberOfBytes] var BufferLength: Cardinal;
   [out, WritesTo] Buffer: Pointer
 ): TWin32Error; stdcall; external kernelbase delayed;
+
+var delayed_GetPackageGlobalizationProperty: TDelayedLoadFunction = (
+  DllName: kernelbase;
+  FunctionName: 'GetPackageGlobalizationProperty';
+);
+
+// PRI
+
+// rev
+[MinOSVersion(OsWin8)]
+function ResourceManagerQueueIsResourceReference(
+  [in] Source: PWideChar
+): HResult; stdcall; external MrmCoreR delayed;
+
+var delayed_ResourceManagerQueueIsResourceReference: TDelayedLoadFunction = (
+  DllName: MrmCoreR;
+  FunctionName: 'ResourceManagerQueueIsResourceReference';
+);
+
+// rev
+[MinOSVersion(OsWin8)]
+function ResourceManagerQueueGetString(
+  [in] Source: PWideChar;
+  [in, opt] ParameterKey: PWideChar;
+  [in, opt] ParameterValue: PWideChar;
+  [out, WritesTo] Buffer: PWideChar;
+  [in, NumberOfElements] BufferLength: NativeUInt;
+  [out, opt, NumberOfElements] RequiredLength: PNativeUInt
+): HResult; stdcall; external MrmCoreR delayed;
+
+var delayed_ResourceManagerQueueGetString: TDelayedLoadFunction = (
+  DllName: MrmCoreR;
+  FunctionName: 'ResourceManagerQueueGetString';
+);
 
 implementation
 

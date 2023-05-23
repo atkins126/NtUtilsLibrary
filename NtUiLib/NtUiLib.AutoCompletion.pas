@@ -8,7 +8,7 @@ unit NtUiLib.AutoCompletion;
 interface
 
 uses
-  Ntapi.WinUser, Ntapi.Shlwapi, NtUtils;
+  Ntapi.WinUser, Ntapi.Shlwapi, Ntapi.ObjBase, NtUtils;
 
 type
   TExpandProvider = reference to function (
@@ -17,6 +17,7 @@ type
   ): TNtxStatus;
 
 // Add a static list of suggestions to an Edit-derived control.
+[RequiresCOM]
 function ShlxEnableStaticSuggestions(
   EditControl: THwnd;
   const Strings: TArray<String>;
@@ -24,6 +25,7 @@ function ShlxEnableStaticSuggestions(
 ): TNtxStatus;
 
 // Register dynamic (hierarchical) suggestions for an Edit-derived control.
+[RequiresCOM]
 function ShlxEnableDynamicSuggestions(
   EditControl: THwnd;
   const Provider: TExpandProvider;
@@ -33,8 +35,8 @@ function ShlxEnableDynamicSuggestions(
 implementation
 
 uses
-  Ntapi.WinNt, Ntapi.ObjBase, Ntapi.ObjIdl, Ntapi.WinError, NtUtils.WinUser,
-  DelphiApi.Reflection, NtUtils.Errors;
+  Ntapi.WinNt, Ntapi.ObjIdl, Ntapi.WinError, Ntapi.ShellApi, NtUtils.WinUser,
+  DelphiApi.Reflection, NtUtils.Errors, NtUtils.Com;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -168,6 +170,7 @@ end;
 
 { Functions }
 
+[RequiresCOM]
 function ShlxpEnableSuggestions(
   EditControl: THwnd;
   const ACList: IUnknown;
@@ -177,10 +180,8 @@ var
   AutoComplete: IAutoComplete2;
 begin
   // Create an instance of CLSID_AutoComplete (provided by the OS)
-  Result.Location := 'CoCreateInstance';
-  Result.LastCall.Parameter := 'CLSID_AutoComplete';
-  Result.HResult := CoCreateInstance(CLSID_AutoComplete, nil,
-    CLSCTX_INPROC_SERVER, IAutoComplete2, AutoComplete);
+  Result := ComxCreateInstanceWithFallback(shell32, CLSID_AutoComplete,
+    IAutoComplete2, AutoComplete, 'CLSID_AutoComplete');
 
   if not Result.IsSuccess then
     Exit;

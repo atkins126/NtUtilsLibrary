@@ -10,13 +10,19 @@ interface
 {$MINENUMSIZE 4}
 
 uses
-  Ntapi.Versions, DelphiApi.Reflection;
+  Ntapi.Versions, DelphiApi.Reflection, DelphiApi.DelayLoad;
 
 const
   kernelbase = 'kernelbase.dll';
   kernel32 = 'kernel32.dll';
   advapi32 = 'advapi32.dll';
 
+var
+  delayed_kernelbase: TDelayedLoadDll = (DllName: kernelbase);
+  delayed_kernel32: TDelayedLoadDll = (DllName: kernel32);
+  delayed_advapi32: TDelayedLoadDll = (DllName: advapi32);
+
+const
   INVALID_HANDLE_VALUE = THandle(-1);
   MAX_HANDLE = $FFFFFF; // handle table maximum
   MAX_UINT = $FFFFFFFF;
@@ -294,6 +300,7 @@ const
 
   SECURITY_CAPABILITY_APP_RID = $00000400;      // S-1-15-3-1024
   SECURITY_INSTALLER_CAPABILITY_RID_COUNT = 10; // S-1-15-3-1024-[+8 from hash]
+  SECURITY_CAPABILITY_APP_SILO_RID = $00010000; // S-1-15-3-65536-[+8 from hash]
 
   SECURITY_MANDATORY_LABEL_AUTHORITY = 16;  // S-1-16 (Mandatory Label)
 
@@ -990,6 +997,15 @@ type
     );
   end;
   PSecurityDescriptor = ^TSecurityDescriptor;
+
+  // SDK::minwinbase.h
+  [SDKName('SECURITY_ATTRIBUTES')]
+  TSecurityAttributes = record
+    [RecordSize] Length: Cardinal;
+    SecurityDescriptor: PSecurityDescriptor;
+    InheritHandle: LongBool;
+  end;
+  PSecurityAttributes = ^TSecurityAttributes;
 
   [SDKName('SECURITY_IMPERSONATION_LEVEL')]
   [NamingStyle(nsCamelCase, 'Security')]

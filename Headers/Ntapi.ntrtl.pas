@@ -12,7 +12,7 @@ interface
 
 uses
   Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntmmapi, Ntapi.ntseapi, Ntapi.Versions,
-  Ntapi.WinUser, DelphiApi.Reflection;
+  Ntapi.WinUser, DelphiApi.Reflection, DelphiApi.DelayLoad;
 
 const
   // Processes
@@ -32,9 +32,12 @@ const
   RTL_USER_PROC_DLL_REDIRECTION_LOCAL = $00001000;
   RTL_USER_PROC_APP_MANIFEST_PRESENT = $00002000;
   RTL_USER_PROC_IMAGE_KEY_MISSING = $00004000;
-  RTL_USER_PROC_DEV_OVERRIDE_ENABLED = $00008000;
+  RTL_USER_PROC_DEV_OVERRIDE_ENABLED = $00008000; // rev
   RTL_USER_PROC_OPTIN_PROCESS = $00020000;
-  RTL_USER_PROC_SECURE_PROCESS = $80000000;
+  RTL_USER_PROC_SESSION_OWNER = $00040000; // rev
+  RTL_USER_PROC_HANDLE_USER_CALLBACK_EXCEPTIONS = $00080000; // rev
+  RTL_USER_PROC_PROTECTED_PROCESS = $00400000; // rev
+  RTL_USER_PROC_SECURE_PROCESS = $80000000; // rev
 
   // PHNT::ntrtl.h - process cloning flags
   RTL_CLONE_PROCESS_FLAGS_CREATE_SUSPENDED = $00000001;
@@ -142,6 +145,9 @@ type
   [FlagName(RTL_USER_PROC_APP_MANIFEST_PRESENT, 'App Manifest Present')]
   [FlagName(RTL_USER_PROC_IMAGE_KEY_MISSING, 'Image Key Missing')]
   [FlagName(RTL_USER_PROC_OPTIN_PROCESS, 'Opt-in Process')]
+  [FlagName(RTL_USER_PROC_SESSION_OWNER, 'Session Owner')]
+  [FlagName(RTL_USER_PROC_HANDLE_USER_CALLBACK_EXCEPTIONS, 'Handle User Callback Exceptions')]
+  [FlagName(RTL_USER_PROC_PROTECTED_PROCESS, 'Protected Process')]
   [FlagName(RTL_USER_PROC_SECURE_PROCESS, 'Secure Process')]
   TRtlUserProcessFlags = type Cardinal;
 
@@ -559,6 +565,11 @@ function RtlCreateUserProcessEx(
   [out, ReleaseWith('NtClose')] out ProcessInformation:
     TRtlUserProcessInformation
 ): NTSTATUS; stdcall; external ntdll delayed;
+
+var delayed_RtlCreateUserProcessEx: TDelayedLoadFunction = (
+  DllName: ntdll;
+  FunctionName: 'RtlCreateUserProcessEx';
+);
 
 // PHNT::ntrtl.h
 procedure RtlExitUserProcess(
@@ -1035,6 +1046,11 @@ function RtlDeriveCapabilitySidsFromName(
   [out, WritesTo] CapabilitySid: PSid
 ): NTSTATUS; stdcall; external ntdll delayed;
 
+var delayed_RtlDeriveCapabilitySidsFromName: TDelayedLoadFunction = (
+  DllName: ntdll;
+  FunctionName: 'RtlDeriveCapabilitySidsFromName';
+);
+
 // Security Descriptors
 
 // WDK::wdm.h
@@ -1304,6 +1320,11 @@ function RtlGetTokenNamedObjectPath(
   [in, out, ReleaseWith('RtlFreeUnicodeString')] var ObjectPath: TNtUnicodeString
 ): NTSTATUS; stdcall; external ntdll delayed;
 
+var delayed_RtlGetTokenNamedObjectPath: TDelayedLoadFunction = (
+  DllName: ntdll;
+  FunctionName: 'RtlGetTokenNamedObjectPath';
+);
+
 // PHNT::ntrtl.h
 [MinOSVersion(OsWin81)]
 function RtlGetAppContainerParent(
@@ -1311,11 +1332,21 @@ function RtlGetAppContainerParent(
   [out, ReleaseWith('RtlFreeSid')] out AppContainerSidParent: PSid
 ): NTSTATUS; stdcall; external ntdll delayed;
 
+var delayed_RtlGetAppContainerParent: TDelayedLoadFunction = (
+  DllName: ntdll;
+  FunctionName: 'RtlGetAppContainerParent';
+);
+
 // PHNT::ntrtl.h
 [MinOSVersion(OsWin8)]
 function RtlIsCapabilitySid(
   [in] Sid: PSid
 ): Boolean; stdcall; external ntdll delayed;
+
+var delayed_RtlIsCapabilitySid: TDelayedLoadFunction = (
+  DllName: ntdll;
+  FunctionName: 'RtlIsCapabilitySid';
+);
 
 // PHNT::ntrtl.h
 [MinOSVersion(OsWin81)]
@@ -1323,6 +1354,11 @@ function RtlGetAppContainerSidType(
   [in] AppContainerSid: PSid;
   [out] out AppContainerSidType: TAppContainerSidType
 ): NTSTATUS; stdcall; external ntdll delayed;
+
+var delayed_RtlGetAppContainerSidType: TDelayedLoadFunction = (
+  DllName: ntdll;
+  FunctionName: 'RtlGetAppContainerSidType';
+);
 
 implementation
 

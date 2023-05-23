@@ -8,9 +8,11 @@ unit NtUtils.Processes.Create.Com;
 interface
 
 uses
-  Ntapi.ShellApi, Ntapi.Versions, NtUtils, NtUtils.Processes.Create;
+  Ntapi.ShellApi, Ntapi.Versions, Ntapi.ObjBase, NtUtils,
+  NtUtils.Processes.Create;
 
 // Create a new process via WMI
+[RequiresCOM]
 [SupportedOption(spoCurrentDirectory)]
 [SupportedOption(spoSuspended)]
 [SupportedOption(spoWindowMode)]
@@ -22,23 +24,36 @@ function WmixCreateProcess(
 ): TNtxStatus;
 
 // Ask Explorer via IShellDispatch2 to create a process on our behalf
+[RequiresCOM]
 [SupportedOption(spoCurrentDirectory)]
 [SupportedOption(spoRequireElevation)]
 [SupportedOption(spoWindowMode)]
-function ComxShellExecute(
+function ComxShellDispatchExecute(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
 ): TNtxStatus;
 
 // Create a new process via WDC
+[RequiresCOM]
 [SupportedOption(spoCurrentDirectory)]
 [SupportedOption(spoRequireElevation)]
-function WdcxCreateProcess(
+function WdcxRunAsInteractive(
+  const Options: TCreateProcessOptions;
+  out Info: TProcessInfo
+): TNtxStatus;
+
+// Create a new process via Task Scheduler using Task Manager's interactive task
+[RequiresCOM]
+[SupportedOption(spoCurrentDirectory)]
+[SupportedOption(spoRequireElevation)]
+[SupportedOption(spoSessionId)]
+function SchxRunAsInteractive(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
 ): TNtxStatus;
 
 // Create a new process via IDesktopAppXActivator
+[RequiresCOM]
 [MinOSVersion(OsWin10RS1)]
 [SupportedOption(spoCurrentDirectory, OsWin11)]
 [SupportedOption(spoRequireElevation)]
@@ -47,7 +62,7 @@ function WdcxCreateProcess(
 [SupportedOption(spoWindowMode, OsWin11)]
 [SupportedOption(spoAppUserModeId, omRequired)]
 [SupportedOption(spoPackageBreakaway)]
-function AppxCreateProcess(
+function PkgxCreateProcessInPackage(
   const Options: TCreateProcessOptions;
   out Info: TProcessInfo
 ): TNtxStatus;
@@ -56,9 +71,10 @@ implementation
 
 uses
   Ntapi.WinNt, Ntapi.ntstatus, Ntapi.ProcessThreadsApi, Ntapi.WinError,
-  Ntapi.ObjBase, Ntapi.ObjIdl, Ntapi.appmodel, Ntapi.WinUser, NtUtils.Ldr,
-  NtUtils.Com.Dispatch, NtUtils.Tokens.Impersonate, NtUtils.Threads,
-  NtUtils.Objects, NtUtils.Errors;
+  Ntapi.ObjIdl, Ntapi.taskschd, Ntapi.ntpebteb, Ntapi.winsta, Ntapi.appmodel,
+  Ntapi.WinUser, NtUtils.Ldr, NtUtils.Com, NtUtils.Tokens.Impersonate,
+  NtUtils.Threads, NtUtils.Objects, NtUtils.WinStation, NtUtils.Errors,
+  NtUtils.SysUtils, NtUtils.Synchronization;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -68,7 +84,7 @@ uses
 
 function WmixCreateProcess;
 var
-  CoInitReverter, ImpersonationReverter: IAutoReleasable;
+  ImpersonationReverter: IAutoReleasable;
   Win32_ProcessStartup, Win32_Process: IDispatch;
   ProcessId: TProcessId32;
   ResultCode: TVarData;
@@ -76,12 +92,6 @@ begin
   Info := Default(TProcessInfo);
 
   // TODO: add support for providing environment variables
-
-  // Accessing WMI requires COM
-  Result := ComxInitialize(CoInitReverter);
-
-  if not Result.IsSuccess then
-    Exit;
 
   // We pass the token to WMI by impersonating it
   if Assigned(Options.hxToken) then
@@ -111,7 +121,7 @@ begin
   begin
     // For some reason, when specifing Win32_ProcessStartup.CreateFlags,
     // processes would not start without CREATE_BREAKAWAY_FROM_JOB.
-    Result := DispxPropertySet(
+    Result := DispxSetPropertyByName(
       Win32_ProcessStartup,
       'CreateFlags',
       VarFromCardinal(CREATE_BREAKAWAY_FROM_JOB or CREATE_SUSPENDED)
@@ -124,7 +134,7 @@ begin
   // Fill-in the Window Mode
   if poUseWindowMode in Options.Flags then
   begin
-    Result := DispxPropertySet(
+    Result := DispxSetPropertyByName(
       Win32_ProcessStartup,
       'ShowWindow',
       VarFromWord(Word(Options.WindowMode))
@@ -137,7 +147,7 @@ begin
   // Fill-in the desktop
   if Options.Desktop <> '' then
   begin
-    Result := DispxPropertySet(
+    Result := DispxSetPropertyByName(
       Win32_ProcessStartup,
       'WinstationDesktop',
       VarFromWideString(Options.Desktop)
@@ -156,7 +166,7 @@ begin
   ProcessId := 0;
 
   // Create the process
-  Result := DispxMethodCall(
+  Result := DispxCallMethodByName(
     Win32_Process,
     'Create',
     [
@@ -222,12 +232,9 @@ var
   ServiceProvider: IServiceProvider;
   ShellBrowser: IShellBrowser;
 begin
-  Result := ComxCreateInstance(
-    CLSID_ShellWindows,
-    IShellWindows,
-    ShellWindows,
-    CLSCTX_LOCAL_SERVER
-  );
+  Result := ComxCreateInstance(CLSID_ShellWindows, IShellWindows, ShellWindows,
+    CLSCTX_LOCAL_SERVER);
+  Result.LastCall.Parameter := 'CLSID_ShellWindows';
 
   if not Result.IsSuccess then
     Exit;
@@ -318,18 +325,12 @@ begin
   Result.HResult := Dispatch.QueryInterface(IShellDispatch2, ShellDispatch);
 end;
 
-function ComxShellExecute;
+function ComxShellDispatchExecute;
 var
-  UndoCoInit: IAutoReleasable;
   ShellDispatch: IShellDispatch2;
   vOperation, vShow: TVarData;
 begin
   Info := Default(TProcessInfo);
-
-  Result := ComxInitialize(UndoCoInit);
-
-  if not Result.IsSuccess then
-    Exit;
 
   // Retrieve the Shell Dispatch object
   Result := ComxGetShellDispatch(ShellDispatch);
@@ -363,27 +364,22 @@ end;
 
 { ----------------------------------- WDC ----------------------------------- }
 
-function WdcxCreateProcess;
+function WdcxRunAsInteractive;
 var
   SeclFlags: TSeclFlags;
-  UndoCoInit: IAutoReleasable;
 begin
   Info := Default(TProcessInfo);
 
-  Result := LdrxCheckModuleDelayedImport(wdc, 'WdcRunTaskAsInteractiveUser');
+  Result := LdrxCheckDelayedImport(delayed_wdc,
+    delayed_WdcRunTaskAsInteractiveUser);
 
   if not Result.IsSuccess then
     Exit;
 
-  Result := ComxInitialize(UndoCoInit);
-
-  if not Result.IsSuccess then
-    Exit;
+  SeclFlags := SECL_NO_UI or SECL_ALLOW_NONEXE;
 
   if poRequireElevation in Options.Flags then
-    SeclFlags := SECL_RUNAS
-  else
-    SeclFlags := 0;
+    SeclFlags := SeclFlags or SECL_RUNAS;
 
   Result.Location := 'WdcRunTaskAsInteractiveUser';
   Result.HResult := WdcRunTaskAsInteractiveUser(
@@ -395,11 +391,156 @@ begin
   // This method does not provide any information about the new process
 end;
 
+function SchxRunAsInteractive;
+const
+  TIMEOUT_DELAY = 64 * MILLISEC;
+  TIMEOUT_CHECK_COUNT = (5000 * MILLISEC) div TIMEOUT_DELAY;
+var
+  TaskService: ITaskService;
+  TaskFolder: ITaskFolder;
+  Task: IRegisteredTask;
+  RunningTask: IRunningTask;
+  SeclFlags: TSeclFlags;
+  SessionId: TSessionId;
+  SessionInfo: TWinStationInformation;
+  Domain, User: String;
+  ParameterStr: WideString;
+  RemainingTimeoutChecks: NativeInt;
+  State: TTaskState;
+  LastResult: HResult;
+begin
+  // This method does not provide any information about the new process
+  Info := Default(TProcessInfo);
+
+  Result := ComxCreateInstanceWithFallback('taskschd.dll', CLSID_TaskScheduler,
+    ITaskService, TaskService, 'CLSID_TaskScheduler');
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Connect to the local Task Scheduler
+  Result.Location := 'ITaskService::Connect';
+  Result.HResult := TaskService.Connect(VarEmpty, VarEmpty, VarEmpty, VarEmpty);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Find Task Manager's task folder
+  Result.Location := 'ITaskService::GetFolder';
+  Result.LastCall.Parameter := TASK_MANAGER_TASK_FOLDER;
+  Result.HResult := TaskService.GetFolder(TASK_MANAGER_TASK_FOLDER, TaskFolder);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Find the task
+  Result.Location := 'ITaskFolder::GetTask';
+  Result.LastCall.Parameter := TASK_MANAGER_TASK_PATH;
+  Result.HResult := TaskFolder.GetTask(TASK_MANAGER_TASK_NAME, Task);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  SeclFlags := SECL_NO_UI or SECL_ALLOW_NONEXE;
+
+  // Prepare the parameters
+  if poRequireElevation in Options.Flags then
+    SeclFlags := SeclFlags or SECL_RUNAS;
+
+  if poUseSessionId in Options.Flags then
+    SessionId := Options.SessionId
+  else
+    SessionId := RtlGetCurrentPeb.SessionID;
+
+  if (Options.Domain <> '') and (Options.Username <> '') then
+  begin
+    // Use the provided account name to avoid querying it
+    Domain := Options.Domain;
+    User := Options.Username;
+  end
+  else
+  begin
+    // Query the username of the specified session
+    Result := WsxWinStation.Query(SessionId, WinStationInformation, SessionInfo);
+
+    if not Result.IsSuccess then
+      Exit;
+
+    Domain := String(SessionInfo.Domain);
+    User := String(SessionInfo.UserName);
+  end;
+
+  // Pack the parameters
+  ParameterStr := RtlxFormatString('%08x|%s\%s|%s|%s', [
+    SeclFlags,
+    Domain,
+    User,
+    Options.CurrentDirectory,
+    Options.CommandLine
+  ]);
+
+  // Invoke the task
+  Result.Location := 'IRegisteredTask::RunEx';
+  Result.LastCall.Parameter := TASK_MANAGER_TASK_PATH;
+  Result.HResult := Task.RunEx(
+    VarFromWideString(ParameterStr),
+    TASK_RUN_IGNORE_CONSTRAINTS or TASK_RUN_USE_SESSION_ID,
+    SessionId,
+    '',
+    RunningTask
+  );
+
+  if not Result.IsSuccess then
+    Exit;
+
+  RemainingTimeoutChecks := TIMEOUT_CHECK_COUNT;
+
+  repeat
+    // Check if the task completed
+    Result.Location := 'IRegisteredTask::get_State';
+    Result.HResult := Task.get_State(State);
+
+    if not Result.IsSuccess then
+      Exit;
+
+    if State <> TASK_STATE_RUNNING then
+      Break;
+
+    if RemainingTimeoutChecks >= 0 then
+    begin
+      // Wait before checking again
+      Result := NtxDelayExecution(TIMEOUT_DELAY);
+
+      if not Result.IsSuccess then
+        Exit;
+    end
+    else
+    begin
+      // Waited too many times
+      Result.Location := 'SchxRunAsInteractive';
+      Result.Win32Error := ERROR_TIMEOUT;
+      Exit;
+    end;
+
+    Dec(RemainingTimeoutChecks);
+  until False;
+
+  // Forward the result
+  Result.Location := 'IRegisteredTask::get_LastTaskResult';
+  Result.HResult := Task.get_LastTaskResult(LastResult);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result.Location := 'WdcRunTask::Start';
+  Result.HResult := LastResult;
+end;
+
 { ---------------------------------- AppX ----------------------------------- }
 
-function AppxCreateProcess;
+function PkgxCreateProcessInPackage;
 var
-  ComUninitializer: IAutoReleasable;
+  DllName: String;
   Activator: IUnknown;
   ActivatorV1: IDesktopAppXActivatorV1;
   ActivatorV2: IDesktopAppXActivatorV2;
@@ -411,16 +552,14 @@ var
 begin
   Info := Default(TProcessInfo);
 
-  Result := ComxInitialize(ComUninitializer);
+  if RtlOsVersionAtLeast(OsWin11) then
+    DllName := 'twinui.appcore.dll'
+  else
+    DllName := 'twinui.dll';
 
-  if not Result.IsSuccess then
-    Exit;
-
-  // Create the activator without asking for any specicific interfaces
-  Result.Location := 'CoCreateInstance';
-  Result.LastCall.Parameter := 'CLSID_DesktopAppXActivator';
-  Result.HResult := CoCreateInstance(CLSID_DesktopAppXActivator, nil,
-    CLSCTX_INPROC_SERVER, IUnknown, Activator);
+  // Create the activator without asking for any specicific interface
+  Result := ComxCreateInstanceWithFallback(DllName, CLSID_DesktopAppXActivator,
+    IUnknown, Activator, 'CLSID_DesktopAppXActivator');
 
   if not Result.IsSuccess then
     Exit;

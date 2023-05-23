@@ -7,14 +7,20 @@ unit Ntapi.winsta;
 
 interface
 
+{$WARN SYMBOL_PLATFORM OFF}
 {$MINENUMSIZE 4}
 
 uses
-  Ntapi.WinNt, Ntapi.ntdef, Ntapi.WinUser,DelphiApi.Reflection;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.WinUser,DelphiApi.Reflection,
+  DelphiApi.DelayLoad;
 
 const
   winsta = 'winsta.dll';
 
+var
+  delayed_winsta: TDelayedLoadDll = (DllName: winsta);
+
+const
   USERNAME_LENGTH = 20;
   DOMAIN_LENGTH = 17;
 
@@ -233,25 +239,45 @@ type
 
 function WinStationFreeMemory(
   [in] Buffer: Pointer
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationFreeMemory: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationFreeMemory';
+);
 
 [SetsLastError]
 [Result:  ReleaseWith('WinStationCloseServer')]
 function WinStationOpenServerW(
   [in] ServerName: PWideChar
-): TWinStaHandle; stdcall; external winsta;
+): TWinStaHandle; stdcall; external winsta delayed;
+
+var delayed_WinStationOpenServerW: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationOpenServerW';
+);
 
 [SetsLastError]
 function WinStationCloseServer(
   [in] hServer: TWinStaHandle
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationCloseServer: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationCloseServer';
+);
 
 [SetsLastError]
 function WinStationEnumerateW(
   [in, opt] ServerHandle: TWinStaHandle;
   [out, ReleaseWith('WinStationFreeMemory')] out SessionIds: PSessionIdArrayW;
   [out, NumberOfElements] out Count: Integer
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationEnumerateW: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationEnumerateW';
+);
 
 [SetsLastError]
 function WinStationQueryInformationW(
@@ -261,7 +287,12 @@ function WinStationQueryInformationW(
   [out, WritesTo] WinStationInformation: Pointer;
   [in, NumberOfBytes] WinStationInformationLength: Cardinal;
   [out, NumberOfBytes] out ReturnLength: Cardinal
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationQueryInformationW: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationQueryInformationW';
+);
 
 [SetsLastError]
 function WinStationSetInformationW(
@@ -270,7 +301,12 @@ function WinStationSetInformationW(
   [in] WinStationInformationClass: TWinStationInfoClass;
   [in, ReadsFrom] WinStationInformation: Pointer;
   [in, NumberOfBytes] WinStationInformationLength: Cardinal
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationSetInformationW: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationSetInformationW';
+);
 
 [SetsLastError]
 function WinStationSendMessageW(
@@ -284,7 +320,12 @@ function WinStationSendMessageW(
   [in] Timeout: Cardinal;
   [out] out Response: TMessageResponse;
   [in] DoNotWait: Boolean
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationSendMessageW: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationSendMessageW';
+);
 
 [SetsLastError]
 function WinStationConnectW(
@@ -293,14 +334,24 @@ function WinStationConnectW(
   [in] TargetSessionId: TSessionId;
   [in, opt] Password: PWideChar;
   [in] Wait: Boolean
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationConnectW: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationConnectW';
+);
 
 [SetsLastError]
 function WinStationDisconnect(
   [in, opt] ServerHandle: TWinStaHandle;
   [in] SessionId: TSessionId;
   [in] Wait: Boolean
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationDisconnect: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationDisconnect';
+);
 
 [SetsLastError]
 function WinStationShadow(
@@ -309,24 +360,44 @@ function WinStationShadow(
   [in] TargetSessionId: TSessionId;
   [in] HotKeyVk: Byte;
   [in] HotkeyModifiers: Word
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationShadow: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationShadow';
+);
 
 [SetsLastError]
 function WinStationShadowStop(
   [in, opt] ServerHandle: TWinStaHandle;
   [in] SessionId: TSessionId;
   [in] Wait: Boolean
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationShadowStop: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationShadowStop';
+);
 
 // Windows 7 only
 [SetsLastError]
 function WinStationSwitchToServicesSession(
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationSwitchToServicesSession: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationSwitchToServicesSession';
+);
 
 // Windows 7 only
 [SetsLastError]
 function WinStationRevertFromServicesSession(
-): Boolean; stdcall; external winsta;
+): Boolean; stdcall; external winsta delayed;
+
+var delayed_WinStationRevertFromServicesSession: TDelayedLoadFunction = (
+  DllName: winsta;
+  FunctionName: 'WinStationRevertFromServicesSession';
+);
 
 implementation
 

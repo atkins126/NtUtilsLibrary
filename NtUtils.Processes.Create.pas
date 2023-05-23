@@ -21,12 +21,14 @@ type
     poForceBreakaway, // Win 8.1+
     poInheritConsole,
     poUseWindowMode,
+    poForceWindowTitle,
     poRequireElevation,
     poRunAsInvokerOn,
     poRunAsInvokerOff,
     poIgnoreElevation,
     poLPAC, // Win 10 TH1+
     poUseProtection, // Win 8.1+
+    poUseSessionId,
     poDetectManifest
   );
 
@@ -70,13 +72,16 @@ type
     CurrentDirectory: String;
     Desktop: String;
     Environment: IEnvironment;
-    ProcessSecurity, ThreadSecurity: ISecurityDescriptor;
+    ProcessAttributes: IObjectAttributes;
+    ThreadAttributes: IObjectAttributes;
     WindowMode: TShowMode32;
+    WindowTitle: String;
     HandleList: TArray<IHandle>;
     [Access(TOKEN_CREATE_PROCESS or TOKEN_CREATE_PROCESS_EX)] hxToken: IHandle;
     [Access(PROCESS_CREATE_PROCESS)] hxParentProcess: IHandle;
     [Access(JOB_OBJECT_ASSIGN_PROCESS)] hxJob: IHandle;
     [Access(SECTION_MAP_EXECUTE)] hxSection: IHandle;
+    [Access(DEBUG_PROCESS_ASSIGN)] hxDebugPort: IHandle;
     Mitigations: UInt64;
     Mitigations2: UInt64;              // Win 10 TH1+
     ChildPolicy: TProcessChildFlags;   // Win 10 TH1+
@@ -91,6 +96,7 @@ type
     AdditionalFileAccess: TIoFileAccessMask;
     ParentProcessId: TProcessId;
     Domain, Username, Password: String;
+    SessionId: TSessionId;
     function ApplicationWin32: String;
     function ApplicationNative: String;
     function CommandLine: String;
@@ -113,14 +119,18 @@ type
     spoRunAsInvoker,
     spoIgnoreElevation,
     spoEnvironment,
+    spoObjectInherit,
+    spoDesiredAccess,
     spoSecurity,
     spoWindowMode,
+    spoWindowTitle,
     spoDesktop,
     spoToken,
     spoParentProcess,
     spoParentProcessId,
     spoJob,
     spoSection,
+    spoDebugPort,
     spoHandleList,
     spoMitigationPolicies,
     spoChildPolicy,
@@ -132,6 +142,7 @@ type
     spoProtection,
     spoLogonFlags,
     spoCredentials,
+    spoSessionId,
     spoTimeout,
     spoAdditinalFileAccess,
     spoDetectManifest

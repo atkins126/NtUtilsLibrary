@@ -10,7 +10,7 @@ interface
 {$MINENUMSIZE 4}
 
 uses
-  Ntapi.WinNt, Ntapi.WinBase, DelphiApi.Reflection;
+  Ntapi.WinNt, Ntapi.WinBase, DelphiApi.Reflection, DelphiApi.DelayLoad;
 
 type
   MAKEINTRESOURCE = PWideChar;
@@ -18,6 +18,10 @@ type
 const
   user32 = 'user32.dll';
 
+var
+  delayed_user32: TDelayedLoadDll = (DllName: user32);
+
+const
   // Desktop access masks
   DESKTOP_READOBJECTS = $0001;
   DESKTOP_CREATEWINDOW = $0002;
@@ -49,6 +53,9 @@ const
 
   // Window station flags
   WSF_VISIBLE = $01;
+
+  // Special desktop window
+  HWND_DESKTOP = 0;
 
   // Window message values
   WM_GETTEXT = $000D;
@@ -244,6 +251,12 @@ type
     [Hex] Flags: Cardinal; // WSF_* or DF_*
   end;
   PUserObjectFlags = ^TUserObjectFlags;
+
+  [SDKName('WNDENUMPROC')]
+  TWndEnumProc = function (
+    [in] hwnd: THwnd;
+    [in, opt] var Context
+  ): LongBool; stdcall;
 
   // SDK::windef.h
   [SDKName('RECT')]
@@ -469,6 +482,30 @@ function SetUserObjectInformationW(
 ): LongBool; stdcall; external user32;
 
 // Windows
+
+[SetsLastError]
+function GetDesktopWindow(
+): THwnd; stdcall; external user32;
+
+[SetsLastError]
+function EnumWindows(
+  [in] EnumFunc: TWndEnumProc;
+  [in, opt] var Context
+): LongBool; stdcall; external user32;
+
+[SetsLastError]
+function EnumDesktopWindows(
+  [in, opt, Access(DESKTOP_READOBJECTS)] hDesktop: THandle;
+  [in] EnumFunc: TWndEnumProc;
+  [in, opt] var Context
+): LongBool; stdcall; external user32;
+
+[SetsLastError]
+function EnumChildWindows(
+  [in, opt] hWndParent: THwnd;
+  [in] EnumFunc: TWndEnumProc;
+  [in, opt] var Context
+): LongBool; stdcall; external user32;
 
 [SetsLastError]
 function SetWindowPos(
