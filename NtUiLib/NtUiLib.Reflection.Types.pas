@@ -216,8 +216,7 @@ uses
   Ntapi.winsta, DelphiApi.Reflection, NtUtils.Errors,  NtUtils.Lsa.Logon,
   NtUiLib.Errors,NtUtils.Lsa.Sid,NtUtils.WinStation, NtUtils.Security.Sid,
   NtUtils.Processes, NtUtils.Processes.Info, NtUtils.Threads,
-  NtUtils.Synchronization, DelphiUiLib.Strings, DelphiUiLib.Reflection.Strings,
-  DelphiUiLib.Reflection.Numeric;
+  NtUtils.Synchronization, DelphiUiLib.Strings, DelphiUiLib.Reflection.Strings;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -266,18 +265,18 @@ begin
 
   if Success then
   begin
-    HintSections[i] := THintSection.New('Type', TNumeric.Represent(
+    HintSections[i] := THintSection.New('Type', TType.Represent(
       Lookup.SidType).Text);
     Inc(i);
   end;
 
   if AttributesPresent then
   begin
-    HintSections[i] := THintSection.New('State', TNumeric.Represent
+    HintSections[i] := THintSection.New('State', TType.Represent
       <TGroupAttributes>(Attributes and SE_GROUP_STATE_MASK).Text);
     Inc(i);
 
-    HintSections[i] := THintSection.New('Flags', TNumeric.Represent
+    HintSections[i] := THintSection.New('Flags', TType.Represent
       <TGroupAttributes>(Attributes and not SE_GROUP_STATE_MASK,
       [Auto.From(IgnoreSubEnumsAttribute.Create).Self]).Text);
     Inc(i);
@@ -727,8 +726,8 @@ class function TRectRepresenter.Represent;
 var
   Rect: TRect absolute Instance;
 begin
-  Result.Text := Format('[(%d, %d), (%d, %d)]', [Rect.Left, Rect.Top,
-    Rect.Right, Rect.Bottom]);
+  Result.Text := Format('(%d, %d) - (%d, %d) [%dx%d]', [Rect.Left, Rect.Top,
+    Rect.Right, Rect.Bottom, Rect.Right - Rect.Left, Rect.Bottom - Rect.Top]);
 end;
 
 initialization
