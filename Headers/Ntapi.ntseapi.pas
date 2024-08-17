@@ -142,8 +142,8 @@ type
   // WDK::wdm.h
   [NamingStyle(nsSnakeCase, 'SE'), Range(2)]
   TSeWellKnownPrivilege = (
-    SE_RESERVED_LUID_0 = 0,
-    SE_RESERVED_LUID_1 = 1,
+    [Reserved] SE_RESERVED_LUID_0 = 0,
+    [Reserved] SE_RESERVED_LUID_1 = 1,
     SE_CREATE_TOKEN_PRIVILEGE = 2,
     SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE = 3,
     SE_LOCK_MEMORY_PRIVILEGE = 4,
@@ -183,6 +183,8 @@ type
 
   [FlagName(SE_PRIVILEGE_REMOVED, 'Removed')]
   [FlagName(SE_PRIVILEGE_USED_FOR_ACCESS, 'Used For Access')]
+  [FlagGroup(SE_PRIVILEGE_STATE_MASK, 'State')]
+  [FlagGroup(MAX_UINT and not SE_PRIVILEGE_STATE_MASK, 'Flags')]
   [SubEnum(SE_PRIVILEGE_STATE_MASK, SE_PRIVILEGE_DISABLED, 'Disabled')]
   [SubEnum(SE_PRIVILEGE_STATE_MASK, SE_PRIVILEGE_ENABLED_BY_DEFAULT, 'Disabled (modified)')]
   [SubEnum(SE_PRIVILEGE_STATE_MASK, SE_PRIVILEGE_ENABLED, 'Enabled (modified)')]
@@ -192,10 +194,11 @@ type
   TPrivilegeId = type TLuid;
 
   TRequiredPrivilegeMode = (
-    rpAlways,            // The function always fails without the privilege
-    rpWithExceptions,    // Mostly necessary, but there are some exceptions
-    rpSometimes,         // Required under some specific conditions
-    rpForBypassingChecks // Required if normal access checks deny access
+    rpAlways,                  // The function fails without the privilege
+    rpWithExceptions,          // Mostly necessary, but there are exceptions
+    rpSometimes,               // Required under some specific conditions
+    rpForBypassingChecks,      // Required if normal access checks deny access
+    rpForExtendedFunctionality // The privilege unlocks additional functionality
   );
 
   // An attribute to mark functions as requiring a specific privilege
@@ -229,6 +232,8 @@ type
   [FlagName(SE_GROUP_INTEGRITY, 'Integrity')]
   [FlagName(SE_GROUP_RESOURCE, 'Resource')]
   [FlagName(SE_GROUP_LOGON_ID, 'Logon ID')]
+  [FlagGroup(SE_GROUP_STATE_MASK, 'State')]
+  [FlagGroup(MAX_UINT and not SE_GROUP_STATE_MASK, 'Flags')]
   [SubEnum(SE_GROUP_STATE_MASK, 0, 'Disabled')]
   [SubEnum(SE_GROUP_STATE_MASK, SE_GROUP_ENABLED_BY_DEFAULT, 'Disabled (modified)')]
   [SubEnum(SE_GROUP_STATE_MASK, SE_GROUP_ENABLED, 'Enabled (modified)')]
@@ -274,7 +279,7 @@ type
   [SDKName('TOKEN_INFORMATION_CLASS')]
   [NamingStyle(nsCamelCase, 'Token'), Range(1)]
   TTokenInformationClass = (
-    TokenReserved = 0,
+    [Reserved] TokenReserved = 0,
     TokenUser = 1,                             // q: TSidAndAttributes
     TokenGroups = 2,                           // q: TTokenGroups
     TokenPrivileges = 3,                       // q: TTokenPrivileges
@@ -303,7 +308,7 @@ type
     TokenUIAccess = 26,                        // q, s: LongBool
     TokenMandatoryPolicy = 27,                 // q, s: TTokenMandatoryPolicy
     TokenLogonSid = 28,                        // q: TTokenGroups
-    TokenIsAppContainer = 29,                  // q: LongBool
+    TokenIsAppContainer = 29,                  // q: LongBool, Win 8+
     TokenCapabilities = 30,                    // q: TTokenGroups
     TokenAppContainerSid = 31,                 // q: TTokenSidInformation
     TokenAppContainerNumber = 32,              // q: Cardinal
@@ -315,21 +320,21 @@ type
     TokenRestrictedDeviceGroups = 38,          // q: TTokenGroups
     TokenSecurityAttributes = 39,              // q, s: TTokenSecurityAttributes[AndOperation]
     TokenIsRestricted = 40,                    // q: LongBool
-    TokenProcessTrustLevel = 41,               // q: TTokenSidInformation
-    TokenPrivateNameSpace = 42,                // q, s: LongBool
-    TokenSingletonAttributes = 43,             // q: TTokenSecurityAttributes
-    TokenBnoIsolation = 44,                    // q: TTokenBnoIsolationInformation
-    TokenChildProcessFlags = 45,               // s: LongBool
-    TokenIsLessPrivilegedAppContainer = 46,    // q: LongBool
-    TokenIsSandboxed = 47,                     // q: LongBool
-    TokenOriginatingProcessTrustLevel = 48     // q: TTokenSidInformation
+    TokenProcessTrustLevel = 41,               // q: TTokenSidInformation, Win 8.1+
+    TokenPrivateNameSpace = 42,                // q, s: LongBool, Win 10 TH1+
+    TokenSingletonAttributes = 43,             // q: TTokenSecurityAttributes, Win 10 RS1+
+    TokenBnoIsolation = 44,                    // q: TTokenBnoIsolationInformation, Win 10 RS2+
+    TokenChildProcessFlags = 45,               // s: LongBool, Win 10 RS3+
+    TokenIsLessPrivilegedAppContainer = 46,    // q: LongBool, Win 10 RS5+
+    TokenIsSandboxed = 47,                     // q: LongBool, Win 10 19H1+
+    TokenIsAppSilo = 48                        // q: LongBool, Win 11 22H2+
   );
 
   // SDK::winnt.h
   [SDKName('TOKEN_TYPE')]
   [NamingStyle(nsCamelCase, 'Token'), Range(1)]
   TTokenType = (
-    TokenInvalid = 0,
+    [Reserved] TokenInvalid = 0,
     TokenPrimary = 1,
     TokenImpersonation = 2
   );
@@ -338,7 +343,7 @@ type
   [SDKName('TOKEN_ELEVATION_TYPE')]
   [NamingStyle(nsCamelCase, 'TokenElevationType'), Range(1)]
   TTokenElevationType = (
-    TokenElevationInvalid = 0,
+    [Reserved] TokenElevationInvalid = 0,
     TokenElevationTypeDefault = 1,
     TokenElevationTypeFull = 2,
     TokenElevationTypeLimited = 3
@@ -506,18 +511,22 @@ type
   {$MINENUMSIZE 2}
   [NamingStyle(nsSnakeCase, 'SECURITY_ATTRIBUTE_TYPE'), ValidBits([1..6, 16])]
   TSecurityAttributeType = (
-    SECURITY_ATTRIBUTE_TYPE_INVALID = 0,
+    [Reserved] SECURITY_ATTRIBUTE_TYPE_INVALID = 0,
     SECURITY_ATTRIBUTE_TYPE_INT64 = 1,
     SECURITY_ATTRIBUTE_TYPE_UINT64 = 2,
     SECURITY_ATTRIBUTE_TYPE_STRING = 3,
     SECURITY_ATTRIBUTE_TYPE_FQBN = 4,
     SECURITY_ATTRIBUTE_TYPE_SID = 5,
     SECURITY_ATTRIBUTE_TYPE_BOOLEAN = 6,
-    SECURITY_ATTRIBUTE_TYPE_7, SECURITY_ATTRIBUTE_TYPE_8,
-    SECURITY_ATTRIBUTE_TYPE_9, SECURITY_ATTRIBUTE_TYPE_10,
-    SECURITY_ATTRIBUTE_TYPE_11, SECURITY_ATTRIBUTE_TYPE_12,
-    SECURITY_ATTRIBUTE_TYPE_13, SECURITY_ATTRIBUTE_TYPE_14,
-    SECURITY_ATTRIBUTE_TYPE_15,
+    [Reserved] SECURITY_ATTRIBUTE_TYPE_7,
+    [Reserved] SECURITY_ATTRIBUTE_TYPE_8,
+    [Reserved] SECURITY_ATTRIBUTE_TYPE_9,
+    [Reserved] SECURITY_ATTRIBUTE_TYPE_10,
+    [Reserved] SECURITY_ATTRIBUTE_TYPE_11,
+    [Reserved] SECURITY_ATTRIBUTE_TYPE_12,
+    [Reserved] SECURITY_ATTRIBUTE_TYPE_13,
+    [Reserved] SECURITY_ATTRIBUTE_TYPE_14,
+    [Reserved] SECURITY_ATTRIBUTE_TYPE_15,
     SECURITY_ATTRIBUTE_TYPE_OCTET_STRING = 16
   );
   {$MINENUMSIZE 4}
@@ -527,6 +536,8 @@ type
   [FlagName(SECURITY_ATTRIBUTE_USE_FOR_DENY_ONLY, 'Use For Deny Only')]
   [FlagName(SECURITY_ATTRIBUTE_MANDATORY, 'Mandatory')]
   [FlagName(SECURITY_ATTRIBUTE_COMPARE_IGNORE, 'Compare-ignore')]
+  [FlagGroup(SECURITY_ATTRIBUTE_STATE_MASK, 'State')]
+  [FlagGroup(MAX_UINT and not SECURITY_ATTRIBUTE_STATE_MASK, 'Flags')]
   [SubEnum(SECURITY_ATTRIBUTE_STATE_MASK, 0, 'Enabled')]
   [SubEnum(SECURITY_ATTRIBUTE_STATE_MASK, SECURITY_ATTRIBUTE_DISABLED_BY_DEFAULT, 'Enabled (modified)')]
   [SubEnum(SECURITY_ATTRIBUTE_STATE_MASK, SECURITY_ATTRIBUTE_DISABLED, 'Disabled (modified)')]
@@ -682,7 +693,7 @@ function NtCreateTokenEx(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtCreateTokenEx: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtCreateTokenEx';
 );
 
@@ -701,7 +712,7 @@ function NtCreateLowBoxToken(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtCreateLowBoxToken: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtCreateLowBoxToken';
 );
 
@@ -874,7 +885,7 @@ procedure TTokenSource.SetName;
 var
   i, Count: integer;
 begin
-  sourcename := Default(TTokenSourceName);
+  FillChar(Self, SizeOf(Self), 0);
 
   Count := Length(Value);
   if Count > 8 then

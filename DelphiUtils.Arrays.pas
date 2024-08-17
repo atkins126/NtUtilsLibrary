@@ -66,9 +66,9 @@ type
     const Changes: TChanges
   ): Boolean;
 
-  TConflictResolver<TData, TChanegs> = reference to function (
+  TConflictResolver<TData, TChanges> = reference to function (
     const Existing: TData;
-    const New: TChanegs
+    const New: TChanges
   ): TData;
 
   TTreeNode<T> = record
@@ -97,21 +97,21 @@ type
       Action: TFilterAction = ftKeep
     ): TArray<T>; static;
 
-    // Filter an array on by-element basis modifiying the array
+    // Filter an array on by-element basis modifying the array
     class procedure FilterInline<T>(
       var Entries: TArray<T>;
       Condition: TCondition<T>;
       Action: TFilterAction = ftKeep
     ); static;
 
-    // Filter an array on by-element basis modifiying the array and its elements
+    // Filter an array on by-element basis modifying the array and its elements
     class procedure FilterInlineVar<T>(
       var Entries: TArray<T>;
       Condition: TVarCondition<T>;
       Action: TFilterAction = ftKeep
     ); static;
 
-    // Filter an array on by-element basis modifiying the array
+    // Filter an array on by-element basis modifying the array
     class procedure FilterInlineEx<T>(
       var Entries: TArray<T>;
       Condition: TConditionEx<T>;
@@ -143,7 +143,7 @@ type
     ): Integer; static;
 
     // Insert an element into a sorted array preserving sorting. The return
-    // value has the same sementic as the binary search.
+    // value has the same semantic as the binary search.
     class function InsertSorted<T>(
       var Entries: TArray<T>;
       const Element: T;
@@ -190,14 +190,14 @@ type
       Condition: TCondition<T>
     ): Integer; static;
 
-    // Find the position of the first occurance of an element
+    // Find the position of the first occurrence of an element
     class function IndexOf<T>(
       const Entries: TArray<T>;
       const Element: T;
       EqualityCheck: TEqualityCheck<T> = nil
     ): Integer; static;
 
-    // Find the position of the first occurance of an element that matches
+    // Find the position of the first occurrence of an element that matches
     // a condition
     class function IndexOfMatch<T>(
       const Entries: TArray<T>;
@@ -216,6 +216,13 @@ type
       Condition: TCondition<T>;
       const Default: T
     ): T; static;
+
+    // Try to find the first matching element
+    class function TryFindFirst<T>(
+      const Entries: TArray<T>;
+      Condition: TCondition<T>;
+      out Element: T
+    ): Boolean; static;
 
     // Search within an array and remove the second and subsequent duplicates
     class function RemoveDuplicates<T>(
@@ -249,13 +256,13 @@ type
       ConverterEx: TConvertRoutineEx<T1, T2>
     ): TArray<T2>; static;
 
-    // Convert the first convertable entry or return Default(T2)
+    // Convert the first convertible entry or return Default(T2)
     class function ConvertFirst<T1, T2>(
       const Entries: TArray<T1>;
       Converter: TConvertRoutine<T1, T2>
     ): T2; static;
 
-    // Convert the first convertable entry or return the specified default
+    // Convert the first convertible entry or return the specified default
     class function ConvertFirstOrDefault<T1, T2>(
       const Entries: TArray<T1>;
       Converter: TConvertRoutine<T1, T2>;
@@ -274,6 +281,11 @@ type
     ): TArray<T2>; static;
 
     { --------------------------- Other operations --------------------------- }
+
+    // Create an array from an iterator
+    class function Collect<T>(
+      const Iterator: IEnumerable<T>
+    ): TArray<T>; static;
 
     // Reverse the order of the elements in an array
     class function Reverse<T>(
@@ -314,7 +326,7 @@ type
       const Default: T
     ): T; static;
 
-    // Upadate existing items or add new ones into an ordered set by merging
+    // Update existing items or add new ones into an ordered set by merging
     // changes and resolving conflicts.
     class function Merge<TData, TChanges>(
       const Data: TArray<TData>;
@@ -400,15 +412,22 @@ begin
   if not Assigned(Comparer) then
     Comparer := DefaultComparer<T>;
 
-  Result := BinarySearchEx<T>(Entries,
-    function (const Entry: T): Integer
-    begin
-      Result := Comparer(Entry, Element);
+  try
+    Result := BinarySearchEx<T>(Entries,
+      function (const Entry: T): Integer
+      begin
+        Result := Comparer(Entry, Element);
 
-      if ReversedOrder then
-        Result := -Result;
-    end
-  );
+        if ReversedOrder then
+          Result := -Result;
+      end
+    );
+  finally
+    // For some reason, the anonymous function from above doesn't want to
+    // capture ownership over the default comparer. Explicitly release the
+    // variable here as a workaround.
+    Comparer := nil;
+  end;
 end;
 
 class function TArray.BinarySearchEx<T>;
@@ -506,6 +525,19 @@ begin
   end;
 end;
 
+class function TArray.Collect<T>;
+var
+  Element: T;
+begin
+  Result := nil;
+
+  for Element in Iterator do
+  begin
+    SetLength(Result, Succ(Length(Result)));
+    Result[High(Result)] := Element;
+  end;
+end;
+
 class function TArray.Contains<T>;
 var
   i: Integer;
@@ -553,7 +585,9 @@ begin
     if Converter(Entries[i], Result[j]) then
       Inc(j);
 
-  SetLength(Result, j);
+  // Trim failed conversions
+  if Length(Result) <> j then
+    SetLength(Result, j);
 end;
 
 class function TArray.ConvertEx<T1, T2>;
@@ -567,7 +601,9 @@ begin
     if ConverterEx(i, Entries[i], Result[j]) then
       Inc(j);
 
-  SetLength(Result, j);
+  // Trim failed conversions
+  if Length(Result) <> j then
+    SetLength(Result, j);
 end;
 
 class function TArray.ConvertFirst<T1, T2>;
@@ -654,7 +690,9 @@ begin
       Inc(Count);
     end;
 
-  SetLength(Result, Count);
+  // Trim unused slots
+  if Length(Result) <> Count then
+    SetLength(Result, Count);
 end;
 
 class function TArray.FilterEx<T>;
@@ -671,7 +709,9 @@ begin
       Inc(Count);
     end;
 
-  SetLength(Result, Count);
+  // Trim unused slots
+  if Length(Result) <> Count then
+    SetLength(Result, Count);
 end;
 
 class procedure TArray.FilterInline<T>;
@@ -682,7 +722,7 @@ begin
   for i := 0 to High(Entries) do
     if Condition(Entries[i]) xor (Action = ftExclude) then
     begin
-      // j grows slower then i, move elements backwards overwriting ones that
+      // j grows slower then i; move elements backwards overwriting ones that
       // don't match
       if i <> j then
         Entries[j] := Entries[i];
@@ -690,7 +730,9 @@ begin
       Inc(j);
     end;
 
-  SetLength(Entries, j);
+  // Trim released slots
+  if Length(Entries) <> j then
+    SetLength(Entries, j);
 end;
 
 class procedure TArray.FilterInlineEx<T>;
@@ -701,7 +743,7 @@ begin
   for i := 0 to High(Entries) do
     if Condition(i, Entries[i]) xor (Action = ftExclude) then
     begin
-      // j grows slower then i, move elements backwards overwriting ones that
+      // j grows slower then i; move elements backwards overwriting ones that
       // don't match
       if i <> j then
         Entries[j] := Entries[i];
@@ -709,7 +751,9 @@ begin
       Inc(j);
     end;
 
-  SetLength(Entries, j);
+  // Trim released slots
+  if Length(Entries) <> j then
+    SetLength(Entries, j);
 end;
 
 class procedure TArray.FilterInlineVar<T>;
@@ -720,7 +764,7 @@ begin
   for i := 0 to High(Entries) do
     if Condition(Entries[i]) xor (Action = ftExclude) then
     begin
-      // j grows slower then i, move elements backwards overwriting ones that
+      // j grows slower then i; move elements backwards overwriting ones that
       // don't match
       if i <> j then
         Entries[j] := Entries[i];
@@ -728,7 +772,9 @@ begin
       Inc(j);
     end;
 
-  SetLength(Entries, j);
+  // Trim released slots
+  if Length(Entries) <> j then
+    SetLength(Entries, j);
 end;
 
 class function TArray.FindFirst<T>;
@@ -751,6 +797,10 @@ class function TArray.Flatten<T>;
 var
   Count, i, j: Integer;
 begin
+  // No need to copy when provided with a single array
+  if Length(Arrays) = 1 then
+    Exit(Arrays[0]);
+
   // Compute the total number of elements
   Count := 0;
   for i := 0 to High(Arrays) do
@@ -758,7 +808,7 @@ begin
 
   SetLength(Result, Count);
 
-  // Fill them in preserving order
+  // Fill them preserving order
   Count := 0;
   for i := 0 to High(Arrays) do
     for j := 0 to High(Arrays[i]) do
@@ -849,8 +899,9 @@ begin
     end;
   end;
 
-  // Trim the array of groups
-  SetLength(Result, Count);
+  // Trim unused buckets
+  if Length(Result) <> Count then
+    SetLength(Result, Count);
 
   for j := 0 to High(Result) do
   begin
@@ -941,7 +992,7 @@ var
 begin
   SetLength(ConflictIndexes, Length(Changes));
 
-  // Find indexes of data entires with wich we have conflicts
+  // Find indexes of data entries with which we have conflicts
   for i := 0 to High(Changes) do
   begin
     ConflictIndexes[i] := -1;
@@ -980,8 +1031,11 @@ begin
       if ConvertChange(Changes[i], NewEntries[j]) then
         Inc(j);
 
+    // Trim if necessary
+    if Length(NewEntries) <> j then
+      SetLength(NewEntries, j);
+
     // Combine
-    SetLength(NewEntries, j);
     Result := Concat(Result, NewEntries);
   end;
 end;
@@ -993,27 +1047,34 @@ begin
   if not Assigned(EqualityCheck) then
     EqualityCheck := DefaultEqualityCheck<T>;
 
-  // Exclude item from comparison after we exclude it from the result
-  SetLength(Including, Length(Entries));
+  try
+    // Exclude item from comparison after we exclude it from the result
+    SetLength(Including, Length(Entries));
 
-  Result := TArray.FilterEx<T>(Entries,
-    function (const Index: Integer; const Entry: T): Boolean
-    var
-      i: Integer;
-    begin
-      Result := True;
+    Result := TArray.FilterEx<T>(Entries,
+      function (const Index: Integer; const Entry: T): Boolean
+      var
+        i: Integer;
+      begin
+        Result := True;
 
-      // Check if we already included a similar element
-      for i := Pred(Index) downto 0 do
-        if Including[i] and EqualityCheck(Entries[i], Entry) then
-        begin
-          Result := False;
-          Break;
-        end;
+        // Check if we already included a similar element
+        for i := Pred(Index) downto 0 do
+          if Including[i] and EqualityCheck(Entries[i], Entry) then
+          begin
+            Result := False;
+            Break;
+          end;
 
-      Including[Index] := Result;
-    end
-  );
+        Including[Index] := Result;
+      end
+    );
+  finally
+    // For some reason, the anonymous function from above doesn't want to
+    // capture ownership over the default equality checker. Explicitly release
+    // the variable here as a workaround.
+    EqualityCheck := nil;
+  end;
 end;
 
 class function TArray.Reverse<T>;
@@ -1058,52 +1119,75 @@ begin
   // instead, comparing the elements on each index. Then construct the result
   // using the new order.
 
-  // Generate the intial index list
+  // Generate the initial index list
   SetLength(Indexes, Length(Entries));
 
   for i := 0 to High(Indexes) do
     Indexes[i] := i;
 
-  // Prepare the anonymous function for comparing indexes via elements
-  IndexComparer := function (
-      KeyIndex: Integer;
-      ElementIndex: Integer
-    ): Integer
+  try
+    // Prepare the anonymous function for comparing indexes via elements
+    IndexComparer := function (
+        KeyIndex: Integer;
+        ElementIndex: Integer
+      ): Integer
+      begin
+        Result := Comparer(Entries[KeyIndex], Entries[ElementIndex]);
+      end;
+
+    // Use the newer qsort_s when possible
+    if LdrxCheckDelayedImport(delayed_qsort_s).IsSuccess then
     begin
-      Result := Comparer(Entries[KeyIndex], Entries[ElementIndex]);
+      // Sort the indexes passing the index comparer as a context parameter
+      qsort_s(Pointer(Indexes), Length(Indexes), SizeOf(Integer), SortCallback,
+        Context);
+    end
+    else
+    try
+      // Windows 7 doesn't support qsort_s, so we're forced to use the legacy
+      // qsort. However, it doesn't have the context parameter, so we need
+      // to pass the index comparer via a thread-local variable.
+      SmartContextLegacy := IndexComparer;
+
+      qsort(Pointer(Indexes), Length(Indexes), SizeOf(Integer),
+        SortCallbackLegacy);
+    finally
+      // Clean-up the anonymous function reference
+      SmartContextLegacy := nil;
     end;
 
-  // Use the newer qsort_s when possible
-  if LdrxCheckDelayedImport(delayed_ntdll, delayed_qsort_s).IsSuccess then
-  begin
-    // Sort the indexes passing the index comparer as a context parameter
-    qsort_s(Pointer(Indexes), Length(Indexes), SizeOf(Integer), SortCallback,
-      Context);
-  end
-  else
-  try
-    // Windows 7 doesn't support qsort_s, so we're forced to use the legacy
-    // qsort. However, it doesn't have the context parameter, so we need
-    // to pass the index comparer via a thread-local variable.
-    SmartContextLegacy := IndexComparer;
+    // Construct the sorted array
+    SetLength(Result, Length(Entries));
 
-    qsort(Pointer(Indexes), Length(Indexes), SizeOf(Integer),
-      SortCallbackLegacy);
+    for i := 0 to High(Result) do
+      Result[i] := Entries[Indexes[i]];
+
   finally
-    // Clean-up the anonymous function reference
-    SmartContextLegacy := nil;
+    // For some reason, the anonymous function (IndexComparer) doesn't want to
+    // capture ownership over the default comparer. Explicitly release the
+    // variable here as a workaround.
+    Comparer := nil;
   end;
-
-  // Construct the sorted array
-  SetLength(Result, Length(Entries));
-
-  for i := 0 to High(Result) do
-    Result[i] := Entries[Indexes[i]];
 end;
 
 class procedure TArray.SortInline<T>;
 begin
   Entries := TArray.Sort<T>(Entries, Comparer);
+end;
+
+class function TArray.TryFindFirst<T>;
+var
+  i: Integer;
+begin
+  for i := 0 to High(Entries) do
+    if Condition(Entries[i]) then
+    begin
+      Element := Entries[i];
+      Result := True;
+      Exit;
+    end;
+
+  Result := False;
 end;
 
 end.

@@ -6,18 +6,21 @@ unit Ntapi.ObjBase;
 
 interface
 
+{$WARN SYMBOL_PLATFORM OFF}
 {$MINENUMSIZE 4}
 
 uses
-  Ntapi.WinNt, DelphiApi.Reflection, DelphiApi.DelayLoad;
+  Ntapi.WinNt, DelphiApi.Reflection, DelphiApi.DelayLoad, Ntapi.Versions;
 
 const
   ole32 = 'ole32.dll';
   oleaut32 = 'oleaut32.dll';
+  combase = 'combase.dll';
 
 var
   delayed_ole32: TDelayedLoadDll = (DllName: ole32);
   delayed_oleaut32: TDelayedLoadDll = (DllName: oleaut32);
+  delayed_combase: TDelayedLoadDll = (DllName: combase);
 
 const
   // SDK::objbase.h - COM initialization mode
@@ -44,6 +47,7 @@ const
   CLSCTX_APPCONTAINER = $400000;
   CLSCTX_ACTIVATE_AAA_AS_IU = $800000;
   CLSCTX_ACTIVATE_ARM32_SERVER = $2000000;
+  CLSCTX_ALLOW_LOWER_TRUST_REGISTRATION	= $4000000;
   CLSCTX_PS_DLL = $80000000;
 
   CLSCTX_ALL = CLSCTX_INPROC_SERVER or CLSCTX_INPROC_HANDLER or
@@ -97,8 +101,37 @@ type
   [FlagName(CLSCTX_APPCONTAINER, 'AppContainer')]
   [FlagName(CLSCTX_ACTIVATE_AAA_AS_IU, 'Activate AAA as IU')]
   [FlagName(CLSCTX_ACTIVATE_ARM32_SERVER, 'Activate ARM32 Server')]
+  [FlagName(CLSCTX_ALLOW_LOWER_TRUST_REGISTRATION, 'Allow Lower Trust Registration')]
   [FlagName(CLSCTX_PS_DLL, 'PS DLL')]
   TClsCtx = type Cardinal;
+
+  // SDK::objidlbase.h
+  [SDKName('APTTYPE')]
+  [NamingStyle(nsSnakeCase, 'APTTYPE')]
+  TAptType = (
+    APTTYPE_STA = 0,
+    APTTYPE_MTA = 1,
+    APTTYPE_NA = 2,
+    APTTYPE_MAINSTA = 3
+  );
+
+  // SDK::objidlbase.h
+  [SDKName('APTTYPEQUALIFIER')]
+  [NamingStyle(nsSnakeCase, 'APTTYPEQUALIFIER')]
+  TAptTypeQualifier = (
+    APTTYPEQUALIFIER_NONE = 0,
+    APTTYPEQUALIFIER_IMPLICIT_MTA = 1,
+    APTTYPEQUALIFIER_NA_ON_MTA = 2,
+    APTTYPEQUALIFIER_NA_ON_STA = 3,
+    APTTYPEQUALIFIER_NA_ON_IMPLICIT_MTA = 4,
+    APTTYPEQUALIFIER_NA_ON_MAINSTA = 5,
+    APTTYPEQUALIFIER_APPLICATION_STA = 6
+  );
+
+  // SDK::combaseapi.h
+  [SDKName('CO_MTA_USAGE_COOKIE')]
+  TCoMtaUsageCookie = type THandle;
+  PCoMtaUsageCookie = ^TCoMtaUsageCookie;
 
   // Annotation for components requiring COM to be initialized
   RequiresCOMAttribute = class (TCustomAttribute)
@@ -120,12 +153,12 @@ type
   [SDKName('EXCEPINFO')]
   TExcepInfo = record
     wCode: Word;
-    wReserved: Word;
+    [Unlisted] wReserved: Word;
     bstrSource: WideString;
     bstrDescription: WideString;
     bstrHelpFile: WideString;
     dwHelpContext: Longint;
-    pvReserved: Pointer;
+    [Unlisted] pvReserved: Pointer;
     pfnDeferredFillIn: TFNDeferredFillIn;
     scode: HResult;
   end;
@@ -166,6 +199,9 @@ type
     Process_STATUS_PATH_NOT_FOUND = 9,
     Process_STATUS_INVALID_PARAMETER = 21
   );
+
+const
+  APTTYPE_CURRENT = TAptType(-1);
 
 // SDK::oleauto.h
 [Result: ReleaseWith('SysFreeString')]
@@ -235,6 +271,10 @@ procedure CoTaskMemFree(
 ); stdcall; external ole32;
 
 // SDK::combaseapi.h
+function CoGetCurrentProcess(
+): Cardinal; stdcall; external ole32;
+
+// SDK::combaseapi.h
 procedure CoUninitialize(
 ); stdcall; external ole32;
 
@@ -244,6 +284,34 @@ function CoInitializeEx(
   [Reserved] pvReserved: Pointer;
   [in] coInit: TCoInitMode
 ): HResult; stdcall; external ole32;
+
+// SDK::combaseapi.h
+function CoGetApartmentType(
+  [out] out AptType: TAptType;
+  [out] out AptQualifier: TAptTypeQualifier
+): HResult; stdcall external ole32;
+
+// SDK::combaseapi.h
+[MinOSVersion(OsWin8)]
+function CoDecrementMTAUsage(
+  [in] Cookie: TCoMtaUsageCookie
+): HResult; stdcall external ole32 delayed;
+
+var delayed_CoDecrementMTAUsage: TDelayedLoadFunction = (
+  Dll: @delayed_ole32;
+  FunctionName: 'CoDecrementMTAUsage';
+);
+
+// SDK::combaseapi.h
+[MinOSVersion(OsWin8)]
+function CoIncrementMTAUsage(
+  [out, ReleaseWith('CoDecrementMTAUsage')] out Cookie: TCoMtaUsageCookie
+): HResult; stdcall external ole32 delayed;
+
+var delayed_CoIncrementMTAUsage: TDelayedLoadFunction = (
+  Dll: @delayed_ole32;
+  FunctionName: 'CoIncrementMTAUsage';
+);
 
 // SDK::combaseapi.h
 [RequiresCOM]
@@ -260,7 +328,7 @@ function CoCreateInstance(
 function CoGetClassObject(
   [in] const Clsid: TClsid;
   [in] ClsContext: TClsCtx;
-  [in, opt] pvReserved: Pointer;
+  [in, opt] ComputerName: Pointer;
   [in] const iid: TIID;
   [out] out pv
 ): HResult; stdcall; external ole32;

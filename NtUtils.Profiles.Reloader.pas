@@ -136,8 +136,8 @@ const
 { ----------------------- Capturing Handle Information ----------------------- }
 
 {
-  Forsibly reloading the hives of a profile invalidates registry handles.
-  So, we need to snaphot them and save for a replacement on a later stage.
+  Forcibly reloading the hives of a profile invalidates registry handles.
+  So, we need to snapshot them and save for a replacement on a later stage.
 }
 
 type
@@ -180,12 +180,12 @@ begin
       Key.Info := Entry;
 
       // Get a copy of the handle
-      Status := NtxDuplicateHandleFrom(hxProcess.Handle, Entry.HandleValue,
+      Status := NtxDuplicateHandleFrom(hxProcess, Entry.HandleValue,
         hxKey);
 
       // Query its name
       if Status.IsSuccess then
-        Status := NtxQueryNameObject(hxKey.Handle, Key.Name);
+        Status := NtxQueryNameObject(hxKey, Key.Name);
 
       // Report progress
       if Assigned(Events.OnHandleNameCheck) then
@@ -242,15 +242,14 @@ begin
       // Suspending processes does prevent race conditions, but is also risky
       // since we can deadlock.
       if Status.IsSuccess and (Consumer.ProcessId <> NtCurrentProcessId) and
-        NtxSuspendProcess(Consumer.hxProcess.Handle).IsSuccess then
+        NtxSuspendProcess(Consumer.hxProcess).IsSuccess then
         Consumer.Resumer := NtxDelayedResumeProcess(Consumer.hxProcess);
 
       // TODO: add deadlock protection that resumes the process after a timeout
 
       // Snapshot all handles it has
       if Status.IsSuccess then
-        Status := NtxEnumerateHandlesProcess(Consumer.hxProcess.Handle,
-          Handles);
+        Status := NtxEnumerateHandlesProcess(Consumer.hxProcess, Handles);
 
       // Report progress
       if Assigned(Events.OnProcessPrepare) then
@@ -320,7 +319,7 @@ type
     IsSymlink: Boolean;
     SymlinkTarget: String;
     Security: ISecurityDescriptor;
-    Values: TArray<TRegValueDataEntry>;
+    Values: TArray<TNtxRegValue>;
   end;
 
 // Recursively process the keys, collecting the volatile ones
@@ -334,10 +333,10 @@ function TraverseKeys(
 var
   hxKey: IHandle;
   Flags: TKeyFlagsInformation;
-  SubKeys: TArray<String>;
+  SubKeys: TArray<TNtxRegKey>;
   i: Integer;
 begin
-  Result.Status := STATUS_SUCCESS;
+  Result := NtxSuccess;
   ObjectAttributes := AttributeBuilder(ObjectAttributes)
     .UseAttributes(OBJ_OPENLINK);
 
@@ -353,7 +352,7 @@ begin
       Exit;
 
     // Check for interesting flags
-    Result := NtxKey.Query(hxKey.Handle, KeyFlagsInformation, Flags);
+    Result := NtxKey.Query(hxKey, KeyFlagsInformation, Flags);
 
     if not Result.IsSuccess then
       Exit;
@@ -370,7 +369,7 @@ begin
         if BitTest(Flags.KeyFlags and REG_FLAG_LINK) then
         begin
           // Save targets for symlinks
-          Result := NtxQueryValueKeyString(hxKey.Handle, REG_SYMLINK_VALUE_NAME,
+          Result := NtxQueryValueKeyString(hxKey, REG_SYMLINK_VALUE_NAME,
             SymlinkTarget);
 
           if Result.IsSuccess then
@@ -379,12 +378,13 @@ begin
         else
         begin
           // Save all values for regular keys
-          Result := NtxEnumerateValuesDataKey(hxKey.Handle, Values);
+          Result := NtxEnumerateValuesKey(hxKey, Values,
+            KeyValueFullInformation);
         end;
 
         // Save the security descriptor
         if Result.IsSuccess then
-          Result := NtxQuerySecurityObject(hxKey.Handle,
+          Result := NtxQuerySecurityObject(hxKey,
             OWNER_SECURITY_INFORMATION or GROUP_SECURITY_INFORMATION or
             DACL_SECURITY_INFORMATION or LABEL_SECURITY_INFORMATION or
             SACL_SECURITY_INFORMATION, Security);
@@ -397,7 +397,7 @@ begin
 
     // Traverse every non-symlink key
     if not BitTest(Flags.KeyFlags and REG_FLAG_LINK) then
-      Result := NtxEnumerateSubKeys(hxKey.Handle, SubKeys)
+      Result := NtxEnumerateKeys(hxKey, SubKeys)
     else
       SubKeys := nil;
 
@@ -412,7 +412,7 @@ begin
 
   // Process sub-keys recursively
   for i := 0 to High(SubKeys) do
-    TraverseKeys(VolatileKeys, Events, SubKeys[i], Name,
+    TraverseKeys(VolatileKeys, Events, SubKeys[i].Name, Name,
       ObjectAttributes.UseRoot(hxKey));
 end;
 
@@ -496,7 +496,7 @@ begin
     // Load the Classes key using the User key as a trust class key
     // to make the symlink to Classes work
     Result := NtxLoadKeyEx(hxClassesKey, ProfilePath + PROFILE_CLASSES_FILE,
-      KeyPath + PROFILE_CLASSES_HIVE, LoadFlags, hxUserKey.Handle);
+      KeyPath + PROFILE_CLASSES_HIVE, LoadFlags, hxUserKey);
 
     // Undo partial profile load
     if not Result.IsSuccess then
@@ -538,15 +538,16 @@ begin
       // Restore each value
       if Result.IsSuccess then
         for j := 0 to High(Keys[i].Values) do
-          with Keys[i].Values[j] do
-          begin
-            Result := NtxSetValueKey(hxKey.Handle, ValueName, ValueType,
-              ValueData.Data, ValueData.Size);
+        begin
+          Result := NtxSetValueKey(hxKey, Keys[i].Values[j].Name,
+            Keys[i].Values[j].ValueType, Keys[i].Values[j].Data.Data,
+            Keys[i].Values[j].Data.Size);
 
-            // Report progress with values
-            if Assigned(Events.OnValueRestore) then
-              Events.OnValueRestore(Result, Keys[i].KeyName, ValueName);
-          end;
+          // Report progress with values
+          if Assigned(Events.OnValueRestore) then
+            Events.OnValueRestore(Result, Keys[i].KeyName,
+              Keys[i].Values[j].Name);
+        end;
     end;
 
     // Report progress with keys
@@ -558,8 +559,8 @@ end;
 { --------------------------- Retargeting Handles --------------------------- }
 
 {
-  Forsibly reloding a hive invalidates outstanding handles within it.
-  Fortunately, we took a snapshot, so we can reoped equivalent keys within the
+  Forsibly reloading a hive invalidates outstanding handles within it.
+  Fortunately, we took a snapshot, so we can reopen equivalent keys within the
   new hive and replace all these broken handles.
 }
 
@@ -626,8 +627,8 @@ begin
 
         // Replace the old broken handle with a new equivalent one
         if Result.IsSuccess then
-          Result := NtxReplaceHandle(hxProcess.Handle, HandleValue,
-            hxKey.Handle, BitTest(HandleAttributes and OBJ_INHERIT));
+          Result := NtxReplaceHandle(hxProcess, HandleValue, hxKey,
+            BitTest(HandleAttributes and OBJ_INHERIT));
 
         // Protect the handle back if necessary
         if Result.IsSuccess and Assigned(hxProcessRCE) and
@@ -642,7 +643,7 @@ begin
       end;
 
   // Complete deletion for the dummy key
-  NtxDeleteKey(hxDeletedKey.Handle);
+  NtxDeleteKey(hxDeletedKey);
 end;
 
 { -------------------------------- Combined --------------------------------- }
@@ -656,7 +657,7 @@ function ReloadProfile(
 var
   UserKeyPath: String;
   Info: TProfileInfo;
-  HiveConumers: TArray<THiveConsumer>;
+  HiveConsumers: TArray<THiveConsumer>;
   VolatileBackup: TArray<TVolatileKey>;
 begin
   // Determine information about the profile
@@ -672,7 +673,7 @@ begin
   if Assigned(Events.OnPhaseChange) then
     Events.OnPhaseChange(prHandleCapture);
 
-  Result := CaptureProfileConsumers(HiveConumers, UserKeyPath, Info.FullProfile,
+  Result := CaptureProfileConsumers(HiveConsumers, UserKeyPath, Info.FullProfile,
     Events);
 
   if not Result.IsSuccess then
@@ -722,7 +723,7 @@ begin
   if Assigned(Events.OnPhaseChange) then
     Events.OnPhaseChange(prHandleRetargeting);
 
-  RetargetKeyHandles(UserKeyPath, HiveConumers, Events);
+  RetargetKeyHandles(UserKeyPath, HiveConsumers, Events);
 end;
 
 function EnsurePrivileges: TNtxStatus;

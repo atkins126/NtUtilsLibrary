@@ -123,7 +123,7 @@ function AdvxCreateActivationContext(
   [in] ResourceName: PWideChar = CREATEPROCESS_MANIFEST_RESOURCE_ID;
   const AssemblyDirectory: String = '';
   const ApplicationName: String = '';
-  ProcessorArchitecture: TProcessorArchitecture = TProcessorArchitecture(0);
+  ProcessorArchitecture: TProcessorArchitecture16 = PROCESSOR_ARCHITECTURE_CURRENT;
   LangId: Word = 0
 ): TNtxStatus;
 
@@ -284,7 +284,7 @@ var
   RequiredChars: NativeUInt;
 begin
   Result.Location := 'RtlQueryActivationContextApplicationSettings';
-  // TODO: LastCall string info
+  Result.LastCall.Parameter := SettingName;
 
   IMemory(Buffer) := Auto.AllocateDynamic(64);
   repeat
@@ -328,7 +328,7 @@ begin
 end;
 
 type
-  TAutoActivationContext = class (TCustomAutoPointer, IAutoPointer)
+  TAutoActivationContext = class (TCustomAutoPointer, IAutoPointer, IAutoReleasable)
     procedure Release; override;
   end;
 

@@ -55,7 +55,7 @@ function RtlxForwardExitStatusThread(
   const StatusLocation: String
 ): TNtxStatus;
 
-// Create a thread to execute the code and wait for its complition.
+// Create a thread to execute the code and wait for its completion.
 // - On success, forwards the status
 // - On failure, prolongs lifetime of the remote memory
 function RtlxRemoteExecute(
@@ -75,7 +75,8 @@ function RtlxFindKnownDllExports(
   DllName: String;
   TargetIsWoW64: Boolean;
   const Names: TArray<AnsiString>;
-  out Addresses: TArray<Pointer>
+  out Addresses: TArray<Pointer>;
+  RangeChecks: Boolean = True
 ): TNtxStatus;
 
 // Locate a single export in a known dll
@@ -91,7 +92,7 @@ implementation
 uses
   Ntapi.ntdef, Ntapi.ntstatus, Ntapi.ntmmapi, NtUtils.Memory, NtUtils.Threads,
   NtUtils.ImageHlp, NtUtils.Sections, NtUtils.Synchronization,
-  NtUtils.Processes;
+  NtUtils.Processes, DelphiUtils.RangeChecks;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -114,12 +115,13 @@ begin
     Exit;
 
   // Map it locally always allowing write access
-  Result := NtxMapViewOfSection(LocalMemory, hxSection.Handle,
-    NtxCurrentProcess, PAGE_READWRITE);
+  Result := NtxMapViewOfSection(hxSection, NtxCurrentProcess, LocalMemory,
+    MappingParameters.UseProtection(PAGE_READWRITE));
 
   if not Result.IsSuccess then
     Exit;
 
+  // Choose remote protection
   if [mmAllowWrite, mmAllowExecute] = Mode then
     Protection := PAGE_EXECUTE_READWRITE
   else if mmAllowExecute in Mode then
@@ -130,8 +132,8 @@ begin
     Protection := PAGE_READONLY;
 
   // Map it remotely
-  Result := NtxMapViewOfSection(RemoteMemory, hxSection.Handle,
-    hxProcess, Protection);
+  Result := NtxMapViewOfSection(hxSection, hxProcess, RemoteMemory,
+    MappingParameters.UseProtection(Protection));
 end;
 
 function RtlxSyncThread;
@@ -148,13 +150,13 @@ begin
     Timeout := 0;
   end;
 
-  Result := NtxWaitForSingleObject(hxThread.Handle, Timeout);
+  Result := NtxWaitForSingleObject(hxThread, Timeout);
 
   // Make timeouts unsuccessful
   if Result.Status = STATUS_TIMEOUT then
     Result.Status := STATUS_WAIT_TIMEOUT;
 
-  // The thread did't terminate in time or we cannot determine what happended
+  // The thread did't terminate in time or we cannot determine what happened
   // due to an error. Don't release the remote memory since the thread might
   // still use it.
   if not Result.IsSuccess then
@@ -172,7 +174,7 @@ var
   Info: TThreadBasicInformation;
 begin
   // Make sure the thread has terminated
-  Result := NtxThread.Query(hxThread.Handle, ThreadIsTerminated, IsTerminated);
+  Result := NtxThread.Query(hxThread, ThreadIsTerminated, IsTerminated);
 
   if not Result.IsSuccess then
     Exit;
@@ -185,7 +187,7 @@ begin
   end;
 
   // Get the exit status
-  Result := NtxThread.Query(hxThread.Handle, ThreadBasicInformation, Info);
+  Result := NtxThread.Query(hxThread, ThreadBasicInformation, Info);
 
   // Forward it
   if Result.IsSuccess then
@@ -201,10 +203,10 @@ var
 begin
   if CodeSize > 0 then
     // We modified the executable memory recently, invalidate the cache
-    NtxFlushInstructionCache(hxProcess.Handle, Code, CodeSize);
+    NtxFlushInstructionCache(hxProcess, Code, CodeSize);
 
   // Create a thread to execute the code
-  Result := NtxCreateThreadEx(hxThread, hxProcess.Handle, Code, Context);
+  Result := NtxCreateThreadEx(hxThread, hxProcess, Code, Context);
 
   if not Result.IsSuccess then
     Exit;
@@ -224,7 +226,7 @@ function RtlxFindKnownDllExports;
 var
   hxSection: IHandle;
   MappedMemory: IMemory;
-  BaseAddress: Pointer;
+  RemoteBase: UInt64;
   AllEntries: TArray<TExportEntry>;
   i, EntryIndex: Integer;
 begin
@@ -234,28 +236,26 @@ begin
     DllName := '\KnownDlls\' + DllName;
 
   // Open a known dll
-  Result := NtxOpenSection(hxSection, SECTION_MAP_READ or SECTION_QUERY,
-    DllName);
+  Result := NtxOpenSection(hxSection, SECTION_MAP_READ, DllName);
 
   if not Result.IsSuccess then
     Exit;
 
-  // Map it
-  Result := NtxMapViewOfSection(MappedMemory, hxSection.Handle,
-    NtxCurrentProcess, PAGE_READONLY);
+  // Map it for parsing
+  Result := NtxMapViewOfSection(hxSection, NtxCurrentProcess, MappedMemory);
 
   if not Result.IsSuccess then
     Exit;
 
-  // Infer the base address of the DLL that other processes will use
-  Result := RtlxQueryOriginalBaseImage(hxSection.Handle,
-    MappedMemory.Region, BaseAddress);
+  // Infer the preferred base address (used by the remote process)
+  Result := RtlxGetImageBase(RemoteBase, MappedMemory.Region, nil, RangeChecks);
 
   if not Result.IsSuccess then
     Exit;
 
   // Parse the export table
-  Result := RtlxEnumerateExportImage(AllEntries, MappedMemory.Region, True);
+  Result := RtlxEnumerateExportImage(AllEntries, MappedMemory.Region, True,
+    RangeChecks);
 
   if not Result.IsSuccess then
     Exit;
@@ -273,7 +273,15 @@ begin
       Exit;
     end;
 
-    Addresses[i] := PByte(BaseAddress) + AllEntries[EntryIndex].VirtualAddress;
+    if RangeChecks and not CheckOffset(MappedMemory.Size,
+      AllEntries[EntryIndex].VirtualAddress) then
+    begin
+      Result.Location := 'RtlxFindKnownDllExports';
+      Result.Status := STATUS_INVALID_IMAGE_FORMAT;
+      Exit;
+    end;
+
+    Addresses[i] := PByte(RemoteBase) + AllEntries[EntryIndex].VirtualAddress;
   end;
 end;
 

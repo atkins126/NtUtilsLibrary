@@ -45,7 +45,19 @@ type
     dbYesAbortIgnore
   );
 
-// Show a Task Dialog of fallback to a Message Box
+// Show a Task Dialog or fallback to a Message Box and check for errors
+function UsrxShowTaskDialogWithStatus(
+  out Response: TMessageResponse;
+  [opt] OwnerWindow: THwnd;
+  const Title: String;
+  const MainInstruction: String;
+  const Content: String;
+  Icon: TDialogIcon = diInfo;
+  Buttons: TDialogButtons = dbOk;
+  DefaultButton: TMessageResponse = IDNONE
+): TNtxStatus;
+
+// Show a Task Dialog or fallback to a Message Box
 function UsrxShowTaskDialog(
   [opt] OwnerWindow: THwnd;
   const Title: String;
@@ -56,8 +68,8 @@ function UsrxShowTaskDialog(
   DefaultButton: TMessageResponse = IDNONE
 ): TMessageResponse;
 
-// Show a message to the interactive user
-function WsxInteractiveShowMessageBox(
+// Show a cross-session message to the interactive user and check for errors
+function WsxShowMessageInteractiveWithStatus(
   out Response: TMessageResponse;
   const Title: String;
   const Content: String;
@@ -66,11 +78,43 @@ function WsxInteractiveShowMessageBox(
   TimeoutSeconds: Cardinal = 0
 ): TNtxStatus;
 
+// Show a cross-session message to the interactive user
+function WsxShowMessageInteractive(
+  const Title: String;
+  const Content: String;
+  Icon: TDialogIcon = diInfo;
+  Buttons: TDialogButtons = dbOk;
+  TimeoutSeconds: Cardinal = 0
+): TMessageResponse;
+
+// Show the best available dialog to the interactive user and check for errors
+function UsrxShowMessageAlwaysInteractiveWithStatus(
+  out Response: TMessageResponse;
+  const Title: String;
+  const MainInstruction: String;
+  const Content: String;
+  Icon: TDialogIcon = diInfo;
+  Buttons: TDialogButtons = dbOk;
+  DefaultButton: TMessageResponse = IDNONE;
+  TimeoutSeconds: Cardinal = 0
+): TNtxStatus;
+
+// Show the best available dialog to the interactive user
+function UsrxShowMessageAlwaysInteractive(
+  const Title: String;
+  const MainInstruction: String;
+  const Content: String;
+  Icon: TDialogIcon = diInfo;
+  Buttons: TDialogButtons = dbOk;
+  DefaultButton: TMessageResponse = IDNONE;
+  TimeoutSeconds: Cardinal = 0
+): TMessageResponse;
+
 implementation
 
 uses
   Ntapi.WinNt, Ntapi.winsta, Ntapi.CommCtrls, NtUtils.Ldr,
-  NtUtils.Errors, NtUtils.WinStation;
+  NtUtils.Errors, NtUtils.WinStation, NtUtils.WinUser;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -103,27 +147,27 @@ begin
   end;
 end;
 
-procedure UsrxpAdjustResonce(
-  var Responce: TMessageResponse;
+procedure UsrxpAdjustResponse(
+  var Response: TMessageResponse;
   Buttons: TDialogButtons
 );
 begin
   case Buttons of
     dbYesIgnore:
-      case Responce of
-        IDOK:     Responce := IDYES;
-        IDCANCEL: Responce := IDIGNORE;
+      case Response of
+        IDOK:     Response := IDYES;
+        IDCANCEL: Response := IDIGNORE;
       end;
 
     dbYesAbortIgnore:
-      case Responce of
-        IDNO:     Responce := IDABORT;
-        IDCANCEL: Responce := IDIGNORE;
+      case Response of
+        IDNO:     Response := IDABORT;
+        IDCANCEL: Response := IDIGNORE;
       end;
   end;
 end;
 
-function UsrxShowTaskDialog;
+function UsrxShowTaskDialogWithStatus;
 var
   DlgConfig: TTaskDialogConfig;
   CustomButtons: array [0..2] of TTaskDialogButton;
@@ -131,8 +175,7 @@ begin
   // Task Dialog might not be available due to missing manifest or low level of
   // privileges. Use it when available; otherwise, fall back to a Message Box.
 
-  if LdrxCheckDelayedImport(delayed_comctl32,
-    delayed_TaskDialogIndirect).IsSuccess then
+  if LdrxCheckDelayedImport(delayed_TaskDialogIndirect).IsSuccess then
   begin
     DlgConfig := Default(TTaskDialogConfig);
     DlgConfig.cbSize := SizeOf(DlgConfig);
@@ -215,20 +258,38 @@ begin
       diApplication:  DlgConfig.MainIcon.pszIcon := IDI_APPLICATION;
     end;
 
-    // Show the dialog
-    if TaskDialogIndirect(DlgConfig, @Result, nil, nil).IsSuccess then
+    // Show the task dialog
+    if TaskDialogIndirect(DlgConfig, @Response, nil, nil).IsSuccess then
       Exit;
   end;
 
-  // Show the message
-  Result := MessageBoxW(OwnerWindow, PWideChar(MainInstruction + #$D#$A#$D#$A +
-    Content), PWideChar(Title), UsrxpMakeMessageStyle(Icon, Buttons));
+  // Cannot display the task dialog; load the message box
+  Result := LdrxCheckDelayedImport(delayed_MessageBoxW);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Show the message box
+  Result.Location := 'MessageBoxW';
+  Response := MessageBoxW(OwnerWindow, PWideChar(MainInstruction + #$D#$A#$D#$A
+    + Content), PWideChar(Title), UsrxpMakeMessageStyle(Icon, Buttons));
+  Result.Win32Result := Response <> IDNONE;
+
+  if not Result.IsSuccess then
+    Exit;
 
   // Adjust the response for replaced buttons
-  UsrxpAdjustResonce(Result, Buttons);
+  UsrxpAdjustResponse(Response, Buttons);
 end;
 
-function WsxInteractiveShowMessageBox;
+function UsrxShowTaskDialog;
+begin
+  if not UsrxShowTaskDialogWithStatus(Result, OwnerWindow, Title,
+    MainInstruction, Content, Icon, Buttons, DefaultButton).IsSuccess then
+    Result := IDNONE;
+end;
+
+function WsxShowMessageInteractiveWithStatus;
 var
   InteractiveSession: TSessionId;
 begin
@@ -243,7 +304,42 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  UsrxpAdjustResonce(Response, Buttons);
+  UsrxpAdjustResponse(Response, Buttons);
+end;
+
+function WsxShowMessageInteractive;
+begin
+  if not WsxShowMessageInteractiveWithStatus(Result, Title, Content, Icon,
+    Buttons, TimeoutSeconds).IsSuccess then
+    Result := IDNONE;
+end;
+
+function UsrxShowMessageAlwaysInteractiveWithStatus;
+var
+  IsInteractive: LongBool;
+  WindowModeReverter: IAutoReleasable;
+begin
+  if UsrxObject.Query(UsrxCurrentDesktop, UOI_IO, IsInteractive).IsSuccess and
+    IsInteractive then
+  begin
+    // Make sure the window will be drawn as visible
+    WindowModeReverter := UsrxOverridePebWindowMode(TShowMode32.SW_SHOW_NORMAL);
+
+    // Show the message on the current desktop
+    Result := UsrxShowTaskDialogWithStatus(Response, 0, Title, MainInstruction,
+      Content, Icon, Buttons, DefaultButton)
+  end
+  else
+    // Ask CSRSS to show the message in the interactive session
+    Result := WsxShowMessageInteractiveWithStatus(Response, Title,
+      MainInstruction + #$D#$A#$D#$A + Content, Icon, Buttons, TimeoutSeconds);
+end;
+
+function UsrxShowMessageAlwaysInteractive;
+begin
+  if not UsrxShowMessageAlwaysInteractiveWithStatus(Result, Title, MainInstruction,
+    Content, Icon, Buttons, DefaultButton, TimeoutSeconds).IsSuccess then
+    Result := IDNONE;
 end;
 
 end.

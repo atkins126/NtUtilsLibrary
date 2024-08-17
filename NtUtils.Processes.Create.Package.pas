@@ -7,11 +7,8 @@ unit NtUtils.Processes.Create.Package;
 interface
 
 uses
-  Ntapi.ObjBase, Ntapi.Versions, NtUtils, NtUtils.Processes.Create,
-
-  NtUtils.SysUtils
-
-  ;
+  Ntapi.WinNt, Ntapi.ObjBase, Ntapi.appmodel, Ntapi.Versions, NtUtils,
+  NtUtils.Processes.Create;
 
 // Create a new process in a package context via IDesktopAppXActivator
 [RequiresCOM]
@@ -29,14 +26,28 @@ function PkgxCreateProcessInPackage(
   out Info: TProcessInfo
 ): TNtxStatus;
 
+// Activate a Windows Store application
+[RequiresCOM]
+[MinOSVersion(OsWin8)]
+function PkgxActivateApplication(
+  const AppUserModelId: String;
+  [opt] const Arguments: String = '';
+  Options: TActivateOptions = 0;
+  [out, opt] pProcessId: PProcessId32 = nil
+): TNtxStatus;
+
 implementation
 
 uses
-  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntobapi, Ntapi.ShellApi,
-  Ntapi.ObjIdl, Ntapi.appmodel, Ntapi.WinUser, Ntapi.ProcessThreadsApi,
-  Ntapi.ntstatus, NtUtils.Errors, NtUtils.Com, NtUtils.Tokens.Impersonate,
-  NtUtils.Threads, NtUtils.Objects, NtUtils.Processes.Create.Shell,
-  NtUtils.Processes.Info, NtUtils.AntiHooking, DelphiUtils.AutoObjects;
+  Ntapi.ntdef, Ntapi.ntpsapi, Ntapi.ntobapi, Ntapi.ShellApi, Ntapi.ObjIdl,
+  Ntapi.WinUser, Ntapi.ProcessThreadsApi, Ntapi.ntstatus, NtUtils.Errors,
+  NtUtils.Com, NtUtils.Tokens.Impersonate, NtUtils.Threads, NtUtils.Objects,
+  NtUtils.Processes.Create.Shell, NtUtils.Processes.Info, NtUtils.AntiHooking,
+  DelphiUtils.AutoObjects;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 type
   TAppxActivatorHookContext = record
@@ -109,14 +120,14 @@ begin
     if poSuspended in Context.Data.Options.Flags then
     begin
       // Create our extended service provider
-      HookedProvider := ShlxMakeCreatingProcesProvider(
+      HookedProvider := ShlxMakeCreatingProcessProvider(
         Context.Data.Options.Flags, PassedProvider);
 
       ExecInfo.hInstApp := UIntPtr(HookedProvider);
     end;
   end;
 
-  // Invoke the unhoooked API
+  // Invoke the unhooked API
   Result := ShellExecuteExW(ExecInfo);
 
   if ShouldHandle then
@@ -150,7 +161,7 @@ var
 begin
   Info := Default(TProcessInfo);
 
-  // Create the activator without asking for any specicific interface
+  // Create the activator without asking for any specific interface
   Result := ComxCreateInstanceWithFallback(RtlxAppxActivatorHost,
     CLSID_DesktopAppXActivator, IUnknown, Activator,
     'CLSID_DesktopAppXActivator');
@@ -164,15 +175,15 @@ begin
   if poRequireElevation in Options.Flags then
     Flags := Flags or DAXAO_ELEVATE;
 
-  if BitTest(Options.PackageBreaway and
+  if BitTest(Options.PackageBreakaway and
     PROCESS_CREATION_DESKTOP_APP_BREAKAWAY_DISABLE_PROCESS_TREE) then
     Flags := Flags or DAXAO_NONPACKAGED_EXE_PROCESS_TREE;
 
   // Determine the PID of the parent
   if Assigned(Options.hxParentProcess) then
   begin
-    Result := NtxProcess.Query(Options.hxParentProcess.Handle,
-      ProcessBasicInformation, ParentInfo);
+    Result := NtxProcess.Query(Options.hxParentProcess, ProcessBasicInformation,
+      ParentInfo);
 
     if not Result.IsSuccess then
       Exit;
@@ -184,7 +195,7 @@ begin
   if Assigned(Options.hxParentProcess) or (Options.CurrentDirectory <> '') or
     ([poUseWindowMode, poSuspended] * Options.Flags <> []) then
   begin
-    // Alloate the hook context
+    // Allocate the hook context
     IMemory(HookContext) := Auto.Allocate<TAppxActivatorHookContext>;
     HookContext.Data.CurrentThreadId := NtCurrentThreadId;
     HookContext.Data.Options := Options;
@@ -300,5 +311,31 @@ begin
     Info.hxProcess := Auto.CaptureHandle(hProcess);
   end;
 end;
+
+function PkgxActivateApplication;
+const
+  DLL_NAME: array [Boolean] of String = ('twinui.dll', 'twinui.appcore.dll');
+var
+  ActivationManager: IApplicationActivationManager;
+  ProcessId: TProcessId32;
+begin
+  Result := ComxCreateInstanceWithFallback(
+    DLL_NAME[RtlOsVersionAtLeast(OsWin81)],
+    CLSID_ApplicationActivationManager,
+    IApplicationActivationManager,
+    ActivationManager
+  );
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result.Location := 'IApplicationActivationManager.ActivateApplication';
+  Result.HResult := ActivationManager.ActivateApplication(
+    PWideChar(AppUserModelId), RefStrOrNil(Arguments), Options, ProcessId);
+
+  if Result.IsSuccess and Assigned(pProcessId) then
+    pProcessId^ := ProcessId;
+end;
+
 
 end.

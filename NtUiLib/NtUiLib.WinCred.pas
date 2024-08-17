@@ -52,14 +52,12 @@ var
   FullName: String;
   TranslatedName: TTranslatedName;
 begin
-  Result := LdrxCheckDelayedImport(delayed_credui,
-    delayed_CredUIPromptForWindowsCredentialsW);
+  Result := LdrxCheckDelayedImport(delayed_CredUIPromptForWindowsCredentialsW);
 
   if not Result.IsSuccess then
     Exit;
 
-  Result := LdrxCheckDelayedImport(delayed_credui,
-    delayed_CredUnPackAuthenticationBufferW);
+  Result := LdrxCheckDelayedImport(delayed_CredUnPackAuthenticationBufferW);
 
   if not Result.IsSuccess then
     Exit;
@@ -75,7 +73,7 @@ begin
   Info.MessageText := PWideChar(MessageText);
   Info.CaptionText := PWideChar(CaptionText);
 
-  // Show the promt
+  // Show the prompt
   Result.Location := 'CredUIPromptForWindowsCredentialsW';
   Result.Win32ErrorOrSuccess := CredUIPromptForWindowsCredentialsW(@Info,
     AuthError, PackageId, nil, 0, OutAuthBuffer, OutAuthBufferSize, Save,
@@ -94,7 +92,7 @@ begin
     UsernameLength := Username.Size div SizeOf(WideChar);
     PasswordLength := Password.Size div SizeOf(WideChar);
 
-    // Extratc the credentials (which might be encrypted)
+    // Extract the credentials (which might be encrypted)
     Result.Location := 'CredUnPackAuthenticationBufferW';
     Result.Win32Result := CredUnPackAuthenticationBufferW(UnpackFlags,
       OutAuthBuffer, OutAuthBufferSize, Username.Data, UsernameLength,
@@ -133,7 +131,7 @@ begin
 
   // When the user doesn't provide a domain, the function tends to append the
   // default one, which might be wrong. As a workaround, strip the domain and
-  // retry canonicalization. Note that this problem doesn't happen with plantext
+  // retry canonicalization. Note that this problem doesn't happen with plaintext
   // credentials, so we skip them.
   if not Result.IsSuccess and
     not BitTest(PromptFlags and CREDUIWIN_GENERIC) then

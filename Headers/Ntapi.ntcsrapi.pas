@@ -68,7 +68,7 @@ type
     RelatedCaptureBuffer: PCsrCaptureHeader;
     CountMessagePointers: Cardinal;
     FreeSpace: Pointer;
-    MessagePointerOffsets: TAnysizeArray<NativeUInt>;
+    [Offset] MessagePointerOffsets: TAnysizeArray<NativeUInt>;
   end;
 
   [SDKName('CSR_API_MSG')]
@@ -77,7 +77,7 @@ type
     CaptureBuffer: PCsrCaptureHeader;
     ApiNumber: TCsrApiNumber;
     ReturnValue: NTSTATUS;
-    [Reserved] Reserved: Cardinal;
+    [Unlisted] Reserved: Cardinal;
     ApiMessageData: TPlaceholder;
   end;
   PCsrApiMsg = ^TCsrApiMsg;
@@ -178,8 +178,8 @@ type
     Path: TNtUnicodeString;
     FileHandle: THandle;
     Handle: THandle;
-    Offset: UInt64;
-    Size: NativeUInt;
+    [Offset] Offset: UInt64;
+    [Bytes] Size: NativeUInt;
   end;
   PBaseMsgSxsStream = ^TBaseMsgSxsStream;
 
@@ -198,12 +198,12 @@ type
     FileHandle: THandle;
     Win32FileName: TNtUnicodeString;
     NativeFileName: TNtUnicodeString;
-    ManifestOverrideOffset: UInt64;
-    ManifestOverrideSize: NativeUInt;
-    PolicyOverrideOffset: UInt64;
-    PolicyOverrideSize: NativeUInt;
-    ManifestAddress: UInt64;
-    ManifestSize: Cardinal;
+    [Offset] ManifestOverrideOffset: UInt64;
+    [Bytes] ManifestOverrideSize: NativeUInt;
+    [Offset] PolicyOverrideOffset: UInt64;
+    [Bytes] PolicyOverrideSize: NativeUInt;
+    [Hex] ManifestAddress: UInt64;
+    [Bytes] ManifestSize: Cardinal;
   end;
   PBaseSxsCreateProcessMsgAlt = ^TBaseSxsCreateProcessMsgAlt;
 
@@ -256,7 +256,7 @@ type
     Sxs: TBaseSxsCreateProcessMsgWin7;
     PebAddressNative: UInt64;
     PebAddressWow64: UIntPtr;
-    ProcessorArchitecture: TProcessorArchitecture;
+    ProcessorArchitecture: TProcessorArchitecture16;
   end;
   PBaseCreateProcessMsgV1Win7 = ^TBaseCreateProcessMsgV1Win7;
 
@@ -274,7 +274,7 @@ type
     Sxs: TBaseSxsCreateProcessMsg;
     PebAddressNative: UInt64;
     PebAddressWow64: UIntPtr;
-    ProcessorArchitecture: TProcessorArchitecture;
+    ProcessorArchitecture: TProcessorArchitecture16;
   end;
   PBaseCreateProcessMsgV1 = ^TBaseCreateProcessMsgV1;
 
@@ -316,21 +316,21 @@ type
   TBaseSxsCreateActivationContextMsg = record
     CsrMessage: TCsrApiMsg; // Embedded for convenience
     Flags: TBaseMsgSxsFlags;
-    ProcessorArchitecture: TProcessorArchitecture;
+    ProcessorArchitecture: TProcessorArchitecture16;
     CultureFallbacks: TNtUnicodeString;
     Manifest: TBaseMsgSxsStream;
     Policy: TBaseMsgSxsStream;
     AssemblyDirectory: TNtUnicodeString;
     TextualAssemblyIdentity: TNtUnicodeString;
-    Unknown1: UInt64;
+    [Unlisted] Unknown1: UInt64;
     ResourceId: PWideChar;
     ActivationContextData: PPActivationContextData;
   {$IFDEF Win64}
-    Unknown2: UInt64;
+    [Unlisted] Unknown2: UInt64;
   {$ENDIF}
-    Unknown5: UInt64;
-    Unknown6: Cardinal;
-    Unknown7: Cardinal;
+    [Unlisted] Unknown5: UInt64;
+    [Unlisted] Unknown6: Cardinal;
+    [Unlisted] Unknown7: Cardinal;
     AssemblyName: TNtUnicodeString;
   end;
   PBaseSxsCreateActivationContextMsg = ^TBaseSxsCreateActivationContextMsg;
@@ -352,7 +352,7 @@ type
     SxsExtension: array [0..66] of Cardinal;
     PebAddressNative: UInt64;
     PebAddressWow64: UIntPtr;
-    ProcessorArchitecture: TProcessorArchitecture;
+    ProcessorArchitecture: TProcessorArchitecture16;
   end;
   PBaseCreateProcessMsgV2 = ^TBaseCreateProcessMsgV2;
 
@@ -422,7 +422,7 @@ function CsrClientCallServer(
 
 function CsrClientConnectToServer(
   [in] ObjectDirectory: PWideChar;
-  [in] ServertDllIndex: Cardinal;
+  [in] ServerDllIndex: Cardinal;
   [in, opt, ReadsFrom] ConnectionInformation: Pointer;
   [in, NumberOfBytes] ConnectionInformationLength: Cardinal;
   [out, opt] CalledFromServer: PBoolean

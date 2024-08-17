@@ -14,23 +14,34 @@ uses
 // Build a new SID
 function RtlxCreateSid(
   out Sid: ISid;
-  const IdentifyerAuthority: TSidIdentifierAuthority;
-  [opt] const SubAuthouritiesArray: TArray<Cardinal> = nil
+  const IdentifierAuthority: TSidIdentifierAuthority;
+  [opt] const SubAuthoritiesArray: TArray<Cardinal> = nil
+): TNtxStatus;
+
+// Build a new SID from an array
+function RtlxCreateSidFromArray(
+  out Sid: ISid;
+  const Authorities: TArray<Cardinal>
 ): TNtxStatus;
 
 // Build a new SID without failing
 function RtlxMakeSid(
-  const IdentifyerAuthority: TSidIdentifierAuthority;
-  [opt] const SubAuthouritiesArray: TArray<Cardinal> = nil
+  const IdentifierAuthority: TSidIdentifierAuthority;
+  [opt] const SubAuthoritiesArray: TArray<Cardinal> = nil
 ): ISid;
 
-// Validate the intput buffer and capture a copy as a SID
+// Build a new SID from an array without failing
+function RtlxMakeSidFromArray(
+  const Authorities: TArray<Cardinal>
+): ISid;
+
+// Validate the input buffer and capture a copy as a SID
 function RtlxCopySid(
   [in] Buffer: PSid;
   out NewSid: ISid
 ): TNtxStatus;
 
-// Validate the intput buffer and capture a copy as a SID
+// Validate the input buffer and capture a copy as a SID
 function RtlxCopySidEx(
   [in] Buffer: PSid;
   BufferSize: Cardinal;
@@ -72,6 +83,13 @@ function RtlxRidSid(
   Default: Cardinal = 0
 ): Cardinal;
 
+// Check if one SID is nested under (or equal to) another SID
+function RtlxIsChildSid(
+  const Child: ISid;
+  const Parent: ISid;
+  AllowEqual: Boolean = False
+): Boolean;
+
 // Construct a child SID (add a sub authority)
 function RtlxMakeChildSid(
   out ChildSid: ISid;
@@ -102,12 +120,14 @@ function RtlxCompareSids(
 
 type
   // A prototype for registering custom recognizers that convert strings to SIDs
+  [ThreadSafe]
   TSidNameRecognizer = function (
     const SidString: String;
     out Sid: ISid
   ): Boolean;
 
   // A prototype for registering custom lookup providers
+  [ThreadSafe]
   TSidNameProvider = function (
     const Sid: ISid;
     out SidType: TSidNameUse;
@@ -116,11 +136,13 @@ type
   ): Boolean;
 
 // Add a function for recognizing custom names for SIDs
+[ThreadSafe]
 procedure RtlxRegisterSidNameRecognizer(
   const Recognizer: TSidNameRecognizer
 );
 
-// Add a function for represnting SIDs under custom names
+// Add a function for representing SIDs under custom names
+[ThreadSafe]
 procedure RtlxRegisterSidNameProvider(
   const Provider: TSidNameProvider
 );
@@ -162,7 +184,7 @@ function RtlxCreateServiceSid(
 
 // Derive a virtual account SID
 function RtlxCreateVirtualAccountSid(
-  const ServiceName: String;
+  const AccountName: String;
   BaseSubAuthority: Cardinal;
   out Sid: ISid
 ): TNtxStatus;
@@ -176,7 +198,8 @@ function SddlxCreateWellKnownSid(
 implementation
 
 uses
-  Ntapi.ntdef, Ntapi.ntrtl, Ntapi.ntstatus, NtUtils.SysUtils, NtUtils.Errors;
+  Ntapi.ntdef, Ntapi.ntrtl, Ntapi.ntstatus, NtUtils.SysUtils, NtUtils.Errors,
+  NtUtils.Synchronization;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -189,16 +212,45 @@ var
   i: Integer;
 begin
   IMemory(Sid) := Auto.AllocateDynamic(
-    RtlLengthRequiredSid(Length(SubAuthouritiesArray)));
+    RtlLengthRequiredSid(Length(SubAuthoritiesArray)));
 
   Result.Location := 'RtlInitializeSid';
-  Result.Status := RtlInitializeSid(Sid.Data, @IdentifyerAuthority,
-    Length(SubAuthouritiesArray));
+  Result.Status := RtlInitializeSid(Sid.Data, @IdentifierAuthority,
+    Length(SubAuthoritiesArray));
 
   // Fill in the sub authorities
   if Result.IsSuccess then
-    for i := 0 to High(SubAuthouritiesArray) do
-      RtlSubAuthoritySid(Sid.Data, i)^ := SubAuthouritiesArray[i];
+    for i := 0 to High(SubAuthoritiesArray) do
+      RtlSubAuthoritySid(Sid.Data, i)^ := SubAuthoritiesArray[i];
+end;
+
+function RtlxCreateSidFromArray;
+var
+  i: Integer;
+  IdentifierAuthority: TSidIdentifierAuthority;
+begin
+  if Length(Authorities) < 1 then
+  begin
+    Result.Location := 'RtlxCreateSidFromArray';
+    Result.Status := STATUS_INVALID_PARAMETER;
+    Exit;
+  end;
+
+  IMemory(Sid) := Auto.AllocateDynamic(
+    RtlLengthRequiredSid(Length(Authorities) - 1));
+
+  // Extract the identifier authority and initialize the SID
+  IdentifierAuthority := Authorities[0];
+  Result.Location := 'RtlInitializeSid';
+  Result.Status := RtlInitializeSid(Sid.Data, @IdentifierAuthority,
+    Length(Authorities) - 1);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Fill in the sub authorities
+  for i := 1 to High(Authorities) do
+    RtlSubAuthoritySid(Sid.Data, i - 1)^ := Authorities[i];
 end;
 
 function RtlxMakeSid;
@@ -206,27 +258,54 @@ var
   i: Integer;
 begin
   IMemory(Result) := Auto.AllocateDynamic(
-    RtlLengthRequiredSid(Length(SubAuthouritiesArray)));
+    RtlLengthRequiredSid(Length(SubAuthoritiesArray)));
 
-  if not RtlInitializeSid(Result.Data, @IdentifyerAuthority,
-    Length(SubAuthouritiesArray)).IsSuccess then
+  if not RtlInitializeSid(Result.Data, @IdentifierAuthority,
+    Length(SubAuthoritiesArray)).IsSuccess then
   begin
     // Construct manually on failure
     Result.Data.Revision := SID_REVISION;
-    Result.Data.SubAuthorityCount := Length(SubAuthouritiesArray);
-    Result.Data.IdentifierAuthority := IdentifyerAuthority;
+    Result.Data.SubAuthorityCount := Length(SubAuthoritiesArray);
+    Result.Data.IdentifierAuthority := IdentifierAuthority;
   end;
 
   // Fill in the sub authorities
-  for i := 0 to High(SubAuthouritiesArray) do
-    RtlSubAuthoritySid(Result.Data, i)^ := SubAuthouritiesArray[i];
+  for i := 0 to High(SubAuthoritiesArray) do
+    RtlSubAuthoritySid(Result.Data, i)^ := SubAuthoritiesArray[i];
+end;
+
+function RtlxMakeSidFromArray;
+var
+  i: Integer;
+  IdentifierAuthority: TSidIdentifierAuthority;
+begin
+  if Length(Authorities) < 1 then
+    Exit(ISid(Auto.AllocateDynamic(RtlLengthRequiredSid(0))));
+
+  IMemory(Result) := Auto.AllocateDynamic(
+    RtlLengthRequiredSid(Length(Authorities) - 1));
+
+  IdentifierAuthority := Authorities[0];
+
+  if not RtlInitializeSid(Result.Data, @IdentifierAuthority,
+    Length(Authorities) - 1).IsSuccess then
+  begin
+    // Construct manually on failure
+    Result.Data.Revision := SID_REVISION;
+    Result.Data.SubAuthorityCount := Length(Authorities) - 1;
+    Result.Data.IdentifierAuthority := IdentifierAuthority;
+  end;
+
+  // Fill in the sub authorities
+  for i := 1 to High(Authorities) do
+    RtlSubAuthoritySid(Result.Data, i - 1)^ := Authorities[i];
 end;
 
 function RtlxCopySid;
 begin
   if not RtlValidSid(Buffer) then
   begin
-    Result.Location := 'RtlValidSid';
+    Result.Location := 'RtlxCopySid';
     Result.Status := STATUS_INVALID_SID;
     Exit;
   end;
@@ -244,7 +323,7 @@ begin
   if (BufferSize < RtlLengthRequiredSid(0)) or not RtlValidSid(Buffer) or
     (BufferSize < RtlLengthRequiredSid(Buffer.SubAuthorityCount)) then
   begin
-    Result.Location := 'RtlValidSid';
+    Result.Location := 'RtlxCopySidEx';
     Result.Status := STATUS_INVALID_SID;
     Exit;
   end;
@@ -297,6 +376,33 @@ begin
       RtlSubAuthorityCountSid(Sid.Data)^ - 1)^
   else
     Result := Default;
+end;
+
+function RtlxIsChildSid;
+var
+  i: Integer;
+begin
+  Result := False;
+
+  // The parent SID cannot be longer than the child SID
+  if RtlxSubAuthorityCountSid(Parent) > RtlxSubAuthorityCountSid(Child) then
+    Exit;
+
+  // Optionally, disallow equal lengths
+  if not AllowEqual and (RtlxSubAuthorityCountSid(Parent) =
+    RtlxSubAuthorityCountSid(Child)) then
+    Exit;
+
+  // The SIDs should share the the identifier authority
+  if RtlxIdentifierAuthoritySid(Parent) <> RtlxIdentifierAuthoritySid(Child) then
+    Exit;
+
+  // Check if the SIDs share sub-authorities
+  for i := 0 to Integer(RtlxSubAuthorityCountSid(Parent)) - 1 do
+    if RtlxSubAuthoritySid(Parent, i) <> RtlxSubAuthoritySid(Child, i) then
+      Exit;
+
+  Result := True;
 end;
 
 function RtlxMakeChildSid;
@@ -422,27 +528,43 @@ begin
 end;
 
 var
+  // For string -> SID
+  CustomSidNameRecognizersLock: TRtlSRWLock;
   CustomSidNameRecognizers: TArray<TSidNameRecognizer>;
+
+  // For SID -> string
+  CustomSidNameProvidersLock: TRtlSRWLock;
   CustomSidNameProviders: TArray<TSidNameProvider>;
 
 procedure RtlxRegisterSidNameRecognizer;
+var
+  LockReverter: IAutoReleasable;
 begin
+  LockReverter := RtlxAcquireSRWLockExclusive(@CustomSidNameRecognizersLock);
+
   // Recognizers from other modules
-  SetLength(CustomSidNameRecognizers, Length(CustomSidNameRecognizers) + 1);
+  SetLength(CustomSidNameRecognizers, Succ(Length(CustomSidNameRecognizers)));
   CustomSidNameRecognizers[High(CustomSidNameRecognizers)] := Recognizer;
 end;
 
 procedure RtlxRegisterSidNameProvider;
+var
+  LockReverter: IAutoReleasable;
 begin
+  LockReverter := RtlxAcquireSRWLockExclusive(@CustomSidNameProvidersLock);
+
   // Providers from other modules
-  SetLength(CustomSidNameProviders, Length(CustomSidNameProviders) + 1);
+  SetLength(CustomSidNameProviders, Succ(Length(CustomSidNameProviders)));
   CustomSidNameProviders[High(CustomSidNameProviders)] := Provider;
 end;
 
 function RtlxLookupSidInCustomProviders;
 var
   Provider: TSidNameProvider;
+  LockReverter: IAutoReleasable;
 begin
+  LockReverter := RtlxAcquireSRWLockShared(@CustomSidNameProvidersLock);
+
   for Provider in CustomSidNameProviders do
     if Provider(Sid, SidType, DomainName, UserName) then
     begin
@@ -469,13 +591,14 @@ begin
     SECURITY_MANDATORY_LABEL_AUTHORITY:
       if RtlxSubAuthorityCountSid(SID) = 1 then
         Exit('S-1-16-' + RtlxUIntToStr(RtlxSubAuthoritySid(SID, 0),
-          16, 4));
+          nsHexadecimal, 4));
 
     // Trust: S-1-19-X-X
     SECURITY_PROCESS_TRUST_AUTHORITY:
       if RtlxSubAuthorityCountSid(SID) = 2 then
         Exit('S-1-19-' + RtlxUIntToStr(RtlxSubAuthoritySid(SID, 0),
-          16, 3) + '-' + RtlxUIntToStr(RtlxSubAuthoritySid(SID, 1), 16, 4));
+          nsHexadecimal, 3) + '-' + RtlxUIntToStr(RtlxSubAuthoritySid(SID, 1),
+          nsHexadecimal, 4));
   end;
 
   SDDL.Length := 0;
@@ -491,22 +614,22 @@ end;
 function RtlxStringToSid;
 var
   Buffer: PSid;
-  BufferDeallocator: IAutoReleasable;
+  BufferDeallocator, LockReverter: IAutoReleasable;
   Recognizer: TSidNameRecognizer;
 begin
-  // Apply the workaround for zero sub authoruty SID lookup
+  Result := NtxSuccess;
+
+  // Apply the workaround for zero sub authority SID lookup
   if RtlxZeroSubAuthorityStringToSid(SDDL, Sid) then
-  begin
-    Result.Status := STATUS_SUCCESS;
     Exit;
-  end;
+
+  LockReverter := RtlxAcquireSRWLockShared(@CustomSidNameRecognizersLock);
 
   // Try other custom recognizers
   for Recognizer in CustomSidNameRecognizers do
     if Recognizer(SDDL, Sid) then
     begin
       Assert(Assigned(Sid), 'Custom SID recognizer returned nil.');
-      Result.Status := STATUS_SUCCESS;
       Exit;
     end;
 
@@ -531,44 +654,56 @@ end;
 
 function RtlxCreateServiceSid;
 var
+  ServiceNameStr: TNtUnicodeString;
   SidLength: Cardinal;
 begin
+  Result := RtlxInitUnicodeString(ServiceNameStr, ServiceName);
+
+  if not Result.IsSuccess then
+    Exit;
+
   Result.Location := 'RtlCreateServiceSid';
 
   SidLength := RtlLengthRequiredSid(SECURITY_SERVICE_ID_RID_COUNT);
   IMemory(Sid) := Auto.AllocateDynamic(SidLength);
   repeat
-    Result.Status := RtlCreateServiceSid(TNtUnicodeString.From(ServiceName),
-      Sid.Data, SidLength);
+    Result.Status := RtlCreateServiceSid(ServiceNameStr, Sid.Data, SidLength);
   until not NtxExpandBufferEx(Result, IMemory(Sid), SidLength, nil);
 end;
 
 function RtlxCreateVirtualAccountSid;
 var
+  AccountNameStr: TNtUnicodeString;
   SidLength: Cardinal;
 begin
+  Result := RtlxInitUnicodeString(AccountNameStr, AccountName);
+
+  if not Result.IsSuccess then
+    Exit;
+
   Result.Location := 'RtlCreateVirtualAccountSid';
 
   SidLength := RtlLengthRequiredSid(SECURITY_VIRTUALACCOUNT_ID_RID_COUNT);
   IMemory(Sid) := Auto.AllocateDynamic(SidLength);
   repeat
-    Result.Status := RtlCreateVirtualAccountSid(TNtUnicodeString.From(
-      ServiceName), BaseSubAuthority, Sid.Data, SidLength);
+    Result.Status := RtlCreateVirtualAccountSid(AccountNameStr,
+      BaseSubAuthority, Sid.Data, SidLength);
   until not NtxExpandBufferEx(Result, IMemory(Sid), SidLength, nil);
 end;
 
 function SddlxCreateWellKnownSid;
 var
+  Buffer: IMemory absolute Sid;
   Required: Cardinal;
 begin
   Result.Location := 'CreateWellKnownSid';
 
-  IMemory(Sid) := Auto.AllocateDynamic(0);
+  Buffer := Auto.AllocateDynamic(0);
   repeat
-    Required := Sid.Size;
-    Result.Win32Result := CreateWellKnownSid(WellKnownSidType, nil, Sid.Data,
+    Required := Buffer.Size;
+    Result.Win32Result := CreateWellKnownSid(WellKnownSidType, nil, Buffer.Data,
       Required);
-  until not NtxExpandBufferEx(Result, IMemory(Sid), Required, nil);
+  until not NtxExpandBufferEx(Result, Buffer, Required, nil);
 end;
 
 end.

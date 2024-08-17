@@ -11,7 +11,7 @@ interface
 {$MINENUMSIZE 4}
 
 uses
-  Ntapi.WinNt, Ntapi.ntdef, Ntapi.Versions, DelphiApi.Reflection,
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntioapi, Ntapi.Versions, DelphiApi.Reflection,
   DelphiApi.DelayLoad;
 
 const
@@ -45,7 +45,6 @@ const
   TRANSACTION_COMMIT = $0008;
   TRANSACTION_ROLLBACK = $0010;
   TRANSACTION_PROPAGATE = $0020;
-  TRANSACTION_RIGHT_RESERVED1 = $0040;
 
   TRANSACTION_ALL_ACCESS = STANDARD_RIGHTS_ALL or $7F;
 
@@ -116,6 +115,43 @@ const
   // SDK::ktmtypes.h - creation options
   ENLISTMENT_SUPERIOR = $00000001;
 
+  // FSTCLs
+
+  // WDK::ntifs.h
+  FSCTL_TXFS_QUERY_RM_INFORMATION = $00094148;
+  FSCTL_TXFS_GET_METADATA_INFO = $0009416C;
+  FSCTL_TXFS_GET_TRANSACTED_VERSION = $00094170;
+  FSCTL_TXFS_TRANSACTION_ACTIVE = $0009418C;
+  FSCTL_TXFS_LIST_TRANSACTION_LOCKED_FILES = $000941E0;
+  FSCTL_TXFS_LIST_TRANSACTIONS = $000941E4;
+
+  // WDK::ntifs.h - resource manager flags
+  TXFS_RM_FLAG_LOGGING_MODE = $00000001;
+  TXFS_RM_FLAG_RENAME_RM = $00000002;
+  TXFS_RM_FLAG_LOG_CONTAINER_COUNT_MAX = $00000004;
+  TXFS_RM_FLAG_LOG_CONTAINER_COUNT_MIN = $00000008;
+  TXFS_RM_FLAG_LOG_GROWTH_INCREMENT_NUM_CONTAINERS = $00000010;
+  TXFS_RM_FLAG_LOG_GROWTH_INCREMENT_PERCENT = $00000020;
+  TXFS_RM_FLAG_LOG_AUTO_SHRINK_PERCENTAGE = $00000040;
+  TXFS_RM_FLAG_LOG_NO_CONTAINER_COUNT_MAX = $00000080;
+  TXFS_RM_FLAG_LOG_NO_CONTAINER_COUNT_MIN = $00000100;
+  TXFS_RM_FLAG_GROW_LOG = $00000400;
+  TXFS_RM_FLAG_SHRINK_LOG = $00000800;
+  TXFS_RM_FLAG_ENFORCE_MINIMUM_SIZE = $00001000;
+  TXFS_RM_FLAG_PRESERVE_CHANGES = $00002000;
+  TXFS_RM_FLAG_RESET_RM_AT_NEXT_START = $00004000;
+  TXFS_RM_FLAG_DO_NOT_RESET_RM_AT_NEXT_START = $00008000;
+  TXFS_RM_FLAG_PREFER_CONSISTENCY = $00010000;
+  TXFS_RM_FLAG_PREFER_AVAILABILITY = $00020000;
+
+  // WDK::ntifs.h - special version values
+  TXFS_TRANSACTED_VERSION_NONTRANSACTED = $FFFFFFFE;
+  TXFS_TRANSACTED_VERSION_UNCOMMITTED = $FFFFFFFF;
+
+  // WDK::ntifs.h - transaction lock name flags
+  TXFS_LIST_TRANSACTION_LOCKED_FILES_ENTRY_FLAG_CREATED = $00000001;
+  TXFS_LIST_TRANSACTION_LOCKED_FILES_ENTRY_FLAG_DELETED = $00000002;
+
 type
   // WDK::wdm.h
   [SDKName('KTMOBJECT_TYPE')]
@@ -160,12 +196,12 @@ type
 
   // WDK::wdm.h
   [SDKName('TRANSACTIONMANAGER_INFORMATION_CLASS')]
-  [NamingStyle(nsCamelCase, 'TransactionManager')]
+  [NamingStyle(nsCamelCase, 'TransactionManager'), ValidBits([0..2, 4])]
   TTransactionManagerInformationClass = (
     TransactionManagerBasicInformation = 0,   // TTransactionManagerBasicInformation
     TransactionManagerLogInformation = 1,     // TGuid (log identity)
     TransactionManagerLogPathInformation = 2, // TTransactionManagerLogPathInformation
-    TransactionManagerReserved = 3,
+    [Reserved] TransactionManagerUnused = 3,
     TransactionManagerRecoveryInformation = 4 // UInt64 (last recovery LSN)
   );
 
@@ -205,7 +241,7 @@ type
   [SDKName('TRANSACTION_INFORMATION_CLASS')]
   [NamingStyle(nsCamelCase, 'Transaction')]
   TTransactionInformationClass = (
-    TransactionBasicInformation = 0,      // q: TTrasactionBasicInformation
+    TransactionBasicInformation = 0,      // q: TTransactionBasicInformation
     TransactionPropertiesInformation = 1, // q, s: TTransactionPropertiesInformation
     TransactionEnlistmentInformation = 2, // q: TTransactionEnlistmentsInformation
     TransactionSuperiorEnlistmentInformation = 3 // q: TTransactionEnlistmentPair
@@ -215,7 +251,7 @@ type
   [SDKName('TRANSACTION_OUTCOME')]
   [NamingStyle(nsCamelCase, 'TransactionOutcome'), Range(1)]
   TTransactionOutcome = (
-    TransactionOutcomeInvalid = 0,
+    [Reserved] TransactionOutcomeInvalid = 0,
     TransactionOutcomeUndetermined = 1,
     TransactionOutcomeCommitted = 2,
     TransactionOutcomeAborted = 3
@@ -225,7 +261,7 @@ type
   [SDKName('TRANSACTION_STATE')]
   [NamingStyle(nsCamelCase, 'TransactionState'), Range(1)]
   TTransactionState = (
-    TransactionStateInvalid = 0,
+    [Reserved] TransactionStateInvalid = 0,
     TransactionStateNormal = 1,
     TransactionStateInDoubt = 2,
     TransactionStateCommittedNotify = 3
@@ -340,7 +376,7 @@ type
   [FlagName(TRANSACTION_NOTIFY_RECOVER_QUERY, 'Recover Query')]
   [FlagName(TRANSACTION_NOTIFY_ENLIST_PREPREPARE, 'Enlist Prepare')]
   [FlagName(TRANSACTION_NOTIFY_LAST_RECOVER, 'Last Recover')]
-  [FlagName(TRANSACTION_NOTIFY_INDOUBT, 'In Dought')]
+  [FlagName(TRANSACTION_NOTIFY_INDOUBT, 'In Doubt')]
   [FlagName(TRANSACTION_NOTIFY_PROPAGATE_PULL, 'Propagate Pull')]
   [FlagName(TRANSACTION_NOTIFY_PROPAGATE_PUSH, 'Propagate Push')]
   [FlagName(TRANSACTION_NOTIFY_MARSHAL, 'Marshal')]
@@ -379,6 +415,153 @@ type
     CRMEnlistmentID: TGuid;
   end;
   PEnlistmentCrmInformation = ^TEnlistmentCrmInformation;
+
+  { FSCTLs }
+
+  [FlagName(TXFS_RM_FLAG_LOGGING_MODE, 'Logging Mode')]
+  [FlagName(TXFS_RM_FLAG_RENAME_RM, 'Rename RM')]
+  [FlagName(TXFS_RM_FLAG_LOG_CONTAINER_COUNT_MAX, 'Log Container Count Max')]
+  [FlagName(TXFS_RM_FLAG_LOG_CONTAINER_COUNT_MIN, 'Log Container Count Min')]
+  [FlagName(TXFS_RM_FLAG_LOG_GROWTH_INCREMENT_NUM_CONTAINERS, 'Log Growth Inc Num Containers')]
+  [FlagName(TXFS_RM_FLAG_LOG_GROWTH_INCREMENT_PERCENT, 'Log Growth Inc Percent')]
+  [FlagName(TXFS_RM_FLAG_LOG_AUTO_SHRINK_PERCENTAGE, 'Auto-shrink Percentage')]
+  [FlagName(TXFS_RM_FLAG_LOG_NO_CONTAINER_COUNT_MAX, 'Log No Container Count Max')]
+  [FlagName(TXFS_RM_FLAG_LOG_NO_CONTAINER_COUNT_MIN, 'Log No Container Count Min')]
+  [FlagName(TXFS_RM_FLAG_GROW_LOG, 'Grow Log')]
+  [FlagName(TXFS_RM_FLAG_SHRINK_LOG, 'Shrink Log')]
+  [FlagName(TXFS_RM_FLAG_ENFORCE_MINIMUM_SIZE, 'Enforce Minimum Size')]
+  [FlagName(TXFS_RM_FLAG_PRESERVE_CHANGES, 'Preserver Changes')]
+  [FlagName(TXFS_RM_FLAG_RESET_RM_AT_NEXT_START, 'Reset RM At Next Start')]
+  [FlagName(TXFS_RM_FLAG_DO_NOT_RESET_RM_AT_NEXT_START, 'Not Reset RM At Next Start')]
+  [FlagName(TXFS_RM_FLAG_PREFER_CONSISTENCY, 'Prefer Consistency')]
+  [FlagName(TXFS_RM_FLAG_PREFER_AVAILABILITY, 'Prefer Availability')]
+  TTxfsRmFlags = type Cardinal;
+
+  // WDK::ntifs.h
+  {$MINENUMSIZE 2}
+  [NamingStyle(nsSnakeCase, 'TXFS_LOGGING_MODE'), Range(1)]
+  TTxfsLoggingMode = (
+    [Reserved] TXFS_LOGGING_MODE_UNKNOWN = 0,
+    TXFS_LOGGING_MODE_SIMPLE = 1,
+    TXFS_LOGGING_MODE_FULL = 2
+  );
+  {$MINENUMSIZE 4}
+
+  // WDK::ntifs.h
+  [NamingStyle(nsSnakeCase, 'TXFS_RM_STATE')]
+  TTxfsRmState = (
+    TXFS_RM_STATE_NOT_STARTED = 0,
+    TXFS_RM_STATE_STARTING = 1,
+    TXFS_RM_STATE_ACTIVE = 2,
+    TXFS_RM_STATE_SHUTTING_DOWN = 3
+  );
+
+  // WDK::ntifs.h
+  [NamingStyle(nsSnakeCase, 'TXFS_TRANSACTION_STATE')]
+  TTxfsTransactionState = (
+    TXFS_TRANSACTION_STATE_NONE = 0,
+    TXFS_TRANSACTION_STATE_ACTIVE = 1,
+    TXFS_TRANSACTION_STATE_PREPARED = 2,
+    TXFS_TRANSACTION_STATE_NOT_ACTIVE = 3
+  );
+
+  // WDK::ntifs.h - FSCTL 82
+  [SDKName('TXFS_QUERY_RM_INFORMATION')]
+  TTxfsQueryRmInformation = record
+    [RecordSize] BytesRequired: Cardinal;
+    TailLsn: UInt64;
+    CurrentLsn: UInt64;
+    ArchiveTailLsn: UInt64;
+    [Bytes] LogContainerSize: UInt64;
+    HighestVirtualClock: TLargeInteger;
+    LogContainerCount: Cardinal;
+    LogContainerCountMax: Cardinal;
+    LogContainerCountMin: Cardinal;
+    LogGrowthIncrement: Cardinal;
+    LogAutoShrinkPercentage: Cardinal;
+    Flags: TTxfsRmFlags;
+    LoggingMode: TTxfsLoggingMode;
+    [Unlisted] Reserved: Word;
+    RmState: TTxfsRmState;
+    [Bytes] LogCapacity: UInt64;
+    [Bytes] LogFree: UInt64;
+    [Bytes] TopsSize: UInt64;
+    [Bytes] TopsUsed: UInt64;
+    TransactionCount: UInt64;
+    OnePCCount: UInt64;
+    TwoPCCount: UInt64;
+    NumberLogFileFull: UInt64;
+    OldestTransactionAge: UInt64;
+    RMName: TGuid;
+    [Offset] TmLogPathOffset: Cardinal; // to PWideChar
+  end;
+  PTxfsQueryRmInformation = ^TTxfsQueryRmInformation;
+
+  // WDK::ntifs.h - FSCTL 91
+  [SDKName('TXFS_GET_METADATA_INFO_OUT')]
+  TTxfsGetMetadataInfoOut = record
+    TxfFileId: TGuid;
+    LockingTransaction: TGuid;
+    LastLsn: UInt64;
+    TransactionState: TTxfsTransactionState;
+  end;
+
+  // WDK::ntifs.h - FSCTL 92
+  [SDKName('TXFS_GET_TRANSACTED_VERSION')]
+  TTxfsGetTransactedVersion = record
+    ThisBaseVersion: Cardinal;
+    LatestVersion: Cardinal;
+    ThisMiniVersion: Word;
+    FirstMiniVersion: Word;
+    LatestMiniVersion: Word;
+  end;
+
+  [FlagName(TXFS_LIST_TRANSACTION_LOCKED_FILES_ENTRY_FLAG_CREATED, 'Created')]
+  [FlagName(TXFS_LIST_TRANSACTION_LOCKED_FILES_ENTRY_FLAG_DELETED, 'Deleted')]
+  TTxfsTransactionLockedFilesFlags = type Cardinal;
+
+  // WDK::ntifs.h
+  [SDKName('TXFS_LIST_TRANSACTION_LOCKED_FILES_ENTRY')]
+  TTxfsListTransactionLockedFilesEntry = record
+    [Offset] NextEntryOffset: UInt64; // from TTxfsListTransactionLockedFiles
+    NameFlags: TTxfsTransactionLockedFilesFlags;
+    FileId: TFileId;
+    [Unlisted] Reserved1: Cardinal;
+    [Unlisted] Reserved2: Cardinal;
+    [Unlisted] Reserved3: UInt64;
+    FileName: TAnysizeArray<WideChar>;
+  end;
+  PTxfsListTransactionLockedFilesEntry = ^TTxfsListTransactionLockedFilesEntry;
+
+  // WDK::ntifs.h - FSCTL 120
+  [SDKName('TXFS_LIST_TRANSACTION_LOCKED_FILES')]
+  TTxfsListTransactionLockedFiles = record
+    [in] KtmTransaction: TGuid;
+    [out] NumberOfFiles: UInt64;
+    [out, Bytes] BufferSizeRequired: UInt64;
+    [out, Offset] FirstEntryOffset: UInt64; // to TTxfsListTransactionLockedFilesEntry
+  end;
+  PTxfsListTransactionLockedFiles = ^TTxfsListTransactionLockedFiles;
+
+  // WDK::ntifs.h
+  [SDKName('TXFS_LIST_TRANSACTIONS_ENTRY')]
+  TTxfsListTransactionsEntry = record
+    TransactionId: TGuid;
+    TransactionState: TTxfsTransactionState;
+    [Unlisted] Reserved1: Cardinal;
+    [Unlisted] Reserved2: Cardinal;
+    [Unlisted] Reserved3: UInt64;
+  end;
+  PTxfsListTransactionsEntry = ^TTxfsListTransactionsEntry;
+
+  // WDK::ntifs.h - FSCTL 120
+  [SDKName('TXFS_LIST_TRANSACTIONS')]
+  TTxfsListTransactions = record
+    NumberOfTransactions: UInt64;
+    BufferSizeRequired: UInt64;
+    Entries: TPlaceholder<TTxfsListTransactionsEntry>;
+  end;
+  PTxfsListTransactions = ^TTxfsListTransactions;
 
 // PHNT::ntrtl.h
 function RtlGetCurrentTransaction(
@@ -520,7 +703,7 @@ function NtCreateRegistryTransaction(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtCreateRegistryTransaction: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtCreateRegistryTransaction';
 );
 
@@ -533,7 +716,7 @@ function NtOpenRegistryTransaction(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtOpenRegistryTransaction: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtOpenRegistryTransaction';
 );
 
@@ -545,7 +728,7 @@ function NtCommitRegistryTransaction(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtCommitRegistryTransaction: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtCommitRegistryTransaction';
 );
 
@@ -557,7 +740,7 @@ function NtRollbackRegistryTransaction(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtRollbackRegistryTransaction: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtRollbackRegistryTransaction';
 );
 

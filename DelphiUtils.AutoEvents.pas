@@ -8,17 +8,30 @@ unit DelphiUtils.AutoEvents;
 interface
 
 uses
-  DelphiUtils.AutoObjects;
+  DelphiUtils.AutoObjects, Ntapi.ntrtl, DelphiApi.Reflection;
+
+var
+  // A callback for handing exceptions that occur while delivering events.
+  // The result indicates whether the exception was handled.
+  AutoEventsExceptionHanlder: function (E: TObject): Boolean;
 
 type
   IAutoReleasable = DelphiUtils.AutoObjects.IAutoReleasable;
 
   // A collection of weak interface references
+  [ThreadSafe]
   TWeakArray<I : IInterface> = record
-    Entries: TArray<Weak<I>>;
+  private
+    FEntries: TArray<Weak<I>>;
+    FLock: TRtlSRWLock;
+    function PreferredSizeMin(Count: Integer): Integer;
+    function PreferredSizeMax(Count: Integer): Integer;
+    [ThreadSafe(False)] function CompactWorker: Integer;
+  public
+    function Entries: TArray<I>;
     function Add(const Entry: I): IAutoReleasable;
-    procedure RemoveEmpty;
     function HasAny: Boolean;
+    procedure Compact;
   end;
 
   TEventCallback = reference to procedure;
@@ -28,15 +41,14 @@ type
   );
 
   // An automatic multi-subscriber event with no parameters
+  [ThreadSafe]
   TAutoEvent = record
   private
     FSubscribers: TWeakArray<TEventCallback>;
-    FCustomInvoker: TCustomInvoker;
   public
     function Subscribe(Callback: TEventCallback): IAutoReleasable;
     function HasSubscribers: Boolean;
     procedure Invoke;
-    procedure SetCustomInvoker(Invoker: TCustomInvoker);
   end;
 
   TEventCallback<T> = reference to procedure (const Parameter: T);
@@ -47,15 +59,14 @@ type
   );
 
   // An automatic multi-subscriber event with one parameter
+  [ThreadSafe]
   TAutoEvent<T> = record
   private
     FSubscribers: TWeakArray<TEventCallback<T>>;
-    FCustomInvoker: TCustomInvoker<T>;
   public
     function Subscribe(Callback: TEventCallback<T>): IAutoReleasable;
     function HasSubscribers: Boolean;
     procedure Invoke(const Parameter: T);
-    procedure SetCustomInvoker(Invoker: TCustomInvoker<T>);
   end;
 
   TEventCallback<T1, T2> = reference to procedure (
@@ -70,18 +81,20 @@ type
   );
 
   // An automatic multi-subscriber event with two parameters
+  [ThreadSafe]
   TAutoEvent<T1, T2> = record
   private
     FSubscribers: TWeakArray<TEventCallback<T1, T2>>;
-    FCustomInvoker: TCustomInvoker<T1, T2>;
   public
     function Subscribe(Callback: TEventCallback<T1, T2>): IAutoReleasable;
     function HasSubscribers: Boolean;
     procedure Invoke(const Parameter1: T1; const Parameter2: T2);
-    procedure SetCustomInvoker(Invoker: TCustomInvoker<T1, T2>);
   end;
 
 implementation
+
+uses
+  NtUtils.Synchronization;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -90,40 +103,105 @@ implementation
 { TWeakArray<I> }
 
 function TWeakArray<I>.Add;
+var
+  Dummy: I;
+  j, FirstEmptyIndex: Integer;
+  LockReverter: IAutoReleasable;
 begin
-  SetLength(Entries, Length(Entries) + 1);
-  Entries[High(Entries)] := Entry;
+  LockReverter := RtlxAcquireSRWLockExclusive(@FLock);
+
+  // Compact and locate the first empty slot
+  FirstEmptyIndex := CompactWorker;
+
+  // Expand if the new item doesn't fit
+  if FirstEmptyIndex > High(FEntries) then
+    SetLength(FEntries, PreferredSizeMin(Succ(FirstEmptyIndex)));
+
+  // Save a weak reference and return a wrapper with a strong reference
+  FEntries[FirstEmptyIndex] := Entry;
   Result := Auto.Copy<I>(Entry);
+end;
+
+procedure TWeakArray<I>.Compact;
+var
+  LockReverter: IAutoReleasable;
+begin
+  if RtlxTryAcquireSRWLockExclusive(@FLock, LockReverter) then
+    CompactWorker;
+end;
+
+function TWeakArray<I>.CompactWorker;
+var
+  StrongRef: I;
+  j: Integer;
+begin
+  // Move occupied slots into a continuous block preserving order
+  Result := 0;
+  for j := 0 to High(FEntries) do
+    if FEntries[j].Upgrade(StrongRef) then
+    begin
+      if j <> Result then
+        FEntries[Result] := StrongRef;
+
+      Inc(Result);
+    end;
+
+  // Trim the array when there are too many empty slots
+  if Length(FEntries) > PreferredSizeMax(Succ(Result)) then
+    SetLength(FEntries, PreferredSizeMax(Succ(Result)));
+end;
+
+function TWeakArray<I>.Entries;
+var
+  i, Count: Integer;
+  LockReverter: IAutoReleasable;
+begin
+  LockReverter := RtlxAcquireSRWLockShared(@FLock);
+  SetLength(Result, Length(FEntries));
+  Count := 0;
+
+  // Make strong reference copies
+  for i := 0 to High(Result) do
+    if FEntries[i].Upgrade(Result[Count]) then
+      Inc(Count);
+
+  // Truncate the result if necessary
+  if Length(Result) <> Count then
+  begin
+    SetLength(Result, Count);
+
+    // If there are too many empty slots, release our lock and try to compact
+    if Length(FEntries) > PreferredSizeMax(Count) then
+    begin
+      LockReverter := nil;
+      Compact;
+    end;
+  end;
 end;
 
 function TWeakArray<I>.HasAny;
 var
-  StongRef: I;
+  StrongRef: I;
   i: Integer;
+  LockReverter: IAutoReleasable;
 begin
-  for i := 0 to High(Entries) do
-    if Entries[i].Upgrade(StongRef) then
+  LockReverter := RtlxAcquireSRWLockShared(@FLock);
+
+  for i := 0 to High(FEntries) do
+    if FEntries[i].Upgrade(StrongRef) then
       Exit(True);
 
   Result := False;
 end;
 
-procedure TWeakArray<I>.RemoveEmpty;
-var
-  StongRef: I;
-  i, j: Integer;
+function TWeakArray<I>.PreferredSizeMax;
 begin
-  j := 0;
-  for i := 0 to High(Entries) do
-    if Entries[i].Upgrade(StongRef) then
-    begin
-      if i <> j then
-        Entries[j] := StongRef;
+  Result := Count + Count div 3 + 6;
+end;
 
-      Inc(j);
-    end;
-
-  SetLength(Entries, j);
+function TWeakArray<I>.PreferredSizeMin;
+begin
+  Result := Count + Count div 8 + 1;
 end;
 
 { TAutoEvent }
@@ -136,21 +214,16 @@ end;
 procedure TAutoEvent.Invoke;
 var
   Callback: TEventCallback;
-  i: Integer;
 begin
-  FSubscribers.RemoveEmpty;
-
-  for i := 0 to High(FSubscribers.Entries) do
-    if FSubscribers.Entries[i].Upgrade(Callback) then
-      if Assigned(FCustomInvoker) then
-        FCustomInvoker(Callback)
-      else
-        Callback;
-end;
-
-procedure TAutoEvent.SetCustomInvoker;
-begin
-  FCustomInvoker := Invoker;
+  for Callback in FSubscribers.Entries do
+    try
+      Callback;
+    except
+      on E: TObject do
+        if not Assigned(AutoEventsExceptionHanlder) or not
+          AutoEventsExceptionHanlder(E) then
+          raise;
+    end;
 end;
 
 function TAutoEvent.Subscribe;
@@ -168,21 +241,16 @@ end;
 procedure TAutoEvent<T>.Invoke;
 var
   Callback: TEventCallback<T>;
-  i: Integer;
 begin
-  FSubscribers.RemoveEmpty;
-
-  for i := 0 to High(FSubscribers.Entries) do
-    if FSubscribers.Entries[i].Upgrade(Callback) then
-      if Assigned(FCustomInvoker) then
-        FCustomInvoker(Callback, Parameter)
-      else
-        Callback(Parameter);
-end;
-
-procedure TAutoEvent<T>.SetCustomInvoker;
-begin
-  FCustomInvoker := Invoker;
+  for Callback in FSubscribers.Entries do
+    try
+      Callback(Parameter);
+    except
+      on E: TObject do
+        if not Assigned(AutoEventsExceptionHanlder) or not
+          AutoEventsExceptionHanlder(E) then
+          raise;
+    end;
 end;
 
 function TAutoEvent<T>.Subscribe;
@@ -200,21 +268,16 @@ end;
 procedure TAutoEvent<T1, T2>.Invoke;
 var
   Callback: TEventCallback<T1, T2>;
-  i: Integer;
 begin
-  FSubscribers.RemoveEmpty;
-
-  for i := 0 to High(FSubscribers.Entries) do
-    if FSubscribers.Entries[i].Upgrade(Callback) then
-      if Assigned(FCustomInvoker) then
-        FCustomInvoker(Callback, Parameter1, Parameter2)
-      else
-        Callback(Parameter1, Parameter2);
-end;
-
-procedure TAutoEvent<T1, T2>.SetCustomInvoker;
-begin
-  FCustomInvoker := Invoker;
+  for Callback in FSubscribers.Entries do
+    try
+      Callback(Parameter1, Parameter2);
+    except
+      on E: TObject do
+        if not Assigned(AutoEventsExceptionHanlder) or not
+          AutoEventsExceptionHanlder(E) then
+          raise;
+    end;
 end;
 
 function TAutoEvent<T1, T2>.Subscribe;

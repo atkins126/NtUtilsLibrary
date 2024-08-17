@@ -85,6 +85,10 @@ uses
   NtUtils.Registry, NtUtils.Sections, NtUtils.Synchronization, NtUtils.Jobs,
   NtUtils.Memory, NtUtils.Transactions, NtUiLib.AutoCompletion;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 function IsMatchingTypeStatus(
   const Status: TNtxStatus
 ): Boolean;
@@ -101,8 +105,8 @@ begin
       Result := False;
 
     NT_SUCCESS_MIN..NT_SUCCESS_MAX,
-    STATUS_ACCESS_DENIED, STATUS_SHARING_VIOLATION, STATUS_PIPE_NOT_AVAILABLE,
-    STATUS_INSTANCE_NOT_AVAILABLE:
+    STATUS_ACCESS_DENIED, STATUS_SHARING_VIOLATION, STATUS_DELETE_PENDING,
+    STATUS_PIPE_NOT_AVAILABLE, STATUS_INSTANCE_NOT_AVAILABLE:
       Result := True;
   else
     // For breakpoints
@@ -350,7 +354,7 @@ function RtlxpCollectForFile(
 var
   hxFolder: IHandle;
   Files: TArray<TDirectoryFileEntry>;
-  CurrentNonDiretoryType, KnownType: TNamespaceObjectType;
+  CurrentNonDirectoryType, KnownType: TNamespaceObjectType;
   i, Count: Integer;
   VolumeInfo: TFileFsDeviceInformation;
 begin
@@ -365,27 +369,25 @@ begin
     Exit;
 
   // Enumerate the content
-  Result := NtxEnumerateDirectoryFile(hxFolder.Handle, Files,
-    FileDirectoryInformation);
+  Result := NtxEnumerateDirectoryFile(hxFolder, Files, FileDirectoryInformation);
 
   if not Result.IsSuccess then
     Exit;
 
   // By default, assume non-directory files as regular files
-  CurrentNonDiretoryType := otFile;
+  CurrentNonDirectoryType := otFile;
 
   if otNamedPipe in SupportedTypes then
   begin
     // But if the device type indicates a named pipe, mark them as pipes
-    Result := NtxVolume.Query(hxFolder.Handle, FileFsDeviceInformation,
-      VolumeInfo);
+    Result := NtxVolume.Query(hxFolder, FileFsDeviceInformation, VolumeInfo);
 
     if Result.IsSuccess and (VolumeInfo.DeviceType =
       TDeviceType.FILE_DEVICE_NAMED_PIPE) then
-      CurrentNonDiretoryType := otNamedPipe;
+      CurrentNonDirectoryType := otNamedPipe;
 
     // Don't fail enumeration when failed to query
-    Result.Status := STATUS_SUCCESS;
+    Result := NtxSuccess;
   end;
 
   Count := 0;
@@ -398,7 +400,7 @@ begin
     if BitTest(Files[i].Common.FileAttributes and FILE_ATTRIBUTE_DIRECTORY) then
       KnownType := otFileDirectory
     else
-      KnownType := CurrentNonDiretoryType;
+      KnownType := CurrentNonDirectoryType;
 
     // Count it
     if KnownType in SupportedTypes then
@@ -417,7 +419,7 @@ begin
     if BitTest(Files[i].Common.FileAttributes and FILE_ATTRIBUTE_DIRECTORY) then
       KnownType := otFileDirectory
     else
-      KnownType := CurrentNonDiretoryType;
+      KnownType := CurrentNonDirectoryType;
 
     // Save the object
     if KnownType in SupportedTypes then
@@ -435,7 +437,7 @@ function RtlxpCollectForRegistry(
 ): TNtxStatus;
 var
   hxKey: IHandle;
-  SubKeys: TArray<String>;
+  SubKeys: TArray<TNtxRegKey>;
   i: Integer;
 begin
   // Since the backup/restore option always requires the privileges (as opposed
@@ -450,7 +452,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  Result := NtxEnumerateSubKeys(hxKey.Handle, SubKeys);
+  Result := NtxEnumerateKeys(hxKey, SubKeys);
 
   if not Result.IsSuccess then
     Exit;
@@ -458,18 +460,18 @@ begin
   SetLength(Objects, Length(SubKeys));
 
   for i := 0 to High(Objects) do
-    Objects[i] := MakeNamespaceEntry(Root, SubKeys[i], otRegistryKey);
+    Objects[i] := MakeNamespaceEntry(Root, SubKeys[i].Name, otRegistryKey);
 end;
 
 function RtlxpCollectForDirectory(
   const Root: String;
-  const RootSubstituion: String;
+  const RootSubstitution: String;
   SupportedTypes: TNamespaceObjectTypes;
   out Objects: TArray<TNamespaceEntry>
 ): TNtxStatus;
 var
   hxDirectory: IHandle;
-  Entries: TArray<TDirectoryEnumEntry>;
+  Entries: TArray<TNtxDirectoryEntry>;
   ObjectTypes: TArray<TNamespaceObjectType>;
   InheritedObjects: TArray<TNamespaceEntry>;
   Count, i: Integer;
@@ -482,7 +484,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  Result := NtxEnumerateDirectory(hxDirectory.Handle, Entries);
+  Result := NtxEnumerateDirectory(hxDirectory, Entries);
 
   if not Result.IsSuccess then
     Exit;
@@ -506,14 +508,14 @@ begin
   for i := 0 to High(Entries) do
     if ObjectTypes[i] in SupportedTypes then
     begin
-      Objects[Count] := MakeNamespaceEntry(RootSubstituion, Entries[i].Name,
+      Objects[Count] := MakeNamespaceEntry(RootSubstitution, Entries[i].Name,
         ObjectTypes[i], Entries[i].TypeName);
       Inc(Count);
     end;
 
   // When enumerating global root, add local \??
   if Root = '\' then
-    Objects := MergeSuggestions([MakeNamespaceEntry(RootSubstituion, '??',
+    Objects := MergeSuggestions([MakeNamespaceEntry(RootSubstitution, '??',
       otDirectory)], Objects);
 
   // When enumerating local DosDevices, append global entries
@@ -561,8 +563,7 @@ begin
   if Root = '' then
   begin
     Suggestions := [MakeNamespaceEntry('', '', otDirectory)];
-    Result.Status := STATUS_SUCCESS;
-    Exit;
+    Exit(NtxSuccess);
   end;
 
   if Root <> '\' then
@@ -603,8 +604,7 @@ begin
     begin
       // Make the registry root discoverable
       Suggestions := [MakeNamespaceEntry(Root, 'REGISTRY', otRegistryKey)];
-      Result.Status := STATUS_SUCCESS;
-      Exit;
+      Exit(NtxSuccess);
     end;
 
     Result := RtlxpCollectForRegistry(Root, SupportedTypes, Suggestions);

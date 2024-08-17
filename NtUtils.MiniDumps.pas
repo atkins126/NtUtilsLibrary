@@ -67,8 +67,8 @@ type
 
 // Write process's minidump into a file
 function DmpxWriteMiniDump(
-  [Access(PROCESS_QUERY_INFORMATION or PROCESS_VM_READ)] hProcess: THandle;
-  [Access(FILE_WRITE_DATA)] hFile: THandle;
+  [Access(PROCESS_QUERY_INFORMATION or PROCESS_VM_READ)] const hxProcess: IHandle;
+  [Access(FILE_WRITE_DATA)] const hxFile: IHandle;
   DumpType: TMiniDumpType
 ): TNtxStatus;
 
@@ -162,8 +162,8 @@ uses
 function DmpxWriteMiniDump;
 begin
   Result.Location := 'MiniDumpWriteDump';
-  Result.Win32Result := MiniDumpWriteDump(hProcess, 0, hFile, DumpType,
-    nil, nil, nil);
+  Result.Win32Result := MiniDumpWriteDump(HandleOrDefault(hxProcess), 0,
+    HandleOrDefault(hxFile), DumpType, nil, nil, nil);
 end;
 
 function LocationInRange(
@@ -238,7 +238,6 @@ begin
     if Directories{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF}.StreamType = Stream then
     begin
       Directory := @Directories{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF};
-      Result.Status := STATUS_SUCCESS;
       Exit;
     end;
 
@@ -278,17 +277,15 @@ begin
     if not Result.IsSuccess then
       Exit;
   end
-
   // Check the type of the supplied stream
   else if Stream.StreamType <> ExpectedType then
   begin
     Result.Location := 'DmpxFindOrVerifyStream';
     Result.LastCall.UsesInfoClass(ExpectedType, icRead);
     Result.Status := STATUS_OBJECT_TYPE_MISMATCH;
-    Exit;
-  end;
-
-  Result.Status := STATUS_SUCCESS;
+  end
+  else
+    Result := NtxSuccess;
 end;
 
 function GetString(

@@ -22,6 +22,7 @@ type
     poInheritConsole,
     poUseWindowMode,
     poForceWindowTitle,
+    poUseStdHandles,
     poRequireElevation,
     poRunAsInvokerOn,
     poRunAsInvokerOff,
@@ -77,6 +78,9 @@ type
     ThreadAttributes: IObjectAttributes;
     WindowMode: TShowMode32;
     WindowTitle: String;
+    hxStdInput: IHandle;
+    hxStdOutput: IHandle;
+    hxStdError: IHandle;
     HandleList: TArray<IHandle>;
     [Access(TOKEN_CREATE_PROCESS or TOKEN_CREATE_PROCESS_EX)] hxToken: IHandle;
     [Access(PROCESS_CREATE_PROCESS)] hxParentProcess: IHandle;
@@ -91,7 +95,7 @@ type
     Protection: TProtectionLevel;      // Win 8.1+
     PackageName: String;               // Win 8.1+
     AppUserModeId: String;             // {PackageFamilyName}!{AppId}, Win 10 RS1+
-    PackageBreaway: TProcessDesktopAppFlags; // Win 10 RS2+
+    PackageBreakaway: TProcessDesktopAppFlags; // Win 10 RS2+
     LogonFlags: TProcessLogonFlags;
     Timeout: Int64;
     AdditionalFileAccess: TIoFileAccessMask;
@@ -126,6 +130,7 @@ type
     spoSecurity,
     spoWindowMode,
     spoWindowTitle,
+    spoStdHandles,
     spoDesktop,
     spoToken,
     spoParentProcess,
@@ -146,7 +151,7 @@ type
     spoSessionId,
     spoSafeOpenPromptOriginClaim,
     spoTimeout,
-    spoAdditinalFileAccess,
+    spoAdditionalFileAccess,
     spoDetectManifest
   );
 
@@ -288,7 +293,7 @@ begin
   else if ForceOff then
     Result := RtlxSetRunAsInvoker(False, Reverter)
   else
-    Result.Status := STATUS_SUCCESS;
+    Result := NtxSuccess;
 end;
 
 function CsrxRegisterProcessCreation;
@@ -322,9 +327,9 @@ begin
     Manifest := Default(TMemory);
 
   // Send a message to CSR
-  Result := CsrxRegisterProcessManifest(Info.hxProcess.Handle,
-    HandleOrDefault(Info.hxThread), Info.ClientId, Info.hxProcess.Handle,
-    BASE_MSG_HANDLETYPE_PROCESS, Manifest, Options.ApplicationWin32);
+  Result := CsrxRegisterProcessManifest(Info.hxProcess, Info.hxThread,
+    Info.ClientId, Info.hxProcess, BASE_MSG_HANDLETYPE_PROCESS, Manifest,
+    Options.ApplicationWin32);
 end;
 
 end.

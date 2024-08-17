@@ -64,7 +64,8 @@ uses
   Ntapi.WinNt, Ntapi.ntstatus, Ntapi.ProcessThreadsApi, Ntapi.WinError,
   Ntapi.ObjIdl, Ntapi.taskschd, Ntapi.ntpebteb, Ntapi.winsta, Ntapi.Bits,
   NtUtils.Ldr, NtUtils.Com, NtUtils.Threads, NtUtils.Tokens.Impersonate,
-  NtUtils.WinStation, NtUtils.SysUtils, NtUtils.Synchronization;
+  NtUtils.WinStation, NtUtils.SysUtils, NtUtils.Synchronization,
+  NtUtils.TaskScheduler;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -109,7 +110,7 @@ begin
   // Fill-in CreateFlags
   if poSuspended in Options.Flags then
   begin
-    // For some reason, when specifing Win32_ProcessStartup.CreateFlags,
+    // For some reason, when specifying Win32_ProcessStartup.CreateFlags,
     // processes would not start without CREATE_BREAKAWAY_FROM_JOB.
     Result := DispxSetPropertyByName(
       Win32_ProcessStartup,
@@ -211,7 +212,7 @@ end;
 
 { ----------------------------- IShellDispatch2 ----------------------------- }
 
-// Rertieve the shell view for the desktop
+// Retrieve the shell view for the desktop
 function ComxFindDesktopFolderView(
   out ShellView: IShellView
 ): TNtxStatus;
@@ -223,8 +224,7 @@ var
   ShellBrowser: IShellBrowser;
 begin
   Result := ComxCreateInstance(CLSID_ShellWindows, IShellWindows, ShellWindows,
-    CLSCTX_LOCAL_SERVER);
-  Result.LastCall.Parameter := 'CLSID_ShellWindows';
+    'CLSID_ShellWindows', CLSCTX_LOCAL_SERVER);
 
   if not Result.IsSuccess then
     Exit;
@@ -360,8 +360,7 @@ var
 begin
   Info := Default(TProcessInfo);
 
-  Result := LdrxCheckDelayedImport(delayed_wdc,
-    delayed_WdcRunTaskAsInteractiveUser);
+  Result := LdrxCheckDelayedImport(delayed_WdcRunTaskAsInteractiveUser);
 
   if not Result.IsSuccess then
     Exit;
@@ -385,9 +384,8 @@ function SchxRunAsInteractive;
 const
   TIMEOUT_DELAY = 64 * MILLISEC;
   TIMEOUT_CHECK_COUNT = (5000 * MILLISEC) div TIMEOUT_DELAY;
+  TASK_MANAGER_TASK_PATH = '\Microsoft\Windows\Task Manager\Interactive';
 var
-  TaskService: ITaskService;
-  TaskFolder: ITaskFolder;
   Task: IRegisteredTask;
   RunningTask: IRunningTask;
   SeclFlags: TSeclFlags;
@@ -402,31 +400,8 @@ begin
   // This method does not provide any information about the new process
   Info := Default(TProcessInfo);
 
-  Result := ComxCreateInstanceWithFallback('taskschd.dll', CLSID_TaskScheduler,
-    ITaskService, TaskService, 'CLSID_TaskScheduler');
-
-  if not Result.IsSuccess then
-    Exit;
-
-  // Connect to the local Task Scheduler
-  Result.Location := 'ITaskService::Connect';
-  Result.HResult := TaskService.Connect(VarEmpty, VarEmpty, VarEmpty, VarEmpty);
-
-  if not Result.IsSuccess then
-    Exit;
-
-  // Find Task Manager's task folder
-  Result.Location := 'ITaskService::GetFolder';
-  Result.LastCall.Parameter := TASK_MANAGER_TASK_FOLDER;
-  Result.HResult := TaskService.GetFolder(TASK_MANAGER_TASK_FOLDER, TaskFolder);
-
-  if not Result.IsSuccess then
-    Exit;
-
-  // Find the task
-  Result.Location := 'ITaskFolder::GetTask';
-  Result.LastCall.Parameter := TASK_MANAGER_TASK_PATH;
-  Result.HResult := TaskFolder.GetTask(TASK_MANAGER_TASK_NAME, Task);
+  // Open Task Manager's run-as-interactive task.
+  Result := ComxTaskSchedulerOpenTask(Task, TASK_MANAGER_TASK_PATH);
 
   if not Result.IsSuccess then
     Exit;

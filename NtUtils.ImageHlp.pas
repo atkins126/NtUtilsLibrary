@@ -7,7 +7,7 @@ unit NtUtils.ImageHlp;
 interface
 
 uses
-  Ntapi.WinNt, Ntapi.ImageHlp, Ntapi.ntmmapi, NtUtils, DelphiApi.Reflection;
+  Ntapi.WinNt, Ntapi.ImageHlp, NtUtils, DelphiApi.Reflection;
 
 type
   TImageBitness = (ib32Bit, ib64Bit);
@@ -41,16 +41,39 @@ type
     Functions: TArray<TImportEntry>;
   end;
 
+  TRtlxImageDebugInfo = record
+    Timestamp: TUnixTime;
+    PdbGuid: TGuid;
+    PdbAge: Cardinal;
+    FileName: AnsiString;
+  end;
+
 // Get an NT header of an image
-function RtlxGetNtHeaderImage(
+function RtlxGetImageNtHeader(
   out NtHeader: PImageNtHeaders;
   const Image: TMemory;
   RangeChecks: Boolean = True
 ): TNtxStatus;
 
-// Get image bitness
+// Get the image bitness
 function RtlxGetImageBitness(
   out Bitness: TImageBitness;
+  const Image: TMemory;
+  [in, opt] NtHeaders: PImageNtHeaders = nil;
+  RangeChecks: Boolean = True
+): TNtxStatus;
+
+// Get the preferred image base address (potentially, after dynamic relocation)
+function RtlxGetImageBase(
+  out Base: UInt64;
+  const Image: TMemory;
+  [in, opt] NtHeaders: PImageNtHeaders = nil;
+  RangeChecks: Boolean = True
+): TNtxStatus;
+
+// Get the RVA of the entrypoint
+function RtlxGetImageEntrypointRva(
+  out EntryPointRva: Cardinal;
   const Image: TMemory;
   [in, opt] NtHeaders: PImageNtHeaders = nil;
   RangeChecks: Boolean = True
@@ -81,7 +104,7 @@ function RtlxExpandVirtualAddress(
 
 // Get a data directory in an image
 function RtlxGetDirectoryEntryImage(
-  out Directory: PImageDataDirectory;
+  [MayReturnNil] out Directory: PImageDataDirectory;
   const Image: TMemory;
   MappedAsImage: Boolean;
   Entry: TImageDirectoryEntry;
@@ -96,7 +119,7 @@ function RtlxEnumerateExportImage(
   RangeChecks: Boolean = True
 ): TNtxStatus;
 
-// Find an export enrty by name
+// Find an export entry by name
 function RtlxFindExportedNameIndex(
   const Entries: TArray<TExportEntry>;
   const Name: AnsiString
@@ -119,18 +142,20 @@ function RtlxRelocateImage(
   RangeChecks: Boolean = True
 ): TNtxStatus;
 
-// Query the image base address that a section would occupy without relocating
-function RtlxQueryOriginalBaseImage(
-  [Access(SECTION_QUERY)] hSection: THandle;
-  const PotentiallyRelocatedMapping: TMemory;
-  out Address: Pointer
+// Retrieve PDB information for an image
+function RtlxGetImageDebugInfo(
+  out Info: TRtlxImageDebugInfo;
+  const Image: TMemory;
+  MappedAsImage: Boolean;
+  [in, opt] NtHeaders: PImageNtHeaders = nil;
+  RangeChecks: Boolean = True
 ): TNtxStatus;
 
 implementation
 
 uses
-  Ntapi.ntrtl, ntapi.ntstatus, NtUtils.SysUtils, DelphiUtils.Arrays,
-  NtUtils.Sections, NtUtils.Processes, NtUtils.Memory,  DelphiUtils.RangeChecks;
+  Ntapi.ntrtl, Ntapi.ntmmapi, ntapi.ntstatus, NtUtils.SysUtils, NtUtils.Memory,
+  DelphiUtils.Arrays, NtUtils.Processes, DelphiUtils.RangeChecks;
 
 {$RANGECHECKS OFF}
 {$OVERFLOWCHECKS OFF}
@@ -139,40 +164,45 @@ uses
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
 {$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
-function RtlxGetNtHeaderImage;
+function RtlxGetImageNtHeader;
 const
   Flags: array [Boolean] of Cardinal = (
     RTL_IMAGE_NT_HEADER_EX_FLAG_NO_RANGE_CHECK, 0
   );
 begin
   try
+    // Let ntdll parse the DOS header and locate the NT header.
+    // Note that the range checks here don't cover data past FileHeader.
     Result.Location := 'RtlImageNtHeaderEx';
     Result.Status := RtlImageNtHeaderEx(Flags[RangeChecks <> False],
       Image.Address, Image.Size, NtHeader);
   except
-    Result.Location := 'RtlxGetNtHeaderImage';
+    Result.Location := 'RtlxGetImageNtHeader';
     Result.Status := STATUS_UNHANDLED_EXCEPTION;
   end;
 end;
 
 function RtlxGetImageBitness;
 begin
+  // Locate the NT headers
+  if not Assigned(NtHeaders) then
+  begin
+    Result := RtlxGetImageNtHeader(NtHeaders, Image, RangeChecks);
+
+    if not Result.IsSuccess then
+      Exit;
+  end;
+
+  Result.Location := 'RtlxGetImageBitness';
+  Result.Status := STATUS_INVALID_IMAGE_FORMAT;
+
   try
-    if not Assigned(NtHeaders) then
-    begin
-      Result := RtlxGetNtHeaderImage(NtHeaders, Image, RangeChecks);
-
-      if not Result.IsSuccess then
-        Exit;
-    end;
-
-    Result.Location := 'RtlxGetImageBitness';
-    Result.Status := STATUS_INVALID_IMAGE_FORMAT;
-
+    // Validate the optional header magic offset
     if RangeChecks and not CheckStruct(Image,
       @NtHeaders.OptionalHeader.Magic, SizeOf(Word)) then
       Exit;
 
+    // Check the magic
     case NtHeaders.OptionalHeader.Magic of
       IMAGE_NT_OPTIONAL_HDR32_MAGIC: Bitness := ib32Bit;
       IMAGE_NT_OPTIONAL_HDR64_MAGIC: Bitness := ib64Bit;
@@ -182,7 +212,86 @@ begin
 
     Result.Status := STATUS_SUCCESS;
   except
-    Result.Location := 'RtlxGetImageBitness';
+    Result.Status := STATUS_UNHANDLED_EXCEPTION;
+  end;
+end;
+
+function RtlxGetImageBase;
+var
+  Bitness: TImageBitness;
+begin
+  // Locate the NT headers
+  if not Assigned(NtHeaders) then
+  begin
+    Result := RtlxGetImageNtHeader(NtHeaders, Image, RangeChecks);
+
+    if not Result.IsSuccess then
+      Exit;
+  end;
+
+  // Determine the bitness of the header
+  Result := RtlxGetImageBitness(Bitness, Image);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result.Location := 'RtlxGetImageBase';
+  Result.Status := STATUS_INVALID_IMAGE_FORMAT;
+
+  try
+    case Bitness of
+      ib32Bit:
+      begin
+        // Check the 32-bit image base field
+        if RangeChecks and not CheckStruct(Image, @NtHeaders.OptionalHeader32
+          .ImageBase, SizeOf(Cardinal)) then
+          Exit;
+
+        Base := NtHeaders.OptionalHeader32.ImageBase;
+      end;
+
+      ib64Bit:
+      begin
+        // Check the 64-bit image base field
+        if RangeChecks and not CheckStruct(Image, @NtHeaders.OptionalHeader64
+          .ImageBase, SizeOf(UInt64)) then
+          Exit;
+
+        Base := NtHeaders.OptionalHeader64.ImageBase;
+      end;
+    else
+      Exit;
+    end;
+
+    Result.Status := STATUS_SUCCESS;
+  except
+    Result.Status := STATUS_UNHANDLED_EXCEPTION;
+  end;
+end;
+
+function RtlxGetImageEntrypointRva;
+begin
+  // Locate the NT headers
+  if not Assigned(NtHeaders) then
+  begin
+    Result := RtlxGetImageNtHeader(NtHeaders, Image, RangeChecks);
+
+    if not Result.IsSuccess then
+      Exit;
+  end;
+
+  Result.Location := 'RtlxGetEntrypointRvaImage';
+  Result.Status := STATUS_INVALID_IMAGE_FORMAT;
+
+  try
+    // Check the field offset which is the same for 32- and 64-bit images
+    if RangeChecks and not CheckStruct(Image, @NtHeaders.OptionalHeader
+      .AddressOfEntryPoint, SizeOf(Cardinal)) then
+      Exit;
+
+    EntryPointRva := NtHeaders.OptionalHeader.AddressOfEntryPoint;
+    Result.Status := STATUS_SUCCESS;
+  except
     Result.Status := STATUS_UNHANDLED_EXCEPTION;
   end;
 end;
@@ -197,7 +306,7 @@ begin
 
     if not Assigned(NtHeaders) then
     begin
-      Result := RtlxGetNtHeaderImage(NtHeaders, Image, RangeChecks);
+      Result := RtlxGetImageNtHeader(NtHeaders, Image, RangeChecks);
 
       if not Result.IsSuccess then
         Exit;
@@ -268,8 +377,7 @@ begin
       if Assigned(pSectionEndAddress) then
         pSectionEndAddress^ := Pointer(UInt64(-1));
 
-      Result.Status := STATUS_SUCCESS;
-      Exit;
+      Exit(NtxSuccess);
     end;
 
     // Find a section containing the virtual address range
@@ -313,7 +421,7 @@ begin
         AddressRange) then
         Exit;
 
-      // Conver the address from VA to raw
+      // Convert the address from VA to raw
       Address := Image.Offset(RawAddress64);
 
       if Assigned(pSectionEndAddress) then
@@ -342,10 +450,11 @@ function RtlxGetDirectoryEntryImage;
 var
   Header: PImageNtHeaders;
   Bitness: TImageBitness;
+  NumberOfRvaAndSizes: Cardinal;
 begin
   // Reproduce RtlImageDirectoryEntryToData with more range checks
 
-  Result := RtlxGetNtHeaderImage(Header, Image, RangeChecks);
+  Result := RtlxGetImageNtHeader(Header, Image, RangeChecks);
 
   if not Result.IsSuccess then
     Exit;
@@ -355,16 +464,38 @@ begin
   if not Result.IsSuccess then
     Exit;
 
+  try
+    // Save the maximum directory index
+    if Bitness = ib64Bit then
+      NumberOfRvaAndSizes := Header.OptionalHeader64.NumberOfRvaAndSizes
+    else
+      NumberOfRvaAndSizes := Header.OptionalHeader32.NumberOfRvaAndSizes;
+  except
+    Result.Location := 'RtlxGetDirectoryEntryImage';
+    Result.Status := STATUS_UNHANDLED_EXCEPTION;
+    Exit;
+  end;
+
+  if Cardinal(Entry) >= NumberOfRvaAndSizes then
+  begin
+    // Index is out of range
+    Directory := nil;
+    Exit;
+  end;
+
+  // Locate the directory
   if Bitness = ib64Bit then
     Directory := @Header.OptionalHeader64.DataDirectory[Entry]
   else
     Directory := @Header.OptionalHeader32.DataDirectory[Entry];
 
+  // Verify it
   if RangeChecks and not CheckStruct(Image, Directory,
     SizeOf(TImageDataDirectory)) then
-    Exit;
-
-  Result.Status := STATUS_SUCCESS;
+  begin
+    Result.Location := 'RtlxGetDirectoryEntryImage';
+    Result.Status := STATUS_INVALID_IMAGE_FORMAT;
+  end;
 end;
 
 function CaptureAnsiString(
@@ -401,7 +532,7 @@ var
   Name: PAnsiChar;
 begin
   try
-    Result := RtlxGetNtHeaderImage(Header, Image, RangeChecks);
+    Result := RtlxGetImageNtHeader(Header, Image, RangeChecks);
 
     if not Result.IsSuccess then
       Exit;
@@ -414,11 +545,10 @@ begin
       Exit;
       
     // Check if the image has any exports
-    if ExportData.VirtualAddress = 0 then
+    if not Assigned(ExportData) or (ExportData.VirtualAddress = 0) then
     begin
       // Nothing to parse, exit
       Entries := nil;
-      Result.Status := STATUS_SUCCESS;
       Exit;
     end;
     
@@ -655,7 +785,7 @@ function RtlxpDumpImportTable(
 var
   ImportDescriptor: PImageImportDescriptor;
   DelayImportDescriptor: PImageDelayLoadDescriptor absolute ImportDescriptor;
-  DescriporsStart, DescriporsEnd: Pointer;
+  DescriptorsStart, DescriptorsEnd: Pointer;
   Count: Cardinal;
   i: Integer;
   DllNameRVA, TableRVA: Cardinal;
@@ -671,16 +801,16 @@ begin
     end;
 
     // Obtain a pointer to the import directory
-    Result := RtlxExpandVirtualAddress(Pointer(DescriporsStart), Image,
+    Result := RtlxExpandVirtualAddress(Pointer(DescriptorsStart), Image,
       MappedAsImage, ImportData.VirtualAddress, DESCRIPTOR_SIZE[ImportType],
-      Header, RangeChecks, @DescriporsEnd);
+      Header, RangeChecks, @DescriptorsEnd);
 
     if not Result.IsSuccess then
       Exit;
 
     Count := 0;
-    ImportDescriptor := DescriporsStart;
-    Dec(PByte(DescriporsEnd), DESCRIPTOR_SIZE[ImportType]);
+    ImportDescriptor := DescriptorsStart;
+    Dec(PByte(DescriptorsEnd), DESCRIPTOR_SIZE[ImportType]);
 
     // Count the number of descriptors
     while ((ImportType = itNormal) and (ImportDescriptor.Name <> 0)) or
@@ -695,7 +825,7 @@ begin
         Inc(DelayImportDescriptor);
 
       // Make sure it is still within the image
-      if UIntPtr(ImportDescriptor) > UIntPtr(DescriporsEnd) then
+      if UIntPtr(ImportDescriptor) > UIntPtr(DescriptorsEnd) then
       begin
         Result.Location := 'RtlxpDumpImportTable';
         Result.Status := STATUS_INVALID_IMAGE_FORMAT;
@@ -703,7 +833,7 @@ begin
       end;
     end;
 
-    ImportDescriptor := DescriporsStart;
+    ImportDescriptor := DescriptorsStart;
     SetLength(Entries, Count);
 
     for i := 0 to High(Entries) do
@@ -768,7 +898,7 @@ var
   Bitness: TImageBitness;
 begin
   try
-    Result := RtlxGetNtHeaderImage(Header, Image, RangeChecks);
+    Result := RtlxGetImageNtHeader(Header, Image, RangeChecks);
 
     if not Result.IsSuccess then
       Exit;
@@ -781,11 +911,10 @@ begin
       Exit;
 
     // Check if the image has any imports
-    if ImportData.VirtualAddress = 0 then
+    if not Assigned(ImportData) or (ImportData.VirtualAddress = 0) then
     begin
       // Nothing to parse, exit
       Entries := nil;
-      Result.Status := STATUS_SUCCESS;
       Exit;
     end;
 
@@ -847,7 +976,7 @@ var
   ProtectionReverter, NextPageProtectionReverter: IAutoReleasable;
 begin
   try
-    Result := RtlxGetNtHeaderImage(NtHeaders, Image, RangeChecks);
+    Result := RtlxGetImageNtHeader(NtHeaders, Image, RangeChecks);
 
     if not Result.IsSuccess then
       Exit;
@@ -891,7 +1020,7 @@ begin
     if not Result.IsSuccess then
       Exit;
 
-    if RelocDirectory.Size = 0 then
+    if not Assigned(RelocDirectory) or (RelocDirectory.Size = 0) then
     begin
       Result.Location := 'RtlxRelocateImage';
       Result.Status := STATUS_ILLEGAL_DLL_RELOCATION;
@@ -917,7 +1046,7 @@ begin
     while UIntPtr(Entry) <= UIntPtr(DirectoryEnd) - SizeOf(TImageBaseRelocation) do
     begin
       // Make sure we don't skip the end of the relocation block
-      if RangeChecks and (not CheckStruct(Image, @Entry, Entry.SizeOfBlock) or
+      if RangeChecks and (not CheckStruct(Image, Entry, Entry.SizeOfBlock) or
         (UIntPtr(Entry) + Entry.SizeOfBlock > UIntPtr(DirectoryEnd))) then
       begin
         Result.Location := 'RtlxRelocateImage';
@@ -1053,26 +1182,91 @@ begin
   end;
 end;
 
-function RtlxQueryOriginalBaseImage;
+{ Debug info }
+
+function RtlxGetImageDebugInfo;
 var
-  Info: TSectionImageInformation;
-  NtHeaders: PImageNtHeaders;
+  Directory: PImageDataDirectory;
+  Entry: PImageDebugDirectory;
+  CodeView: PCodeViewInfoPdb70;
+  i: Integer;
 begin
-  // Determine the intended entrypoint address of the known DLL
-  Result := NtxSection.Query(hSection, SectionImageInformation, Info);
+  Result := RtlxGetDirectoryEntryImage(Directory, Image, MappedAsImage,
+    IMAGE_DIRECTORY_ENTRY_DEBUG);
 
   if not Result.IsSuccess then
     Exit;
 
-  // Find the image header where we can lookup the etrypoint offset
-  Result := RtlxGetNtHeaderImage(NtHeaders, PotentiallyRelocatedMapping, False);
-
-  if not Result.IsSuccess then
+  if not Assigned(Directory) then
+  begin
+    Result.Location := 'RtlxGetImageDebugInfo';
+    Result.Status := STATUS_NOT_FOUND;
     Exit;
+  end;
 
-  // Calculate the original base address
-  Address := PByte(Info.TransferAddress) -
-    NtHeaders.OptionalHeader.AddressOfEntryPoint;
+  try
+    // Locate the start of the debug info
+    Result := RtlxExpandVirtualAddress(Pointer(Entry), Image, MappedAsImage,
+      Directory.VirtualAddress, Directory.Size, NtHeaders, RangeChecks);
+
+    if not Result.IsSuccess then
+      Exit;
+
+    // Find the debug entry of the required type
+    for i := 0 to Directory.Size div SizeOf(TImageDebugDirectory) do
+    begin
+      if Entry.EntryType = IMAGE_DEBUG_TYPE_CODEVIEW then
+      begin
+        // Find the data
+        if MappedAsImage then
+          CodeView := Image.Offset(Entry.AddressOfRawData)
+        else
+          CodeView := Image.Offset(Entry.PointerToRawData);
+
+        // Check the signature field size
+        if RangeChecks and ((Entry.SizeOfData < SizeOf(Cardinal)) or
+          (not CheckStruct(Image, CodeView, SizeOf(Cardinal)))) then
+        begin
+          Result.Location := 'RtlxGetImageDebugInfo';
+          Result.Status := STATUS_INVALID_IMAGE_FORMAT;
+          Exit;
+        end;
+
+        // Check the signature value
+        if CodeView.Signature <> CODEVIEW_SIGNATURE_RSDS then
+        begin
+          Result.Location := 'RtlxGetImageDebugInfo';
+          Result.Status := STATUS_UNKNOWN_REVISION;
+          Exit;
+        end;
+
+        // Check the entire struct size
+        if RangeChecks and ((Entry.SizeOfData < SizeOf(TCodeViewInfoPdb70)) or
+          (not CheckStruct(Image, CodeView, Entry.SizeOfData))) then
+        begin
+          Result.Location := 'RtlxGetImageDebugInfo';
+          Result.Status := STATUS_INVALID_IMAGE_FORMAT;
+          Exit;
+        end;
+
+        // Save the fields
+        Info.Timestamp := Entry.TimeDateStamp;
+        Info.PdbGuid := CodeView.Guid;
+        Info.PdbAge := CodeView.Age;
+        Info.FileName := RtlxCaptureAnsiString(CodeView.FileName,
+          Entry.SizeOfData - UIntPtr(@PCodeViewInfoPdb70(nil).FileName));
+        Exit;
+      end;
+
+      Inc(Entry);
+    end;
+  except
+    Result.Location := 'RtlxGetImageDebugInfo';
+    Result.Status := STATUS_UNHANDLED_EXCEPTION;
+  end;
+
+  Result.Location := 'RtlxGetImageDebugInfo';
+  Result.Status := STATUS_NOT_FOUND;
 end;
 
 end.

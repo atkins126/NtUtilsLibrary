@@ -8,8 +8,8 @@ unit NtUtils.Objects.Snapshots;
 interface
 
 uses
-  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntexapi, Ntapi.ntpsapi, NtUtils,
-  NtUtils.Objects, DelphiUtils.Arrays;
+  Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntexapi, Ntapi.ntpsapi, Ntapi.ntseapi,
+  NtUtils, NtUtils.Objects, DelphiUtils.Arrays;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -45,13 +45,14 @@ type
 
 // Snapshot handles of a specific process
 function NtxEnumerateHandlesProcess(
-  [Access(PROCESS_QUERY_INFORMATION)] hProcess: THandle;
+  [Access(PROCESS_QUERY_INFORMATION)] const hxProcess: IHandle;
   out Handles: TArray<TProcessHandleEntry>
 ): TNtxStatus;
 
 { System Handles }
 
 // Snapshot all handles on the system
+[RequiredPrivilege(SE_DEBUG_PRIVILEGE, rpForExtendedFunctionality)]
 function NtxEnumerateHandles(
   out Handles: TArray<TSystemHandleEntry>
 ): TNtxStatus;
@@ -66,19 +67,19 @@ function NtxEnumerateHandlesGroupByPid(
 function RtlxFindHandleEntry(
   const Handles: TArray<TSystemHandleEntry>;
   PID: TProcessId;
-  Handle: THandle;
+  HandleValue: THandle;
   out Entry: TSystemHandleEntry
 ): TNtxStatus;
 
 // Filter handles that reference the same object as a local handle
 function RtlxFilterHandlesByHandle(
-  const Handles: TArray<TSystemHandleEntry>;
-  Handle: THandle
-): TArray<TSystemHandleEntry>;
+  var Handles: TArray<TSystemHandleEntry>;
+  const Handle: IHandle
+): TNtxStatus;
 
 { System objects }
 
-// Check if object snapshoting is supported
+// Check if object snapshotting is supported
 function RtlxObjectEnumerationSupported: Boolean;
 
 // Snapshot objects on the system
@@ -103,7 +104,7 @@ function NtxEnumerateKernelTypes(
 function RtlxFindKernelType(
   const TypeName: String;
   out Info: TObjectTypeInfo;
-  UseCaching: Boolean = True
+  [ThreadSafe] UseCaching: Boolean = True
 ): TNtxStatus;
 
 { Filtration routines }
@@ -139,9 +140,13 @@ function ByGrantedAccess(
 implementation
 
 uses
-  Ntapi.ntrtl, Ntapi.ntobapi, Ntapi.ntstatus, Ntapi.ntpebteb,
-  NtUtils.Processes.Info, NtUtils.System, Ntapi.Versions,
+  Ntapi.ntobapi, Ntapi.ntstatus, Ntapi.ntpebteb, Ntapi.Versions,
+  NtUtils.Processes.Info, NtUtils.System, NtUtils.Synchronization,
   DelphiUtils.AutoObjects;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 { Process Handles }
 
@@ -152,10 +157,10 @@ var
   BasicInfo: TProcessBasicInformation;
   AllHandles: TArray<TSystemHandleEntry>;
 begin
-  // Determine the process ID
-  if hProcess <> NtCurrentProcess then
+  if Assigned(hxProcess) and (hxProcess.Handle <> NtCurrentProcess) then
   begin
-    Result := NtxProcess.Query(hProcess, ProcessBasicInformation, BasicInfo);
+    // Determine the process ID
+    Result := NtxProcess.Query(hxProcess, ProcessBasicInformation, BasicInfo);
 
     if not Result.IsSuccess then
       Exit;
@@ -166,7 +171,7 @@ begin
   if RtlOsVersionAtLeast(OsWin8) then
   begin
     // Use a per-process handle enumeration on Win 8+
-    Result := NtxQueryProcess(hProcess, ProcessHandleInformation,
+    Result := NtxQueryProcess(hxProcess, ProcessHandleInformation,
       IMemory(xMemory));
 
     if not Result.IsSuccess then
@@ -218,16 +223,18 @@ end;
 { System Handles }
 
 function NtxEnumerateHandles;
+const
+  INITIAL_SIZE = 6 * 1024 * 1024;
 var
   xMemory: IMemory<PSystemHandleInformationEx>;
   i: Integer;
 begin
-  // On my system it is usually about 60k handles, so it's about 2.5 MB of data.
+  // On my system it is usually about 100k handles, so it's about 4 MB of data.
   // We don't want to use a huge initial buffer since system spends more time
-  // probing it rather than coollecting the handles. Use 4 MB initially.
+  // probing it rather than collecting the handles. Use 6 MB initially.
 
   Result := NtxQuerySystem(SystemExtendedHandleInformation, IMemory(xMemory),
-    4 * 1024 * 1024, Grow12Percent);
+    INITIAL_SIZE, Grow12Percent);
 
   if not Result.IsSuccess then
     Exit;
@@ -266,12 +273,11 @@ var
   i: Integer;
 begin
   for i := 0 to High(Handles) do
-    if (Handles[i].UniqueProcessId = PID) and (Handles[i].HandleValue = Handle)
-      then
+    if (Handles[i].UniqueProcessId = PID) and
+      (Handles[i].HandleValue = HandleValue) then
     begin
       Entry := Handles[i];
-      Result.Status := STATUS_SUCCESS;
-      Exit;
+      Exit(NtxSuccess);
     end;
 
   Result.Location := 'NtxFindHandleEntry';
@@ -282,12 +288,22 @@ function RtlxFilterHandlesByHandle;
 var
   Entry: TSystemHandleEntry;
 begin
-  if RtlxFindHandleEntry(Handles, NtCurrentProcessId, Handle,
-    Entry).IsSuccess then
-    Result := TArray.Filter<TSystemHandleEntry>(Handles,
-      ByAddress(Entry.PObject))
-  else
-    Result := nil;
+  Result := RtlxFindHandleEntry(Handles, NtCurrentProcessId,
+    HandleOrDefault(Handle), Entry);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Kernel address leak prevention can blocks us
+  if not Assigned(Entry.PObject) then
+  begin
+    Result.Location := 'RtlxFilterHandlesByHandle';
+    Result.LastCall.ExpectedPrivilege := SE_DEBUG_PRIVILEGE;
+    Result.Status := STATUS_PRIVILEGE_NOT_HELD;
+    Exit;
+  end;
+
+  TArray.FilterInline<TSystemHandleEntry>(Handles, ByAddress(Entry.PObject));
 end;
 
 { Objects }
@@ -302,7 +318,7 @@ function GrowObjectBuffer(
   Required: NativeUInt
 ): NativeUInt;
 begin
-  // Object collection works in stages, we don't recieve the correct buffer
+  // Object collection works in stages, we don't receive the correct buffer
   // size on the first attempt. Speed it up.
   Result := Required shl 1 + 64 * 1024 // x2 + 64 kB
 end;
@@ -339,7 +355,7 @@ begin
 
   SetLength(Types, Count);
 
-  // Iterarate through each type
+  // Iterate through each type
   j := 0;
   pTypeEntry := xMemory.Data;
 
@@ -415,7 +431,7 @@ var
   pType: PObjectTypeInformation;
   i: Integer;
 begin
-  Result := NtxQueryObject(0, ObjectTypesInformation, IMemory(xMemory),
+  Result := NtxQueryObject(nil, ObjectTypesInformation, IMemory(xMemory),
     SizeOf(TObjectTypesInformation));
 
   if not Result.IsSuccess then
@@ -448,38 +464,41 @@ begin
 end;
 
 var
-  TypesCacheInitialized: Boolean;
+  TypesCacheInitialized: TRtlRunOnce;
   TypesCache: TArray<TObjectTypeInfo>;
 
-// Query information about a kernel object type
-function RtlxFindKernelType(
-  const TypeName: String;
-  out Info: TObjectTypeInfo;
-  UseCaching: Boolean = True
-): TNtxStatus;
+function RtlxFindKernelType;
 var
   Types: TArray<TObjectTypeInfo>;
+  InitState: IAcquiredRunOnce;
   i: Integer;
 begin
-  if not TypesCacheInitialized or not UseCaching then
+  InitState := nil;
+
+  // Enumerate types if we are first or need the latest data
+  if RtlxRunOnceBegin(@TypesCacheInitialized, InitState) or not UseCaching then
   begin
     Result := NtxEnumerateKernelTypes(Types);
 
     if not Result.IsSuccess then
       Exit;
 
-    // Refresh the cache
-    TypesCache := Types;
-    TypesCacheInitialized := True;
-  end;
+    if Assigned(InitState) then
+    begin
+      // Cache the results if we are first
+      TypesCache := Types;
+      InitState.Complete;
+    end;
+  end
+  else
+    Types := TypesCache;
 
   // Find the corresponding entry
-  for i := 0 to High(TypesCache) do
-    if TypesCache[i].TypeName = TypeName then
+  for i := 0 to High(Types) do
+    if Types[i].TypeName = TypeName then
     begin
-      Info := TypesCache[i];
-      Result.Status := STATUS_SUCCESS;
-      Exit;
+      Info := Types[i];
+      Exit(NtxSuccess);
     end;
 
   Result.Location := 'NtxFindKernelType';

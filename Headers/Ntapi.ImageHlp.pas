@@ -92,11 +92,14 @@ const
 
   IMAGE_SCN_ALIGN_MASK = $00F00000;
 
-  IMAGE_RELOCATION_OFFET_MASK = $0FFF;
+  IMAGE_RELOCATION_OFFSET_MASK = $0FFF;
   IMAGE_RELOCATION_TYPE_SHIFT = 12;
 
   // SDK::rtlsupportapi.h
   UNWIND_HISTORY_TABLE_SIZE = 12;
+
+  // phlib::mapimg.h
+  CODEVIEW_SIGNATURE_RSDS = $53445352; // "RSDS"
 
   // SDK::winnt.h
   UNW_FLAG_NHANDLER = $0;
@@ -118,7 +121,7 @@ type
   // SDK::winnt.h
   [SDKName('IMAGE_DOS_HEADER')]
   TImageDosHeader = record
-    [Reserved(IMAGE_DOS_SIGNATURE)] e_magic: Word;
+    [Reserved(IMAGE_DOS_SIGNATURE), AsciiMagic] e_magic: Word;
     [Bytes] e_cblp: Word;
     e_cp: Word;
     e_crlc: Word;
@@ -140,14 +143,18 @@ type
   end;
   PImageDosHeader = ^TImageDosHeader;
 
-  [SubEnum($FFFF, IMAGE_FILE_MACHINE_I386, 'I386')]
-  [SubEnum($FFFF, IMAGE_FILE_MACHINE_AMD64, 'AMD64')]
-  TImageMachine = type Word;
+  [SubEnum(MAX_WORD, IMAGE_FILE_MACHINE_I386, 'i386')]
+  [SubEnum(MAX_WORD, IMAGE_FILE_MACHINE_AMD64, 'AMD64')]
+  TImageMachine16 = type Word;
+
+  [SubEnum(MAX_UINT, IMAGE_FILE_MACHINE_I386, 'i386')]
+  [SubEnum(MAX_UINT, IMAGE_FILE_MACHINE_AMD64, 'AMD64')]
+  TImageMachine32 = type Cardinal;
 
   [FlagName(IMAGE_FILE_RELOCS_STRIPPED, 'Relocs Stripped')]
   [FlagName(IMAGE_FILE_EXECUTABLE_IMAGE, 'Executable')]
   [FlagName(IMAGE_FILE_LINE_NUMS_STRIPPED, 'Line Numbers Stripped')]
-  [FlagName(IMAGE_FILE_LOCAL_SYMS_STRIPPED, 'Local Symbols Stipped')]
+  [FlagName(IMAGE_FILE_LOCAL_SYMS_STRIPPED, 'Local Symbols Stripped')]
   [FlagName(IMAGE_FILE_AGGRESIVE_WS_TRIM, 'Aggressive WS Trim')]
   [FlagName(IMAGE_FILE_LARGE_ADDRESS_AWARE, 'Large Address Aware')]
   [FlagName(IMAGE_FILE_32BIT_MACHINE, '32-bit Machine')]
@@ -162,7 +169,7 @@ type
   // SDK::winnt.h
   [SDKName('IMAGE_FILE_HEADER')]
   TImageFileHeader = record
-    Machine: TImageMachine;
+    Machine: TImageMachine16;
     NumberOfSections: Word;
     TimeDateStamp: TUnixTime;
     [Hex] PointerToSymbolTable: Cardinal;
@@ -201,7 +208,7 @@ type
     IMAGE_DIRECTORY_ENTRY_EXCEPTION = 3,
     IMAGE_DIRECTORY_ENTRY_SECURITY = 4,
     IMAGE_DIRECTORY_ENTRY_BASERELOC = 5,     // TImageBaseRelocation
-    IMAGE_DIRECTORY_ENTRY_DEBUG = 6,
+    IMAGE_DIRECTORY_ENTRY_DEBUG = 6,         // TImageDebugDirectory
     IMAGE_DIRECTORY_ENTRY_ARCHITECTURE = 7,
     IMAGE_DIRECTORY_ENTRY_GLOBALPTR = 8,
     IMAGE_DIRECTORY_ENTRY_TLS = 9,
@@ -210,7 +217,7 @@ type
     IMAGE_DIRECTORY_ENTRY_IAT = 12,
     IMAGE_DIRECTORY_ENTRY_DELAY_IMPORT = 13, // TImageDelayLoadDescriptor
     IMAGE_DIRECTORY_ENTRY_COM_DESCRIPTOR = 14,
-    IMAGE_DIRECTORY_ENTRY_RESERVED = 15
+    [Reserved] IMAGE_DIRECTORY_ENTRY_RESERVED = 15
   );
   {$MINENUMSIZE 4}
 
@@ -232,7 +239,7 @@ type
   // SDK::winnt.h
   [SDKName('IMAGE_OPTIONAL_HEADER32')]
   TImageOptionalHeader32 = record
-    [Reserved(IMAGE_NT_OPTIONAL_HDR32_MAGIC)] Magic: Word;
+    [Reserved(IMAGE_NT_OPTIONAL_HDR32_MAGIC), AsciiMagic] Magic: Word;
     MajorLinkerVersion: Byte;
     MinorLinkerVersion: Byte;
     [Bytes] SizeOfCode: Cardinal;
@@ -269,7 +276,7 @@ type
   // SDK::winnt.h
   [SDKName('IMAGE_OPTIONAL_HEADER64')]
   TImageOptionalHeader64 = record
-    [Reserved(IMAGE_NT_OPTIONAL_HDR64_MAGIC)] Magic: Word;
+    [Reserved(IMAGE_NT_OPTIONAL_HDR64_MAGIC), AsciiMagic] Magic: Word;
     MajorLinkerVersion: Byte;
     MinorLinkerVersion: Byte;
     [Bytes] SizeOfCode: Cardinal;
@@ -359,7 +366,7 @@ type
   [FlagName(IMAGE_SCN_MEM_SHARED, 'Shared')]
   [FlagName(IMAGE_SCN_MEM_EXECUTE, 'Executable')]
   [FlagName(IMAGE_SCN_MEM_READ, 'Readable')]
-  [FlagName(IMAGE_SCN_MEM_WRITE, 'Writale')]
+  [FlagName(IMAGE_SCN_MEM_WRITE, 'Writable')]
   [SubEnum(IMAGE_SCN_ALIGN_MASK, 0, 'Default Alignment')]
   [SubEnum(IMAGE_SCN_ALIGN_MASK, IMAGE_SCN_ALIGN_1BYTES, 'Align 1 Byte')]
   [SubEnum(IMAGE_SCN_ALIGN_MASK, IMAGE_SCN_ALIGN_2BYTES, 'Align 2 Bytes')]
@@ -400,7 +407,7 @@ type
   private
     function GetSection(Index: Cardinal): PImageSectionHeader;
   public
-    [Reserved(IMAGE_NT_SIGNATURE)] Signature: Cardinal;
+    [Reserved(IMAGE_NT_SIGNATURE), AsciiMagic] Signature: Cardinal;
     FileHeader: TImageFileHeader;
     property Section[Index: Cardinal]: PImageSectionHeader read GetSection;
   case Word of
@@ -464,7 +471,7 @@ type
     OffsetToData: Cardinal;
     [Bytes] Size: Cardinal;
     CodePage: Cardinal;
-    [Reserved] Reserved: Cardinal;
+    [Unlisted] Reserved: Cardinal;
   end;
   PImageResourceDataEntry = ^TImageResourceDataEntry;
 
@@ -503,6 +510,57 @@ type
     TypeOffsets: TAnysizeArray<TImageRelocationTypeOffset>;
   end;
   PImageBaseRelocation = ^TImageBaseRelocation;
+
+  // SDK::winnt.h & phlib::mapimg.h
+  [NamingStyle(nsSnakeCase, 'IMAGE_DEBUG_TYPE')]
+  TImageDebugType = (
+    IMAGE_DEBUG_TYPE_UNKNOWN = 0,
+    IMAGE_DEBUG_TYPE_COFF = 1,
+    IMAGE_DEBUG_TYPE_CODEVIEW = 2,
+    IMAGE_DEBUG_TYPE_FPO = 3,
+    IMAGE_DEBUG_TYPE_MISC = 4,
+    IMAGE_DEBUG_TYPE_EXCEPTION = 5,
+    IMAGE_DEBUG_TYPE_FIXUP = 6,
+    IMAGE_DEBUG_TYPE_OMAP_TO_SRC = 7,
+    IMAGE_DEBUG_TYPE_OMAP_FROM_SRC = 8,
+    IMAGE_DEBUG_TYPE_BORLAND = 9,
+    IMAGE_DEBUG_TYPE_BBT = 10,
+    IMAGE_DEBUG_TYPE_CLSID = 11,
+    IMAGE_DEBUG_TYPE_VC_FEATURE = 12,
+    IMAGE_DEBUG_TYPE_POGO = 13,
+    IMAGE_DEBUG_TYPE_ILTCG = 14,
+    IMAGE_DEBUG_TYPE_MPX = 15,
+    IMAGE_DEBUG_TYPE_REPRO = 16,
+    IMAGE_DEBUG_TYPE_EMBEDDED_PORTABLE_PDB = 17,
+    IMAGE_DEBUG_TYPE_SPGO = 18,
+    IMAGE_DEBUG_TYPE_PDB_CHECKSUM = 19,
+    IMAGE_DEBUG_TYPE_EX_DLLCHARACTERISTICS = 20,
+    IMAGE_DEBUG_TYPE_PERFMAP = 21
+  );
+
+  // SDK::winnt.h
+  [SDKName('IMAGE_DEBUG_DIRECTORY')]
+  TImageDebugDirectory = record
+    [Unlisted] Characteristics: Cardinal;
+    TimeDateStamp: TUnixTime;
+    MajorVersion: Word;
+    MinorVersion: Word;
+    EntryType: TImageDebugType;
+    [Bytes] SizeOfData: Cardinal;
+    AddressOfRawData: Cardinal;
+    PointerToRawData: Cardinal;
+  end;
+  PImageDebugDirectory = ^TImageDebugDirectory;
+
+  // phlib::mapimg.h & symbols
+  [SDKName('CODEVIEW_INFO_PDB70')]
+  TCodeViewInfoPdb70 = record
+    [Reserved(CODEVIEW_SIGNATURE_RSDS), AsciiMagic] Signature: Cardinal;
+    Guid: TGuid;
+    Age: Cardinal;
+    FileName: TAnysizeArray<AnsiChar>;
+  end;
+  PCodeViewInfoPdb70 = ^TCodeViewInfoPdb70;
 
   // SDK::winnt.h
   [SDKName('IMAGE_DELAYLOAD_DESCRIPTOR')]
@@ -766,12 +824,12 @@ end;
 
 function TImageRelocationTypeOffset.Offset;
 begin
-  Result := TypeOffset and IMAGE_RELOCATION_OFFET_MASK;
+  Result := TypeOffset and IMAGE_RELOCATION_OFFSET_MASK;
 end;
 
 function TImageRelocationTypeOffset.SpansOnNextPage;
 const
-  PAGE_SIZE = IMAGE_RELOCATION_OFFET_MASK + 1;
+  PAGE_SIZE = IMAGE_RELOCATION_OFFSET_MASK + 1;
 begin
   case &Type of
     IMAGE_REL_BASED_HIGH, IMAGE_REL_BASED_LOW:

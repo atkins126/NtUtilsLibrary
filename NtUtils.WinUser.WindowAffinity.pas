@@ -1,7 +1,7 @@
 unit NtUtils.WinUser.WindowAffinity;
 
 {
-  The module allows managing window affinity (i.e., visitibility for
+  The module allows managing window affinity (i.e., visibility for
   screen capture) for windows that belong to other processes.
 }
 
@@ -32,8 +32,8 @@ function UsrxSetWindowAffinity(
 implementation
 
 uses
-  Ntapi.WinNt, Ntapi.ntpebteb, Ntapi.ntdef, NtUtils.Processes.Info,
-  NtUtils.Processes, DelphiUtils.AutoObjects;
+  Ntapi.WinNt, Ntapi.ntpebteb, Ntapi.ntdef, Ntapi.ntstatus,
+  NtUtils.Processes.Info, NtUtils.Processes, DelphiUtils.AutoObjects;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -41,7 +41,7 @@ uses
 
 type
   // Injected thread requires some context
-  TPalyloadContext = record
+  TPayloadContext = record
     SetWindowDisplayAffinity: function (
       hWnd: UIntPtr;
       Affinity: Cardinal
@@ -57,7 +57,7 @@ type
     Affinity: Cardinal;
     Reserved: Cardinal;
   end;
-  PDisplayAffinityContext = ^TPalyloadContext;
+  PDisplayAffinityContext = ^TPayloadContext;
 
 // This is the function we are going to inject as a thread. Be consistent with
 // the raw assembly listing below.
@@ -69,7 +69,7 @@ begin
     Result := NTSTATUS_FROM_WIN32(Context.RtlGetLastWin32Error);
 end;
 
-var
+const
   {$IFDEF Win64}
   // 64-bit assembly. Be consistent with the function definition above
   PayloadAssembly64: array [0..47] of Byte = (
@@ -127,7 +127,7 @@ begin
     Exit;
 
   // Prevent WoW64 -> Native access
-  Result := RtlxAssertWoW64Compatible(hxProcess.Handle, TargetIsWoW64);
+  Result := RtlxAssertWoW64Compatible(hxProcess, TargetIsWoW64);
 
   if not Result.IsSuccess then
     Exit;
@@ -140,7 +140,7 @@ begin
     CodeRef := TMemory.Reference(PayloadAssembly32);
 
   // Map a shared memory region with the target
-  Result := RtlxMapSharedMemory(hxProcess, SizeOf(TPalyloadContext) +
+  Result := RtlxMapSharedMemory(hxProcess, SizeOf(TPayloadContext) +
     CodeRef.Size, IMemory(LocalMapping), RemoteMapping, [mmAllowExecute]);
 
   if not Result.IsSuccess then
@@ -148,7 +148,7 @@ begin
 
   LocalMapping.Data.Window := Wnd;
   LocalMapping.Data.Affinity := Affinity;
-  Move(CodeRef.Address^, LocalMapping.Offset(SizeOf(TPalyloadContext))^,
+  Move(CodeRef.Address^, LocalMapping.Offset(SizeOf(TPayloadContext))^,
     CodeRef.Size);
 
   // Locate user32 import
@@ -169,7 +169,7 @@ begin
   Result := RtlxRemoteExecute(
     hxProcess,
     'Remote::SetWindowDisplayAffinity',
-    RemoteMapping.Offset(SizeOf(TPalyloadContext)),
+    RemoteMapping.Offset(SizeOf(TPayloadContext)),
     CodeRef.Size,
     RemoteMapping.Data,
     0,

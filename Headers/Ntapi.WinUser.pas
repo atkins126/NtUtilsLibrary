@@ -62,6 +62,7 @@ const
   // Window message values
   WM_GETTEXT = $000D;
   WM_GETTEXTLENGTH = $000E;
+  WM_APP = $8000;
 
   // Flags for SendMessageTimeoutW
   SMTO_NORMAL = $0000;
@@ -302,7 +303,7 @@ type
 
   [NamingStyle(nsSnakeCase, 'UOI'), Range(1)]
   TUserObjectInfoClass = (
-    UOI_RESERVED = 0,
+    [Reserved] UOI_RESERVED = 0,
     UOI_FLAGS = 1,     // q, s: TUserObjectFlags
     UOI_NAME = 2,      // q: PWideChar
     UOI_TYPE = 3,      // q: PWideChar
@@ -315,7 +316,7 @@ type
   [SDKName('USEROBJECTFLAGS')]
   TUserObjectFlags = record
     Inherit: LongBool;
-    Reserved: LongBool;
+    [Unlisted] Reserved: LongBool;
     [Hex] Flags: Cardinal; // WSF_* or DF_*
   end;
   PUserObjectFlags = ^TUserObjectFlags;
@@ -586,15 +587,15 @@ type
   // private
   [SDKName('WINDOWCOMPOSITIONATTRIBDATA')]
   TWindowCompositionAttribData = record
-    Attrib: TWindowCompositionAttrib;
-    [ReadsFrom, WritesTo] pvData: Pointer;
-    [NumberOfBytes] cbData: Cardinal;
+    [in] Attrib: TWindowCompositionAttrib;
+    [in, out, ReadsFrom, WritesTo] pvData: Pointer;
+    [in, out, NumberOfBytes] cbData: Cardinal;
   end;
   PWindowCompositionAttribData = ^TWindowCompositionAttribData;
 
   [NamingStyle(nsSnakeCase, 'ID'), Range(1, 11)]
   TMessageResponse = (
-    IDNONE = 0,
+    [Reserved] IDNONE = 0,
     IDOK = 1,
     IDCANCEL = 2,
     IDABORT = 3,
@@ -627,7 +628,7 @@ type
 
   [SDKName('GUITHREADINFO')]
   TGuiThreadInfo = record
-    [Hex, Unlisted] Size: Cardinal;
+    [RecordSize] Size: Cardinal;
     Flags: TGuiThreadFlags;
     Active: THwnd;
     Focus: THwnd;
@@ -869,7 +870,7 @@ function GetDpiForWindow(
 ): Cardinal; stdcall; external user32 delayed;
 
 var delayed_GetDpiForWindow: TDelayedLoadFunction = (
-  DllName: user32;
+  Dll: @delayed_user32;
   FunctionName: 'GetDpiForWindow';
 );
 
@@ -904,7 +905,7 @@ function GetWindowBand(
 ): LongBool; stdcall; external user32 delayed;
 
 var delayed_GetWindowBand: TDelayedLoadFunction = (
-  DllName: user32;
+  Dll: @delayed_user32;
   FunctionName: 'GetWindowBand';
 );
 
@@ -928,7 +929,12 @@ function MessageBoxW(
   [in, opt] Text: PWideChar;
   [in, opt] Caption: PWideChar;
   [in] uType: TMessageStyle
-): TMessageResponse; stdcall; external user32;
+): TMessageResponse; stdcall; external user32 delayed;
+
+var delayed_MessageBoxW: TDelayedLoadFunction = (
+  Dll: @delayed_user32;
+  FunctionName: 'MessageBoxW';
+);
 
 [SetsLastError]
 function SendMessageTimeoutW(
@@ -984,7 +990,7 @@ function GetClipboardAccessToken(
 ): LongBool; stdcall; external user32 delayed;
 
 var delayed_GetClipboardAccessToken: TDelayedLoadFunction = (
-  DllName: user32;
+  Dll: @delayed_user32;
   FunctionName: 'GetClipboardAccessToken';
 );
 

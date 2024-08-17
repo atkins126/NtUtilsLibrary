@@ -191,19 +191,17 @@ var
   DomainsDeallocator, NamesDeallocator: IAutoReleasable;
   i: Integer;
 begin
-  // Always output at least raw SIDs to allow converting them to SDDL
   Names := nil;
-  SetLength(Names, Length(SIDs));
-
-  for i := 0 to High(Names) do
-    Names[i].SID := Sids[i];
 
   // If there is nothing to translate, we are done
   if Length(Sids) <= 0 then
-  begin
-    Result.Status := STATUS_SUCCESS;
-    Exit;
-  end;
+    Exit(NtxSuccess);
+
+  // Always output at least raw SIDs to allow converting them to SDDL
+  SetLength(Names, Length(Sids));
+
+  for i := 0 to High(Names) do
+    Names[i].SID := Sids[i];
 
   Result := LsaxpEnsureConnected(hxPolicy, POLICY_LOOKUP_NAMES);
 
@@ -312,8 +310,14 @@ var
   BufferDomain: PLsaReferencedDomainList;
   BufferTranslatedSid: PLsaTranslatedSid2Array;
   DomainDeallocator, SidDeallocator: IAutoReleasable;
+  AccountNameStr: TLsaUnicodeString;
 begin
   Result := LsaxpEnsureConnected(hxPolicy, POLICY_LOOKUP_NAMES);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(AccountNameStr, AccountName);
 
   if not Result.IsSuccess then
     Exit;
@@ -324,8 +328,8 @@ begin
 
   // Request translation of one name
   Result.Location := 'LsaLookupNames2';
-  Result.Status := LsaLookupNames2(hxPolicy.Handle, 0, 1,
-    [TLsaUnicodeString.From(AccountName)], BufferDomain, BufferTranslatedSid);
+  Result.Status := LsaLookupNames2(hxPolicy.Handle, 0, 1, [AccountNameStr],
+    BufferDomain, BufferTranslatedSid);
 
   // LsaLookupNames2 allocates memory even on some errors
   if Result.IsSuccess or (Result.Status = STATUS_NONE_MAPPED) then
@@ -475,8 +479,16 @@ begin
   // When creating a mapping for a domain, it can only be S-1-5-x
   // where x is in range [SECURITY_MIN_BASE_RID .. SECURITY_MAX_BASE_RID]
 
-  Input.AddInput.DomainName := TLsaUnicodeString.From(Domain);
-  Input.AddInput.AccountName := TLsaUnicodeString.From(User);
+  Result := RtlxInitUnicodeString(Input.AddInput.DomainName, Domain);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(Input.AddInput.AccountName, User);
+
+  if not Result.IsSuccess then
+    Exit;
+
   Input.AddInput.Sid := Sid.Data;
   Input.AddInput.Flags := 0;
 
@@ -487,8 +499,15 @@ function LsaxRemoveSidNameMapping;
 var
   Input: TLsaSidNameMappingOperation;
 begin
-  Input.RemoveInput.DomainName := TLsaUnicodeString.From(Domain);
-  Input.RemoveInput.AccountName := TLsaUnicodeString.From(User);
+  Result := RtlxInitUnicodeString(Input.RemoveInput.DomainName, Domain);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(Input.RemoveInput.AccountName, User);
+
+  if not Result.IsSuccess then
+    Exit;
 
   Result := LsaxManageSidNameMapping(LsaSidNameMappingOperation_Remove, Input);
 end;

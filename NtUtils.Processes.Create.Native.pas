@@ -11,12 +11,12 @@ uses
   DelphiUtils.AutoObjects;
 
 type
-  IRtlUserProcessParamers = IMemory<PRtlUserProcessParameters>;
+  IRtlUserProcessParameters = IMemory<PRtlUserProcessParameters>;
 
 // Allocate user process parameters
 function RtlxCreateProcessParameters(
   const Options: TCreateProcessOptions;
-  out xMemory: IRtlUserProcessParamers
+  out xMemory: IRtlUserProcessParameters
 ): TNtxStatus;
 
 // Create a new process via RtlCreateUserProcess
@@ -27,6 +27,7 @@ function RtlxCreateProcessParameters(
 [SupportedOption(spoSecurity)]
 [SupportedOption(spoWindowMode)]
 [SupportedOption(spoWindowTitle)]
+[SupportedOption(spoStdHandles)]
 [SupportedOption(spoDesktop)]
 [SupportedOption(spoToken)]
 [SupportedOption(spoParentProcess)]
@@ -47,6 +48,7 @@ function RtlxCreateUserProcess(
 [SupportedOption(spoSecurity)]
 [SupportedOption(spoWindowMode)]
 [SupportedOption(spoWindowTitle)]
+[SupportedOption(spoStdHandles)]
 [SupportedOption(spoDesktop)]
 [SupportedOption(spoToken)]
 [SupportedOption(spoParentProcess)]
@@ -72,6 +74,7 @@ function RtlxCreateUserProcessEx(
 [SupportedOption(spoSecurity)]
 [SupportedOption(spoWindowMode)]
 [SupportedOption(spoWindowTitle)]
+[SupportedOption(spoStdHandles)]
 [SupportedOption(spoDesktop)]
 [SupportedOption(spoToken)]
 [SupportedOption(spoParentProcess)]
@@ -83,7 +86,7 @@ function RtlxCreateUserProcessEx(
 [SupportedOption(spoPackageBreakaway)]
 [SupportedOption(spoProtection)]
 [SupportedOption(spoSafeOpenPromptOriginClaim)]
-[SupportedOption(spoAdditinalFileAccess)]
+[SupportedOption(spoAdditionalFileAccess)]
 [SupportedOption(spoDetectManifest)]
 [RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
 [RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
@@ -107,7 +110,7 @@ uses
 { Process Parameters & Attributes }
 
 type
-  TAutoUserProcessParams = class (TCustomAutoMemory, IMemory)
+  TAutoUserProcessParams = class (TCustomAutoMemory, IMemory, IAutoPointer, IAutoReleasable)
     procedure Release; override;
   end;
 
@@ -123,26 +126,49 @@ end;
 function RtlxCreateProcessParameters;
 var
   Buffer: PRtlUserProcessParameters;
-  ApplicationStr, CommandLineStr, CurrentDirStr, DesktopStr,
+  ApplicationWin32: String;
+  ApplicationWin32Str, CommandLineStr, CurrentDirStr, DesktopStr,
   WindowTitleStr: TNtUnicodeString;
   WindowTitleStrRef: PNtUnicodeString;
 begin
-  // Note: do not inline these since the compiler reuses hidden variables
-  ApplicationStr := TNtUnicodeString.From(Options.ApplicationWin32);
-  CommandLineStr := TNtUnicodeString.From(Options.CommandLine);
-  CurrentDirStr := TNtUnicodeString.From(Options.CurrentDirectory);
-  DesktopStr := TNtUnicodeString.From(Options.Desktop);
-  WindowTitleStr := TNtUnicodeString.From(Options.WindowTitle);
+  // Keep the string from the Options.ApplicationWin32() call alive
+  ApplicationWin32 := Options.ApplicationWin32;
+  Result := RtlxInitUnicodeString(ApplicationWin32Str, ApplicationWin32);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(CommandLineStr, Options.CommandLine);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(CurrentDirStr, Options.CurrentDirectory);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(DesktopStr, Options.Desktop);
+
+  if not Result.IsSuccess then
+    Exit;
 
   if (poForceWindowTitle in Options.Flags) or (Options.WindowTitle <> '') then
+  begin
+    Result := RtlxInitUnicodeString(WindowTitleStr, Options.WindowTitle);
+
+    if not Result.IsSuccess then
+      Exit;
+
     WindowTitleStrRef := @WindowTitleStr
+  end
   else
     WindowTitleStrRef := nil;
 
   Result.Location := 'RtlCreateProcessParametersEx';
   Result.Status := RtlCreateProcessParametersEx(
     Buffer,
-    ApplicationStr,
+    ApplicationWin32Str,
     nil, // DllPath
     CurrentDirStr.RefOrNil,
     @CommandLineStr,
@@ -157,7 +183,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  // Make sure zero-lenth strings use null pointers
+  // Make sure zero-length strings use null pointers
   Buffer.DLLPath := Default(TNtUnicodeString);
   Buffer.ShellInfo := Default(TNtUnicodeString);
   Buffer.RuntimeData := Default(TNtUnicodeString);
@@ -174,6 +200,15 @@ begin
     xMemory.Data.WindowFlags := xMemory.Data.WindowFlags or STARTF_USESHOWWINDOW;
     xMemory.Data.ShowWindowFlags := Options.WindowMode;
   end;
+
+  // Standard I/O handles
+  if poUseStdHandles in Options.Flags then
+  begin
+    xMemory.Data.WindowFlags := xMemory.Data.WindowFlags or STARTF_USESTDHANDLES;
+    xMemory.Data.StandardInput := HandleOrDefault(Options.hxStdInput);
+    xMemory.Data.StandardOutput := HandleOrDefault(Options.hxStdOutput);
+    xMemory.Data.StandardError := HandleOrDefault(Options.hxStdError);
+  end;
 end;
 
 type
@@ -189,7 +224,7 @@ type
     hJob: THandle;
     PackagePolicy: TProcessAllPackagesFlags;
     PsProtection: TPsProtection;
-    SeSafePromtClaim: TSeSafeOpenPromptResults;
+    SeSafePromptClaim: TSeSafeOpenPromptResults;
     Buffer: IMemory<PPsAttributeList>;
     function GetData: PPsAttributeList;
   public
@@ -224,12 +259,12 @@ begin
   if (Win32Protection >= Low(TProtectionLevel)) and
     (Win32Protection <= High(TProtectionLevel)) then
   begin
-    Result.Status := STATUS_SUCCESS;
+    Result := NtxSuccess;
     NativeProtection :=  Byte(PROTECTION_TYPE[Win32Protection]) or
       (Byte(PROTECTION_SIGNER[Win32Protection]) shl PS_PROTECTED_SIGNER_SHIFT);
   end
   else if Win32Protection = PROTECTION_LEVEL_SAME then
-    Result := NtxProcess.Query(NtCurrentProcess, ProcessProtectionInformation,
+    Result := NtxProcess.Query(NtxCurrentProcess, ProcessProtectionInformation,
       NativeProtection)
   else
   begin
@@ -267,7 +302,7 @@ begin
   if poLPAC in Options.Flags then
     Inc(Count);
 
-  if HasAny(Options.PackageBreaway) then
+  if HasAny(Options.PackageBreakaway) then
     Inc(Count);
 
   if poUseProtection in Options.Flags then
@@ -385,7 +420,7 @@ begin
   begin
     Attribute.Attribute := PS_ATTRIBUTE_DESKTOP_APP_POLICY;
     Attribute.Size := SizeOf(TProcessDesktopAppFlags);
-    Pointer(Attribute.Value) := @Options.PackageBreaway;
+    Pointer(Attribute.Value) := @Options.PackageBreakaway;
     Inc(Attribute);
   end;
 
@@ -406,7 +441,11 @@ begin
   // Std handle info
   if poInheritConsole in Options.Flags then
   begin
-    FStdHandleInfo.Flags := PS_STD_STATE_REQUEST_DUPLICATE;
+    if poUseStdHandles in Options.Flags then
+      FStdHandleInfo.Flags := PS_STD_STATE_NEVER_DUPLICATE
+    else
+      FStdHandleInfo.Flags := PS_STD_STATE_REQUEST_DUPLICATE;
+
     FStdHandleInfo.StdHandleSubsystemType := IMAGE_SUBSYSTEM_WINDOWS_CUI;
     Attribute.Attribute := PS_ATTRIBUTE_STD_HANDLE_INFO;
     Attribute.Size := SizeOf(TPsStdHandleInfo);
@@ -417,15 +456,15 @@ begin
   // Safe open prompt origin claim
   if poUseSafeOpenPromptOriginClaim in Options.Flags then
   begin
-    SeSafePromtClaim := Default(TSeSafeOpenPromptResults);
-    SeSafePromtClaim.Results := Options.SafeOpenPromptOriginClaimResult;
-    SeSafePromtClaim.SetPath(Options.SafeOpenPromptOriginClaimPath);
+    SeSafePromptClaim := Default(TSeSafeOpenPromptResults);
+    SeSafePromptClaim.Results := Options.SafeOpenPromptOriginClaimResult;
+    SeSafePromptClaim.SetPath(Options.SafeOpenPromptOriginClaimPath);
     Attribute.Attribute := PS_ATTRIBUTE_SAFE_OPEN_PROMPT_ORIGIN_CLAIM;
     Attribute.Size := SizeOf(TSeSafeOpenPromptResults);
-    Pointer(Attribute.Value) := @SeSafePromtClaim;
+    Pointer(Attribute.Value) := @SeSafePromptClaim;
   end;
 
-  Result.Status := STATUS_SUCCESS;
+  Result := NtxSuccess;
 end;
 
 function TPsAttributesRecord.GetData;
@@ -442,7 +481,7 @@ var
   hxSection: IHandle;
   ManifestRva: TMemory;
 begin
-  Result := NtxQueryAddressesProcess(Info.hxProcess.Handle, Addresses);
+  Result := NtxQueryAddressesProcess(Info.hxProcess, Addresses);
 
   if not Result.IsSuccess then
     Exit;
@@ -494,11 +533,20 @@ end;
 
 function RtlxCreateUserProcess;
 var
-  ProcessParams: IRtlUserProcessParamers;
+  ProcessParams: IRtlUserProcessParameters;
   ProcessInfo: TRtlUserProcessInformation;
+  ApplicationNative: String;
+  ApplicationNativeStr: TNtUnicodeString;
   hxExpandedToken: IHandle;
 begin
   Result := RtlxCreateProcessParameters(Options, ProcessParams);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Keep the string from the Options.ApplicationNative() call alive
+  ApplicationNative := Options.ApplicationNative;
+  Result := RtlxInitUnicodeString(ApplicationNativeStr, ApplicationNative);
 
   if not Result.IsSuccess then
     Exit;
@@ -522,7 +570,7 @@ begin
   end;
 
   Result.Status := RtlCreateUserProcess(
-    TNtUnicodeString.From(Options.ApplicationNative),
+    ApplicationNativeStr,
     0, // Deprecated attributes
     ProcessParams.Data,
     ReferenceSecurityDescriptor(Options.ProcessAttributes),
@@ -550,23 +598,31 @@ begin
 
   // Resume the process if necessary
   if not (poSuspended in Options.Flags) then
-    NtxResumeThread(ProcessInfo.Thread);
+    NtxResumeThread(Info.hxThread);
 end;
 
 function RtlxCreateUserProcessEx;
 var
-  ProcessParams: IRtlUserProcessParamers;
+  ProcessParams: IRtlUserProcessParameters;
   ProcessInfo: TRtlUserProcessInformation;
   ParamsEx: TRtlUserProcessExtendedParameters;
+  ApplicationNative: String;
+  ApplicationNativeStr: TNtUnicodeString;
   hxExpandedToken: IHandle;
 begin
-  Result := LdrxCheckDelayedImport(delayed_ntdll,
-    delayed_RtlCreateUserProcessEx);
+  Result := LdrxCheckDelayedImport(delayed_RtlCreateUserProcessEx);
 
   if not Result.IsSuccess then
     Exit;
 
   Result := RtlxCreateProcessParameters(Options, ProcessParams);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Keep the string from the Options.ApplicationNative() call alive
+  ApplicationNative := Options.ApplicationNative;
+  Result := RtlxInitUnicodeString(ApplicationNativeStr, ApplicationNative);
 
   if not Result.IsSuccess then
     Exit;
@@ -604,7 +660,7 @@ begin
     Result.LastCall.Expects<TJobObjectAccessMask>(JOB_OBJECT_ASSIGN_PROCESS);
 
   Result.Status := RtlCreateUserProcessEx(
-    TNtUnicodeString.From(Options.ApplicationNative),
+    ApplicationNativeStr,
     ProcessParams.Data,
     poInheritHandles in Options.Flags,
     @ParamsEx,
@@ -627,7 +683,7 @@ begin
 
   // Resume the process if necessary
   if not (poSuspended in Options.Flags) then
-    NtxResumeThread(ProcessInfo.Thread);
+    NtxResumeThread(Info.hxThread);
 end;
 
 function NtxCreateUserProcess;
@@ -635,25 +691,38 @@ var
   hProcess, hThread: THandle;
   ProcessFlags: TProcessCreateFlags;
   ThreadFlags: TThreadCreateFlags;
-  ProcessParams: IRtlUserProcessParamers;
+  ProcessParams: IRtlUserProcessParameters;
   CreateInfo: TPsCreateInfo;
   Attributes: TPsAttributesRecord;
+  ProcessObjAttr, ThreadObjAttr: PObjectAttributes;
 begin
   Info := Default(TProcessInfo);
 
-  // Prepate Rtl parameters
+  // Prepare Rtl parameters
   Result := RtlxCreateProcessParameters(Options, ProcessParams);
 
   if not Result.IsSuccess then
     Exit;
 
-  // Prepare attributes
+  // Prepare process object attributes
+  Result := AttributesRefOrNil(ProcessObjAttr, Options.ProcessAttributes);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Prepare thread object attributes
+  Result := AttributesRefOrNil(ThreadObjAttr, Options.ThreadAttributes);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  // Prepare PS attributes
   Result := Attributes.Create(Options);
 
   if not Result.IsSuccess then
     Exit;
 
-  // Preapare flags
+  // Prepare flags
   ProcessFlags := 0;
 
   if poBreakawayFromJob in Options.Flags then
@@ -676,8 +745,7 @@ begin
   // Console inheritance
   if poInheritConsole in Options.Flags then
   begin
-    if LdrxCheckDelayedImport(delayed_kernelbase,
-      delayed_BaseGetConsoleReference).IsSuccess then
+    if LdrxCheckDelayedImport(delayed_BaseGetConsoleReference).IsSuccess then
       ProcessParams.Data.ConsoleHandle := BaseGetConsoleReference
     else
       ProcessParams.Data.ConsoleHandle :=
@@ -693,12 +761,12 @@ begin
   CreateInfo.State := PsCreateInitialState;
   CreateInfo.AdditionalFileAccess := Options.AdditionalFileAccess;
   CreateInfo.InitFlags :=
-    PS_CREATE_INTIAL_STATE_WRITE_OUTPUT_ON_EXIT or
-    PS_CREATE_INTIAL_STATE_IFEO_SKIP_DEBUGGER;
+    PS_CREATE_INITIAL_STATE_WRITE_OUTPUT_ON_EXIT or
+    PS_CREATE_INITIAL_STATE_IFEO_SKIP_DEBUGGER;
 
   if poDetectManifest in Options.Flags then
     CreateInfo.InitFlags := CreateInfo.InitFlags or
-      PS_CREATE_INTIAL_STATE_DETECT_MANIFEST;
+      PS_CREATE_INITIAL_STATE_DETECT_MANIFEST;
 
   Result.Location := 'NtCreateUserProcess';
 
@@ -722,8 +790,8 @@ begin
     hThread,
     AccessMaskOverride(MAXIMUM_ALLOWED, Options.ProcessAttributes),
     AccessMaskOverride(MAXIMUM_ALLOWED, Options.ThreadAttributes),
-    AttributesRefOrNil(Options.ProcessAttributes),
-    AttributesRefOrNil(Options.ThreadAttributes),
+    ProcessObjAttr,
+    ThreadObjAttr,
     ProcessFlags,
     ThreadFlags,
     ProcessParams.Data,
@@ -770,7 +838,7 @@ begin
 
     PsCreateSuccess:
     begin
-      // Capture more info about thr process
+      // Capture more info about the process
       Info.ValidFields := Info.ValidFields + [piPebAddress,
         piUserProcessParameters, piUserProcessParametersFlags];
       Info.PebAddressNative := CreateInfo.PebAddressNative;

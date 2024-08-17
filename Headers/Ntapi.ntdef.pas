@@ -36,6 +36,12 @@ const
   OBJ_DONT_REPARSE = $00001000;
   OBJ_KERNEL_EXCLUSIVE = $00010000;
 
+  // The maximum number of characters addressible via an ANSI_STRING
+  MAX_ANSI_STRING = High(Word);
+
+  // The maximum number of characters addressible via a UNICODE_STRING
+  MAX_UNICODE_STRING = High(Word) div SizeOf(WideChar);
+
 type
   NTSTATUS = type Cardinal;
   TPriority = type Integer;
@@ -65,7 +71,6 @@ type
     Buffer: PAnsiChar;
     function ToString: AnsiString;
     function RefOrNil: PNtAnsiString;
-    class function From(Source: AnsiString): TNtAnsiString; static;
   end;
 
   // WDK::ntdef.h
@@ -77,8 +82,9 @@ type
     Buffer: PWideChar;
     function ToString: String;
     function RefOrNil: PNtUnicodeString;
-    class function From(const Source: String): TNtUnicodeString; static;
   end;
+  TNtUnicodeStringArray = TAnysizeArray<TNtUnicodeString>;
+  PNtUnicodeStringArray = ^TNtUnicodeStringArray;
 
   [FlagName(OBJ_PROTECT_CLOSE, 'Protected')]
   [FlagName(OBJ_INHERIT, 'Inherit')]
@@ -99,7 +105,7 @@ type
   // WDK::ntdef.h
   [SDKName('OBJECT_ATTRIBUTES')]
   TObjectAttributes = record
-    [Bytes, Unlisted] Length: Cardinal;
+    [RecordSize] Length: Cardinal;
     RootDirectory: THandle;
     [opt] ObjectName: PNtUnicodeString;
     Attributes: TObjectAttributesFlags;
@@ -118,10 +124,6 @@ type
     class operator NotEqual(const A, B: TClientId): Boolean;
   end;
   PClientId = ^TClientId;
-
-const
-  MAX_UNICODE_STRING_SIZE = SizeOf(TNtUnicodeString) + High(Word) + 1 +
-    SizeOf(WideChar);
 
 function NT_SEVERITY(Status: NTSTATUS): Byte;
 function NT_FACILITY(Status: NTSTATUS): Word;
@@ -256,13 +258,6 @@ end;
 
 { TNtAnsiString }
 
-class function TNtAnsiString.From;
-begin
-  Result.Buffer := PAnsiChar(Source);
-  Result.Length := System.Length(Source) * SizeOf(AnsiChar);
-  Result.MaximumLength := Result.Length + SizeOf(AnsiChar);
-end;
-
 function TNtAnsiString.RefOrNil;
 begin
   if Assigned(@Self) and (Length > 0) then
@@ -277,22 +272,6 @@ begin
 end;
 
 { TNtUnicodeString }
-
-class function TNtUnicodeString.From;
-begin
-  if Source <> '' then
-  begin
-    Result.Buffer := PWideChar(Source);
-    Result.Length := System.Length(Source) * SizeOf(WideChar);
-    Result.MaximumLength := Result.Length + SizeOf(WideChar);
-  end
-  else
-  begin
-    Result.Length := 0;
-    Result.MaximumLength := 0;
-    Result.Buffer := nil;
-  end;
-end;
 
 function TNtUnicodeString.RefOrNil;
 begin

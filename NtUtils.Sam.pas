@@ -11,7 +11,6 @@ uses
   DelphiUtils.AutoObjects;
 
 type
-  TSamHandle = Ntapi.ntsam.TSamHandle;
   ISamHandle = NtUtils.IHandle;
 
   TRidAndName = record
@@ -99,7 +98,7 @@ function SamxOpenParentDomain(
 // Query domain information
 function SamxQueryDomain(
   [Access(DOMAIN_READ_OTHER_PARAMETERS or
-    DOMAIN_READ_PASSWORD_PARAMETERS)] hDomain: TSamHandle;
+    DOMAIN_READ_PASSWORD_PARAMETERS)] const hxDomain: ISamHandle;
   InfoClass: TDomainInformationClass;
   out xBuffer: IAutoPointer
 ): TNtxStatus;
@@ -107,7 +106,7 @@ function SamxQueryDomain(
 // Set domain information
 function SamxSetDomain(
   [Access(DOMAIN_WRITE_OTHER_PARAMETERS or
-    DOMAIN_WRITE_PASSWORD_PARAMS)] hDomain: TSamHandle;
+    DOMAIN_WRITE_PASSWORD_PARAMS)] const hxDomain: ISamHandle;
   InfoClass: TDomainInformationClass;
   [in] Buffer: Pointer
 ): TNtxStatus;
@@ -117,7 +116,7 @@ type
     // Query fixed-size domain information
     class function Query<T>(
       [Access(DOMAIN_READ_OTHER_PARAMETERS or
-        DOMAIN_READ_PASSWORD_PARAMETERS)] hDomain: TSamHandle;
+        DOMAIN_READ_PASSWORD_PARAMETERS)] const hxDomain: ISamHandle;
       InfoClass: TDomainInformationClass;
       out Buffer: T
     ): TNtxStatus; static;
@@ -125,7 +124,7 @@ type
     // Set fixed-size domain information
     class function &Set<T>(
       [Access(DOMAIN_WRITE_OTHER_PARAMETERS or
-        DOMAIN_WRITE_PASSWORD_PARAMS)] hDomain: TSamHandle;
+        DOMAIN_WRITE_PASSWORD_PARAMS)] const hxDomain: ISamHandle;
       InfoClass: TDomainInformationClass;
       const Buffer: T
     ): TNtxStatus; static;
@@ -135,7 +134,7 @@ type
 // The output contains an array of structures defined by the info class
 // (i.e. IMemory<^TAnysizeArray<TDomainDisplayUser>> for DomainDisplayUser)
 function SamxQueryDisplayDomain(
-  [Access(DOMAIN_LIST_ACCOUNTS)] hDomain: TSamHandle;
+  [Access(DOMAIN_LIST_ACCOUNTS)] const hxDomain: ISamHandle;
   InfoClass: TDomainDisplayInformation;
   out xMemory: IMemory;
   out ReturnedEntryCount: Integer;
@@ -146,7 +145,7 @@ function SamxQueryDisplayDomain(
 
 // Find an index of an account for use with SamxQueryDisplayDomain
 function SamxGetDisplayIndex(
-  [Access(DOMAIN_LIST_ACCOUNTS)] hDomain: TSamHandle;
+  [Access(DOMAIN_LIST_ACCOUNTS)] const hxDomain: ISamHandle;
   DisplayInformation: TDomainDisplayInformation;
   const Prefix: String;
   out Index: Cardinal
@@ -155,7 +154,7 @@ function SamxGetDisplayIndex(
 // Enumerate domain accounts that support localization
 function SamxQueryLocalizableAccountsDomain(
   out Accounts: TArray<TSamxLocalizableAccount>;
-  [Access(DOMAIN_READ_OTHER_PARAMETERS)] hDomain: TSamHandle;
+  [Access(DOMAIN_READ_OTHER_PARAMETERS)] const hxDomain: ISamHandle;
   LanguageId: Cardinal = LANG_NEUTRAL
 ): TNtxStatus;
 
@@ -163,56 +162,56 @@ function SamxQueryLocalizableAccountsDomain(
 
 // Construct an SID with a specific RID within the same domain
 function SamxRidToSid(
-  [Access(0)] AccountOrDomainHandle: TSamHandle;
+  [Access(0)] const hxAccountOrDomainHandle: ISamHandle;
   Rid: Cardinal;
   out Sid: ISid
 ): TNtxStatus;
 
 // Construct multiple SIDs with a specific RIDs within the same domain
 function SamxRidsToSids(
-  [Access(0)] AccountOrDomainHandle: TSamHandle;
+  [Access(0)] const hxAccountOrDomainHandle: ISamHandle;
   const Rids: TArray<Cardinal>;
   out Sids: TArray<ISid>
 ): TNtxStatus;
 
-// Find an acoount by name and return its RID
+// Find an account by name and return its RID
 function SamxNameToRid(
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   const Name: String;
   out Lookup: TRidAndUse
 ): TNtxStatus;
 
-// Find many acoounts by names and return their RIDs
+// Find many accounts by names and return their RIDs
 function SamxNamesToRids(
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   const Names: TArray<String>;
   out Lookup: TArray<TRidAndUse>
 ): TNtxStatus;
 
-// Find an acoount by name and return its SID
+// Find an account by name and return its SID
 function SamxNameToSid(
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   const Name: String;
   out Lookup: TSidAndUse
 ): TNtxStatus;
 
-// Find many acoounts by names and return their SIDs
+// Find many accounts by names and return their SIDs
 function SamxNamesToSids(
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   const Names: TArray<String>;
   out Lookup: TArray<TSidAndUse>
 ): TNtxStatus;
 
 // Find an account by ID and return its name
 function SamxRidToName(
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   RelativeId: Cardinal;
   out Lookup: TNameAndUse
 ): TNtxStatus;
 
 // Find many accounts by IDs and return their names
 function SamxRidsToNames(
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   RelativeIds: TArray<Cardinal>;
   out Lookup: TArray<TNameAndUse>
 ): TNtxStatus;
@@ -221,13 +220,13 @@ function SamxRidsToNames(
 
 // Enumerate groups in a domain
 function SamxEnumerateGroups(
-  [Access(DOMAIN_LIST_ACCOUNTS)] hDomain: TSamHandle;
+  [Access(DOMAIN_LIST_ACCOUNTS)] const hxDomain: ISamHandle;
   out Groups: TArray<TRidAndName>
 ): TNtxStatus;
 
 // Create a new group in a domain
 function SamxCreateGroup(
-  [Access(DOMAIN_CREATE_GROUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_CREATE_GROUP)] const hxDomain: ISamHandle;
   const Name: String;
   out hxGroup: ISamHandle;
   [out, opt] pRelativeId: PCardinal = nil;
@@ -237,7 +236,7 @@ function SamxCreateGroup(
 // Open a group
 function SamxOpenGroup(
   out hxGroup: ISamHandle;
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   GroupId: Cardinal;
   DesiredAccess: TGroupAccessMask
 ): TNtxStatus;
@@ -245,7 +244,7 @@ function SamxOpenGroup(
 // Open a group by name
 function SamxOpenGroupByName(
   out hxGroup: ISamHandle;
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   const Name: String;
   DesiredAccess: TGroupAccessMask
 ): TNtxStatus;
@@ -269,56 +268,56 @@ function SamxOpenGroupBySid(
 
 // Enumerate group's members
 function SamxEnumerateMembersGroup(
-  [Access(GROUP_LIST_MEMBERS)] hGroup: TSamHandle;
+  [Access(GROUP_LIST_MEMBERS)] const hxGroup: ISamHandle;
   out Members: TArray<TGroupMembership>
 ): TNtxStatus;
 
 // Add a member to a group
 function SamxAddMemberGroup(
-  [Access(GROUP_ADD_MEMBER)] hGroup: TSamHandle;
+  [Access(GROUP_ADD_MEMBER)] const hxGroup: ISamHandle;
   MemberId: Cardinal;
   Attributes: TGroupAttributes
 ): TNtxStatus;
 
 // Remove a member from a group
 function SamxRemoveMemberGroup(
-  [Access(GROUP_REMOVE_MEMBER)] hGroup: TSamHandle;
+  [Access(GROUP_REMOVE_MEMBER)] const hxGroup: ISamHandle;
   MemberId: Cardinal
 ): TNtxStatus;
 
 // Adjust attributes of a group member
 function SamxSetAttributesGroup(
-  [Access(GROUP_ADD_MEMBER)] hGroup: TSamHandle;
+  [Access(GROUP_ADD_MEMBER)] const hxGroup: ISamHandle;
   MemberId: Cardinal;
   Attributes: TGroupAttributes
 ): TNtxStatus;
 
 // Query group information
 function SamxQueryGroup(
-  [Access(GROUP_READ_INFORMATION)] hGroup: TSamHandle;
+  [Access(GROUP_READ_INFORMATION)] const hxGroup: ISamHandle;
   InfoClass: TGroupInformationClass;
   out xBuffer: IAutoPointer
 ): TNtxStatus;
 
 // Set group information
 function SamxSetGroup(
-  [Access(GROUP_WRITE_ACCOUNT)] hGroup: TSamHandle;
+  [Access(GROUP_WRITE_ACCOUNT)] const hxGroup: ISamHandle;
   InfoClass: TGroupInformationClass;
   [in] Buffer: Pointer
 ): TNtxStatus;
 
 type
-  SamxGrouop = class abstract
+  SamxGroup = class abstract
     // Query fixed-size group information
     class function Query<T>(
-      [Access(GROUP_READ_INFORMATION)] hGroup: TSamHandle;
+      [Access(GROUP_READ_INFORMATION)] const hxGroup: ISamHandle;
       InfoClass: TGroupInformationClass;
       out Buffer: T
     ): TNtxStatus; static;
 
     // Set fixed-size group information
     class function &Set<T>(
-      [Access(GROUP_WRITE_ACCOUNT)] hGroup: TSamHandle;
+      [Access(GROUP_WRITE_ACCOUNT)] const hxGroup: ISamHandle;
       InfoClass: TGroupInformationClass;
       const Buffer: T
     ): TNtxStatus; static;
@@ -326,20 +325,20 @@ type
 
 // Delete a group from a domain
 function SamxDeleteGroup(
-  [Access(_DELETE)] hGroup: TSamHandle
+  [Access(_DELETE)] const hxGroup: ISamHandle
 ): TNtxStatus;
 
 { --------------------------------- Aliases --------------------------------- }
 
 // Enumerate aliases in a domain
 function SamxEnumerateAliases(
-  [Access(DOMAIN_LIST_ACCOUNTS)] hDomain: TSamHandle;
+  [Access(DOMAIN_LIST_ACCOUNTS)] const hxDomain: ISamHandle;
   out Aliases: TArray<TRidAndName>
 ): TNtxStatus;
 
 // Create a new alias in a domain
 function SamxCreateAlias(
-  [Access(DOMAIN_CREATE_ALIAS)] hDomain: TSamHandle;
+  [Access(DOMAIN_CREATE_ALIAS)] const hxDomain: ISamHandle;
   const Name: String;
   out hxAlias: ISamHandle;
   [out, opt] pRelativeId: PCardinal = nil;
@@ -349,7 +348,7 @@ function SamxCreateAlias(
 // Open an alias
 function SamxOpenAlias(
   out hxAlias: ISamHandle;
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   AliasId: Cardinal;
   DesiredAccess: TAliasAccessMask
 ): TNtxStatus;
@@ -357,7 +356,7 @@ function SamxOpenAlias(
 // Open an alias
 function SamxOpenAliasByName(
   out hxAlias: ISamHandle;
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   const Name: String;
   DesiredAccess: TAliasAccessMask
 ): TNtxStatus;
@@ -381,44 +380,44 @@ function SamxOpenAliasBySid(
 
 // Get alias members
 function SamxEnumerateMembersAlias(
-  [Access(ALIAS_LIST_MEMBERS)] hAlias: TSamHandle;
+  [Access(ALIAS_LIST_MEMBERS)] const hxAlias: ISamHandle;
   out Members: TArray<ISid>
 ): TNtxStatus;
 
 // Add a member to an alias
 function SamxAddMemberAlias(
-  [Access(ALIAS_ADD_MEMBER)] hAlias: TSamHandle;
+  [Access(ALIAS_ADD_MEMBER)] const hxAlias: ISamHandle;
   const MemberId: ISid
 ): TNtxStatus;
 
 // Add multiple members to an alias
 function SamxAddMembersAlias(
-  [Access(ALIAS_ADD_MEMBER)] hAlias: TSamHandle;
+  [Access(ALIAS_ADD_MEMBER)] const hxAlias: ISamHandle;
   const MemberIds: TArray<ISid>
 ): TNtxStatus;
 
 // Remove a member from an alias
 function SamxRemoveMemberAlias(
-  [Access(ALIAS_ADD_MEMBER)] hAlias: TSamHandle;
+  [Access(ALIAS_ADD_MEMBER)] const hxAlias: ISamHandle;
   const MemberId: ISid
 ): TNtxStatus;
 
 // Remove multiple members from an alias
 function SamxRemoveMembersAlias(
-  [Access(ALIAS_ADD_MEMBER)] hAlias: TSamHandle;
+  [Access(ALIAS_ADD_MEMBER)] const hxAlias: ISamHandle;
   const MemberIds: TArray<ISid>
 ): TNtxStatus;
 
 // Query alias information
 function SamxQueryAlias(
-  [Access(ALIAS_READ_INFORMATION)] hAlias: TSamHandle;
+  [Access(ALIAS_READ_INFORMATION)] const hxAlias: ISamHandle;
   InfoClass: TAliasInformationClass;
   out xBuffer: IAutoPointer
 ): TNtxStatus;
 
 // Set alias information
 function SamxSetAlias(
-  [Access(ALIAS_WRITE_ACCOUNT)] hAlias: TSamHandle;
+  [Access(ALIAS_WRITE_ACCOUNT)] const hxAlias: ISamHandle;
   InfoClass: TAliasInformationClass;
   [in] Buffer: Pointer
 ): TNtxStatus;
@@ -427,14 +426,14 @@ type
   SamxAlias = class abstract
     // Query fixed-size alias information
     class function Query<T>(
-      [Access(ALIAS_READ_INFORMATION)] hAlias: TSamHandle;
+      [Access(ALIAS_READ_INFORMATION)] const hxAlias: ISamHandle;
       InfoClass: TAliasInformationClass;
       out Buffer: T
     ): TNtxStatus; static;
 
     // Set fixed-size alias information
     class function &Set<T>(
-      [Access(ALIAS_WRITE_ACCOUNT)] hAlias: TSamHandle;
+      [Access(ALIAS_WRITE_ACCOUNT)] const hxAlias: ISamHandle;
       InfoClass: TAliasInformationClass;
       const Buffer: T
     ): TNtxStatus; static;
@@ -442,19 +441,19 @@ type
 
 // Delete an alias from a domain
 function SamxDeleteAlias(
-  [Access(_DELETE)] hAlias: TSamHandle
+  [Access(_DELETE)] const hxAlias: ISamHandle
 ): TNtxStatus;
 
 // Find a union of all aliases in a domain that given SIDs are members of
 function SamxGetAliasMembership(
-  [Access(DOMAIN_GET_ALIAS_MEMBERSHIP)] hDomain: TSamHandle;
+  [Access(DOMAIN_GET_ALIAS_MEMBERSHIP)] const hxDomain: ISamHandle;
   const Sids: TArray<ISid>;
   out AliasIds: TArray<Cardinal>
 ): TNtxStatus;
 
 // Remove an SID from all aliases in a domain
 function SamxRemoveMemberFromForeignDomain(
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   const MemberId: ISid
 ): TNtxStatus;
 
@@ -462,14 +461,14 @@ function SamxRemoveMemberFromForeignDomain(
 
 // Enumerate users in domain
 function SamxEnumerateUsers(
-  [Access(DOMAIN_LIST_ACCOUNTS)] hDomain: TSamHandle;
+  [Access(DOMAIN_LIST_ACCOUNTS)] const hxDomain: ISamHandle;
   out Users: TArray<TRidAndName>;
   UserType: TUserAccountFlags = 0
 ): TNtxStatus;
 
 // Create a new user in a domain
 function SamxCreateUser(
-  [Access(DOMAIN_CREATE_USER)] hDomain: TSamHandle;
+  [Access(DOMAIN_CREATE_USER)] const hxDomain: ISamHandle;
   const Name: String;
   out hxUser: ISamHandle;
   [out, opt] pRelativeId: PCardinal = nil;
@@ -481,7 +480,7 @@ function SamxCreateUser(
 // Open a user
 function SamxOpenUser(
   out hxUser: ISamHandle;
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   UserId: Cardinal;
   DesiredAccess: TUserAccessMask
 ): TNtxStatus;
@@ -489,7 +488,7 @@ function SamxOpenUser(
 // Open a user by name
 function SamxOpenUserByName(
   out hxUser: ISamHandle;
-  [Access(DOMAIN_LOOKUP)] hDomain: TSamHandle;
+  [Access(DOMAIN_LOOKUP)] const hxDomain: ISamHandle;
   const Name: String;
   DesiredAccess: TUserAccessMask
 ): TNtxStatus;
@@ -513,21 +512,21 @@ function SamxOpenUserBySid(
 
 // Get groups for a user
 function SamxEnumerateGroupsForUser(
-  [Access(USER_LIST_GROUPS)] hUser: TSamHandle;
+  [Access(USER_LIST_GROUPS)] const hxUser: ISamHandle;
   out Groups: TArray<TGroupMembership>
 ): TNtxStatus;
 
 // Query user information
 function SamxQueryUser(
   [Access(USER_READ_GENERAL or USER_READ_PREFERENCES or
-    USER_READ_LOGON or USER_READ_ACCOUNT)] hUser: TSamHandle;
+    USER_READ_LOGON or USER_READ_ACCOUNT)] const hxUser: ISamHandle;
   InfoClass: TUserInformationClass;
   out xBuffer: IAutoPointer
 ): TNtxStatus;
 
 // Set user information
 function SamxSetUser(
-  [Access(USER_WRITE_ACCOUNT)] hUser: TSamHandle;
+  [Access(USER_WRITE_ACCOUNT)] const hxUser: ISamHandle;
   InfoClass: TUserInformationClass;
   [in] Buffer: Pointer
 ): TNtxStatus;
@@ -537,14 +536,14 @@ type
     // Query fixed-size user information
     class function Query<T>(
       [Access(USER_READ_GENERAL or USER_READ_PREFERENCES or
-        USER_READ_LOGON or USER_READ_ACCOUNT)] hUser: TSamHandle;
+        USER_READ_LOGON or USER_READ_ACCOUNT)] const hxUser: ISamHandle;
       InfoClass: TUserInformationClass;
       out Buffer: T
     ): TNtxStatus; static;
 
     // Set fixed-size user information
     class function &Set<T>(
-      [Access(USER_WRITE_ACCOUNT)] hUser: TSamHandle;
+      [Access(USER_WRITE_ACCOUNT)] const hxUser: ISamHandle;
       InfoClass: TUserInformationClass;
       const Buffer: T
     ): TNtxStatus; static;
@@ -552,21 +551,21 @@ type
 
 // Delete a user from a domain
 function SamxDeleteUser(
-  [Access(_DELETE)] hUser: TSamHandle
+  [Access(_DELETE)] const hxUser: ISamHandle
 ): TNtxStatus;
 
 { --------------------------------- Security ------------------------------- }
 
 // Query security descriptor of a SAM object
 function SamxQuerySecurityObject(
-  [Access(OBJECT_READ_SECURITY)] SamHandle: TSamHandle;
+  [Access(OBJECT_READ_SECURITY)] const SamHandle: ISamHandle;
   Info: TSecurityInformation;
   out SD: ISecurityDescriptor
 ): TNtxStatus;
 
 // Set security descriptor on a SAM object
 function SamxSetSecurityObject(
-  [Access(OBJECT_WRITE_SECURITY)] SamHandle: TSamHandle;
+  [Access(OBJECT_WRITE_SECURITY)] const SamHandle: ISamHandle;
   Info: TSecurityInformation;
   [in] SD: PSecurityDescriptor
 ): TNtxStatus;
@@ -581,15 +580,15 @@ uses
 {$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 type
-  TSamAutoHandle = class(TCustomAutoHandle, ISamHandle)
+  TSamAutoHandle = class(TCustomAutoHandle, ISamHandle, IAutoReleasable)
     procedure Release; override;
   end;
 
-  TSamAutoPointer = class(TCustomAutoPointer, IAutoPointer)
+  TSamAutoPointer = class(TCustomAutoPointer, IAutoPointer, IAutoReleasable)
     procedure Release; override;
   end;
 
-  TSamAutoMemory = class(TCustomAutoMemory, IMemory)
+  TSamAutoMemory = class(TCustomAutoMemory, IMemory, IAutoPointer, IAutoReleasable)
     procedure Release; override;
   end;
 
@@ -598,7 +597,7 @@ type
     FEvent: IHandle;
     procedure Release; override;
     constructor Create(
-      OpertationType: TSecurityDbObjectType;
+      OperationType: TSecurityDbObjectType;
       const hxEvent: IHandle
     );
   end;
@@ -607,7 +606,7 @@ type
 
 procedure TSamAutoHandle.Release;
 begin
-  if (FHandle <> 0) and LdrxCheckDelayedImport(delayed_samlib,
+  if (FHandle <> 0) and LdrxCheckDelayedImport(
     delayed_SamCloseHandle).IsSuccess then
     SamCloseHandle(FHandle);
 
@@ -617,7 +616,7 @@ end;
 
 procedure TSamAutoPointer.Release;
 begin
-  if Assigned(FData) and LdrxCheckDelayedImport(delayed_samlib,
+  if Assigned(FData) and LdrxCheckDelayedImport(
     delayed_SamFreeMemory).IsSuccess then
     SamFreeMemory(FData);
 
@@ -627,7 +626,7 @@ end;
 
 procedure TSamAutoMemory.Release;
 begin
-  if Assigned(FData) and LdrxCheckDelayedImport(delayed_samlib,
+  if Assigned(FData) and LdrxCheckDelayedImport(
     delayed_SamFreeMemory).IsSuccess then
     SamFreeMemory(FData);
 
@@ -639,12 +638,12 @@ constructor TSamAutoNotification.Create;
 begin
   inherited Create;
   FEvent := hxEvent;
-  FType := OpertationType;
+  FType := OperationType;
 end;
 
 procedure TSamAutoNotification.Release;
 begin
-  if Assigned(FEvent) and LdrxCheckDelayedImport(delayed_samlib,
+  if Assigned(FEvent) and LdrxCheckDelayedImport(
     delayed_SamUnregisterObjectChangeNotification).IsSuccess then
     SamUnregisterObjectChangeNotification(FType, FEvent.Handle);
 
@@ -659,7 +658,7 @@ begin
   Result := Auto.Delay(
     procedure
     begin
-      if LdrxCheckDelayedImport(delayed_samlib,
+      if LdrxCheckDelayedImport(
         delayed_SamFreeMemory).IsSuccess then
         SamFreeMemory(Buffer);
     end
@@ -669,9 +668,15 @@ end;
 function SamxConnect;
 var
   ObjAttr: TObjectAttributes;
+  ServerNameStr: TNtUnicodeString;
   hServer: TSamHandle;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamConnect);
+  Result := LdrxCheckDelayedImport(delayed_SamConnect);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(ServerNameStr, ServerName);
 
   if not Result.IsSuccess then
     Exit;
@@ -680,9 +685,8 @@ begin
 
   Result.Location := 'SamConnect';
   Result.LastCall.OpensForAccess(DesiredAccess);
-
-  Result.Status := SamConnect(TNtUnicodeString.From(ServerName).RefOrNil,
-    hServer, DesiredAccess, ObjAttr);
+  Result.Status := SamConnect(ServerNameStr.RefOrNil, hServer, DesiredAccess,
+    ObjAttr);
 
   if Result.IsSuccess then
     hxServer := TSamAutoHandle.Capture(hServer);
@@ -696,13 +700,12 @@ begin
   if not Assigned(hxServer) then
     Result := SamxConnect(hxServer, DesiredAccess)
   else
-    Result.Status := STATUS_SUCCESS
+    Result := NtxSuccess;
 end;
 
 function SamxNotifyChanges;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamRegisterObjectChangeNotification);
+  Result := LdrxCheckDelayedImport(delayed_SamRegisterObjectChangeNotification);
 
   if not Result.IsSuccess then
     Exit;
@@ -725,8 +728,7 @@ var
   Count: Cardinal;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamEnumerateDomainsInSamServer);
+  Result := LdrxCheckDelayedImport(delayed_SamEnumerateDomainsInSamServer);
 
   if not Result.IsSuccess then
     Exit;
@@ -758,9 +760,9 @@ function SamxLookupDomain;
 var
   Buffer: PSid;
   BufferDeallocator: IAutoReleasable;
+  NameStr: TNtUnicodeString;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamLookupDomainInSamServer);
+  Result := LdrxCheckDelayedImport(delayed_SamLookupDomainInSamServer);
 
   if not Result.IsSuccess then
     Exit;
@@ -770,11 +772,14 @@ begin
   if not Result.IsSuccess then
     Exit;
 
+  Result := RtlxInitUnicodeString(NameStr, Name);
+
+  if not Result.IsSuccess then
+    Exit;
+
   Result.Location := 'SamLookupDomainInSamServer';
   Result.LastCall.Expects<TSamAccessMask>(SAM_SERVER_LOOKUP_DOMAIN);
-
-  Result.Status := SamLookupDomainInSamServer(hxServer.Handle,
-    TNtUnicodeString.From(Name), Buffer);
+  Result.Status := SamLookupDomainInSamServer(hxServer.Handle, NameStr, Buffer);
 
   if not Result.IsSuccess then
     Exit;
@@ -787,7 +792,7 @@ function SamxOpenDomain;
 var
   hDomain: TSamHandle;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamOpenDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamOpenDomain);
 
   if not Result.IsSuccess then
     Exit;
@@ -839,8 +844,7 @@ function SamxQueryDomain;
 var
   Buffer: Pointer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamQueryInformationDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamQueryInformationDomain);
 
   if not Result.IsSuccess then
     Exit;
@@ -848,7 +852,8 @@ begin
   Result.Location := 'SamQueryInformationDomain';
   Result.LastCall.UsesInfoClass(InfoClass, icQuery);
   Result.LastCall.Expects(ExpectedDomainQueryAccess(InfoClass));
-  Result.Status := SamQueryInformationDomain(hDomain, InfoClass, Buffer);
+  Result.Status := SamQueryInformationDomain(HandleOrDefault(hxDomain),
+    InfoClass, Buffer);
 
   if Result.IsSuccess then
     xBuffer := TSamAutoPointer.Capture(Buffer);
@@ -856,8 +861,7 @@ end;
 
 function SamxSetDomain;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamSetInformationDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamSetInformationDomain);
 
   if not Result.IsSuccess then
     Exit;
@@ -865,14 +869,14 @@ begin
   Result.Location := 'SamSetInformationDomain';
   Result.LastCall.UsesInfoClass(InfoClass, icSet);
   Result.LastCall.Expects(ExpectedDomainSetAccess(InfoClass));
-  Result.Status := SamSetInformationDomain(hDomain, InfoClass, Buffer);
+  Result.Status := SamSetInformationDomain(HandleOrDefault(hxDomain), InfoClass, Buffer);
 end;
 
 class function SamxDomain.Query<T>;
 var
   xBuffer: IAutoPointer;
 begin
-  Result := SamxQueryDomain(hDomain, InfoClass, xBuffer);
+  Result := SamxQueryDomain(hxDomain, InfoClass, xBuffer);
 
   if Result.IsSuccess then
     Buffer := T(xBuffer.Data^);
@@ -880,7 +884,7 @@ end;
 
 class function SamxDomain.&Set<T>;
 begin
-  Result := SamxSetDomain(hDomain, InfoClass, @Buffer);
+  Result := SamxSetDomain(hxDomain, InfoClass, @Buffer);
 end;
 
 function SamxQueryDisplayDomain;
@@ -888,8 +892,7 @@ var
   TotalAvailable, TotalReturned: Cardinal;
   Buffer: Pointer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamQueryDisplayInformation);
+  Result := LdrxCheckDelayedImport(delayed_SamQueryDisplayInformation);
 
   if not Result.IsSuccess then
     Exit;
@@ -898,8 +901,8 @@ begin
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LIST_ACCOUNTS);
   Result.LastCall.UsesInfoClass(InfoClass, icQuery);
 
-  Result.Status := SamQueryDisplayInformation(hDomain, InfoClass, StartIndex,
-    EntryCount, MAX_UINT, TotalAvailable, TotalReturned,
+  Result.Status := SamQueryDisplayInformation(HandleOrDefault(hxDomain),
+    InfoClass, StartIndex, EntryCount, MAX_UINT, TotalAvailable, TotalReturned,
     Cardinal(ReturnedEntryCount), Buffer);
 
   if not Result.IsSuccess then
@@ -912,17 +915,23 @@ begin
 end;
 
 function SamxGetDisplayIndex;
+var
+  PrefixStr: TNtUnicodeString;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamGetDisplayEnumerationIndex);
+  Result := LdrxCheckDelayedImport(delayed_SamGetDisplayEnumerationIndex);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(PrefixStr, Prefix);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamGetDisplayEnumerationIndex';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LIST_ACCOUNTS);
-  Result.Status := SamGetDisplayEnumerationIndex(hDomain, DisplayInformation,
-    TNtUnicodeString.From(Prefix), Index);
+  Result.Status := SamGetDisplayEnumerationIndex(HandleOrDefault(hxDomain),
+    DisplayInformation, PrefixStr, Index);
 end;
 
 function SamxQueryLocalizableAccountsDomain;
@@ -932,8 +941,7 @@ var
   Entry: PDomainLocalizableAccountsEntry;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamQueryLocalizableAccountsInDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamQueryLocalizableAccountsInDomain);
 
   if not Result.IsSuccess then
     Exit;
@@ -941,8 +949,9 @@ begin
   Result.Location := 'SamQueryLocalizableAccountsInDomain';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_READ_OTHER_PARAMETERS);
   Result.LastCall.UsesInfoClass(DomainLocalizableAccountsBasic, icQuery);
-  Result.Status := SamQueryLocalizableAccountsInDomain(hDomain, 0, LanguageId,
-    DomainLocalizableAccountsBasic, Pointer(Buffer));
+  Result.Status := SamQueryLocalizableAccountsInDomain(
+    HandleOrDefault(hxDomain), 0, LanguageId, DomainLocalizableAccountsBasic,
+    Pointer(Buffer));
 
   if not Result.IsSuccess then
     Exit;
@@ -969,13 +978,14 @@ var
   Buffer: PSid;
   BufferDeallocator: IAutoReleasable;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamRidToSid);
+  Result := LdrxCheckDelayedImport(delayed_SamRidToSid);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamRidToSid';
-  Result.Status := SamRidToSid(AccountOrDomainHandle, Rid, Buffer);
+  Result.Status := SamRidToSid(HandleOrDefault(hxAccountOrDomainHandle), Rid,
+    Buffer);
 
   if not Result.IsSuccess then
     Exit;
@@ -990,13 +1000,10 @@ var
   Sid0: ISid;
 begin
   if Length(Rids) < 1 then
-  begin
-    Result.Status := STATUS_SUCCESS;
-    Exit;
-  end;
+    Exit(NtxSuccess);
 
   // Ask SAM to convert the first entry
-  Result := SamxRidToSid(AccountOrDomainHandle, Rids[0], Sid0);
+  Result := SamxRidToSid(hxAccountOrDomainHandle, Rids[0], Sid0);
 
   if not Result.IsSuccess then
     Exit;
@@ -1018,7 +1025,7 @@ function SamxNameToRid;
 var
   MultiLookup: TArray<TRidAndUse>;
 begin
-  Result := SamxNamesToRids(hDomain, [Name], MultiLookup);
+  Result := SamxNamesToRids(hxDomain, [Name], MultiLookup);
 
   if Result.IsSuccess then
     Lookup := MultiLookup[0];
@@ -1032,8 +1039,7 @@ var
   NameUseBuffer: PNameUseArray;
   RelativeIDsDeallocator, NameUseDeallocator: IAutoReleasable;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamLookupNamesInDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamLookupNamesInDomain);
 
   if not Result.IsSuccess then
     Exit;
@@ -1041,12 +1047,17 @@ begin
   SetLength(NtNames, Length(Names));
 
   for i := 0 to High(Names) do
-    NtNames[i] := TNtUnicodeString.From(Names[i]);
+  begin
+    Result := RtlxInitUnicodeString(NtNames[i], Names[i]);
+
+    if not Result.IsSuccess then
+      Exit;
+  end;
 
   Result.Location := 'SamLookupNamesInDomain';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LOOKUP);
-  Result.Status := SamLookupNamesInDomain(hDomain, Length(Names), NtNames,
-    RelativeIDsBuffer, NameUseBuffer);
+  Result.Status := SamLookupNamesInDomain(HandleOrDefault(hxDomain),
+    Length(Names), NtNames, RelativeIDsBuffer, NameUseBuffer);
 
   if not Result.IsSuccess then
     Exit;
@@ -1066,7 +1077,7 @@ function SamxNameToSid;
 var
   MultiLookup: TArray<TSidAndUse>;
 begin
-  Result := SamxNamesToSids(hDomain, [Name], MultiLookup);
+  Result := SamxNamesToSids(hxDomain, [Name], MultiLookup);
 
   if Result.IsSuccess then
     Lookup := MultiLookup[0];
@@ -1080,8 +1091,7 @@ var
   NameUseBuffer: PNameUseArray;
   SidsDeallocator, NameUseDeallocator: IAutoReleasable;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamLookupNamesInDomain2);
+  Result := LdrxCheckDelayedImport(delayed_SamLookupNamesInDomain2);
 
   if not Result.IsSuccess then
     Exit;
@@ -1089,12 +1099,17 @@ begin
   SetLength(NtNames, Length(Names));
 
   for i := 0 to High(Names) do
-    NtNames[i] := TNtUnicodeString.From(Names[i]);
+  begin
+    Result := RtlxInitUnicodeString(NtNames[i], Names[i]);
+
+    if not Result.IsSuccess then
+      Exit;
+  end;
 
   Result.Location := 'SamLookupNamesInDomain2';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LOOKUP);
-  Result.Status := SamLookupNamesInDomain2(hDomain, Length(Names), NtNames,
-    SidsBuffer, NameUseBuffer);
+  Result.Status := SamLookupNamesInDomain2(HandleOrDefault(hxDomain),
+    Length(Names), NtNames, SidsBuffer, NameUseBuffer);
 
   if not Result.IsSuccess then
     Exit;
@@ -1118,7 +1133,7 @@ function SamxRidToName;
 var
   MultiLookup: TArray<TNameAndUse>;
 begin
-  Result := SamxRidsToNames(hDomain, [RelativeId], MultiLookup);
+  Result := SamxRidsToNames(hxDomain, [RelativeId], MultiLookup);
 
   if Result.IsSuccess then
     Lookup := MultiLookup[0];
@@ -1131,16 +1146,15 @@ var
   NameUseBuffer: PNameUseArray;
   NamesDeallocator, NameUseDeallocator: IAutoReleasable;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamLookupIdsInDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamLookupIdsInDomain);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamLookupIdsInDomain';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LOOKUP);
-  Result.Status := SamLookupIdsInDomain(hDomain, Length(RelativeIds),
-    RelativeIds, NamesBuffer, NameUseBuffer);
+  Result.Status := SamLookupIdsInDomain(HandleOrDefault(hxDomain),
+    Length(RelativeIds), RelativeIds, NamesBuffer, NameUseBuffer);
 
   if not Result.IsSuccess then
     Exit;
@@ -1170,8 +1184,7 @@ var
   Count: Cardinal;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamEnumerateGroupsInDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamEnumerateGroupsInDomain);
 
   if not Result.IsSuccess then
     Exit;
@@ -1180,8 +1193,8 @@ begin
   Result.Location := 'SamEnumerateGroupsInDomain';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LIST_ACCOUNTS);
 
-  Result.Status := SamEnumerateGroupsInDomain(hDomain, EnumContext, Buffer,
-    MAX_UINT, Count);
+  Result.Status := SamEnumerateGroupsInDomain(HandleOrDefault(hxDomain),
+    EnumContext, Buffer, MAX_UINT, Count);
 
   if not Result.IsSuccess then
     Exit;
@@ -1200,16 +1213,21 @@ function SamxCreateGroup;
 var
   hGroup: TSamHandle;
   RelativeId: Cardinal;
+  NameStr: TNtUnicodeString;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamCreateGroupInDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamCreateGroupInDomain);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(NameStr, Name);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamCreateGroupInDomain';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_CREATE_GROUP);
-  Result.Status := SamCreateGroupInDomain(hDomain, TNtUnicodeString.From(Name),
+  Result.Status := SamCreateGroupInDomain(HandleOrDefault(hxDomain), NameStr,
     DesiredAccess, hGroup, RelativeId);
 
   if not Result.IsSuccess then
@@ -1225,7 +1243,7 @@ function SamxOpenGroup;
 var
   hGroup: TSamHandle;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamOpenGroup);
+  Result := LdrxCheckDelayedImport(delayed_SamOpenGroup);
 
   if not Result.IsSuccess then
     Exit;
@@ -1234,7 +1252,8 @@ begin
   Result.LastCall.OpensForAccess(DesiredAccess);
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LOOKUP);
 
-  Result.Status := SamOpenGroup(hDomain, DesiredAccess, GroupId, hGroup);
+  Result.Status := SamOpenGroup(HandleOrDefault(hxDomain), DesiredAccess,
+    GroupId, hGroup);
 
   if Result.IsSuccess then
     hxGroup := TSamAutoHandle.Capture(hGroup);
@@ -1244,10 +1263,10 @@ function SamxOpenGroupByName;
 var
   Lookup: TRidAndUse;
 begin
-  Result := SamxNameToRid(hDomain, Name, Lookup);
+  Result := SamxNameToRid(hxDomain, Name, Lookup);
 
   if Result.IsSuccess then
-    Result := SamxOpenGroup(hxGroup, hDomain, Lookup.RelativeID, DesiredAccess);
+    Result := SamxOpenGroup(hxGroup, hxDomain, Lookup.RelativeID, DesiredAccess);
 end;
 
 function SamxOpenGroupByFullName;
@@ -1257,7 +1276,7 @@ begin
   Result := SamxOpenDomainByName(hxDomain, DomainName, DOMAIN_LOOKUP, hxServer);
 
   if Result.IsSuccess then
-    Result := SamxOpenGroupByName(hxGroup, hxDomain.Handle, GroupName,
+    Result := SamxOpenGroupByName(hxGroup, hxDomain, GroupName,
       DesiredAccess)
 end;
 
@@ -1270,7 +1289,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  Result := SamxOpenGroup(hxGroup, hxDomain.Handle, RtlxRidSid(Sid),
+  Result := SamxOpenGroup(hxGroup, hxDomain, RtlxRidSid(Sid),
     DesiredAccess);
 end;
 
@@ -1281,7 +1300,7 @@ var
   Count: Cardinal;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamGetMembersInGroup);
+  Result := LdrxCheckDelayedImport(delayed_SamGetMembersInGroup);
 
   if not Result.IsSuccess then
     Exit;
@@ -1289,8 +1308,8 @@ begin
   Result.Location := 'SamGetMembersInGroup';
   Result.LastCall.Expects<TGroupAccessMask>(GROUP_LIST_MEMBERS);
 
-  Result.Status := SamGetMembersInGroup(hGroup, BufferIDs, BufferAttributes,
-    Count);
+  Result.Status := SamGetMembersInGroup(HandleOrDefault(hxGroup), BufferIDs,
+    BufferAttributes, Count);
 
   if not Result.IsSuccess then
     Exit;
@@ -1308,48 +1327,47 @@ end;
 
 function SamxAddMemberGroup;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamAddMemberToGroup);
+  Result := LdrxCheckDelayedImport(delayed_SamAddMemberToGroup);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamAddMemberToGroup';
   Result.LastCall.Expects<TGroupAccessMask>(GROUP_ADD_MEMBER);
-  Result.Status := SamAddMemberToGroup(hGroup, MemberId, Attributes);
+  Result.Status := SamAddMemberToGroup(HandleOrDefault(hxGroup), MemberId,
+    Attributes);
 end;
 
 function SamxRemoveMemberGroup;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamRemoveMemberFromGroup);
+  Result := LdrxCheckDelayedImport(delayed_SamRemoveMemberFromGroup);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamRemoveMemberFromGroup';
   Result.LastCall.Expects<TGroupAccessMask>(GROUP_REMOVE_MEMBER);
-  Result.Status := SamRemoveMemberFromGroup(hGroup, MemberId);
+  Result.Status := SamRemoveMemberFromGroup(HandleOrDefault(hxGroup), MemberId);
 end;
 
 function SamxSetAttributesGroup;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamSetMemberAttributesOfGroup);
+  Result := LdrxCheckDelayedImport(delayed_SamSetMemberAttributesOfGroup);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamSetMemberAttributesOfGroup';
   Result.LastCall.Expects<TGroupAccessMask>(GROUP_ADD_MEMBER);
-  Result.Status := SamSetMemberAttributesOfGroup(hGroup, MemberId, Attributes);
+  Result.Status := SamSetMemberAttributesOfGroup(HandleOrDefault(hxGroup),
+    MemberId, Attributes);
 end;
 
 function SamxQueryGroup;
 var
   Buffer: Pointer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamQueryInformationGroup);
+  Result := LdrxCheckDelayedImport(delayed_SamQueryInformationGroup);
 
   if not Result.IsSuccess then
     Exit;
@@ -1358,7 +1376,8 @@ begin
   Result.LastCall.UsesInfoClass(InfoClass, icQuery);
   Result.LastCall.Expects<TGroupAccessMask>(GROUP_READ_INFORMATION);
 
-  Result.Status := SamQueryInformationGroup(hGroup, InfoClass, Buffer);
+  Result.Status := SamQueryInformationGroup(HandleOrDefault(hxGroup), InfoClass,
+    Buffer);
 
   if Result.IsSuccess then
     xBuffer := TSamAutoPointer.Capture(Buffer);
@@ -1366,8 +1385,7 @@ end;
 
 function SamxSetGroup;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamSetInformationGroup);
+  Result := LdrxCheckDelayedImport(delayed_SamSetInformationGroup);
 
   if not Result.IsSuccess then
     Exit;
@@ -1376,34 +1394,35 @@ begin
   Result.LastCall.UsesInfoClass(InfoClass, icSet);
   Result.LastCall.Expects<TGroupAccessMask>(GROUP_WRITE_ACCOUNT);
 
-  Result.Status := SamSetInformationGroup(hGroup, InfoClass, Buffer);
+  Result.Status := SamSetInformationGroup(HandleOrDefault(hxGroup), InfoClass,
+    Buffer);
 end;
 
-class function SamxGrouop.Query<T>;
+class function SamxGroup.Query<T>;
 var
   xBuffer: IAutoPointer;
 begin
-  Result := SamxQueryGroup(hGroup, InfoClass, xBuffer);
+  Result := SamxQueryGroup(hxGroup, InfoClass, xBuffer);
 
   if Result.IsSuccess then
     Buffer := T(xBuffer.Data^);
 end;
 
-class function SamxGrouop.&Set<T>;
+class function SamxGroup.&Set<T>;
 begin
-  Result := SamxSetGroup(hGroup, InfoClass, @Buffer);
+  Result := SamxSetGroup(hxGroup, InfoClass, @Buffer);
 end;
 
 function SamxDeleteGroup;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamDeleteGroup);
+  Result := LdrxCheckDelayedImport(delayed_SamDeleteGroup);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamDeleteGroup';
   Result.LastCall.Expects<TGroupAccessMask>(_DELETE);
-  Result.Status := SamDeleteGroup(hGroup);
+  Result.Status := SamDeleteGroup(HandleOrDefault(hxGroup));
 end;
 
 { Aliases }
@@ -1416,8 +1435,7 @@ var
   Count: Cardinal;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamEnumerateAliasesInDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamEnumerateAliasesInDomain);
 
   if not Result.IsSuccess then
     Exit;
@@ -1426,8 +1444,8 @@ begin
   Result.Location := 'SamEnumerateAliasesInDomain';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LIST_ACCOUNTS);
 
-  Result.Status := SamEnumerateAliasesInDomain(hDomain, EnumContext,
-    Buffer, MAX_UINT, Count);
+  Result.Status := SamEnumerateAliasesInDomain(HandleOrDefault(hxDomain),
+    EnumContext, Buffer, MAX_UINT, Count);
 
   if not Result.IsSuccess then
     Exit;
@@ -1446,16 +1464,21 @@ function SamxCreateAlias;
 var
   hAlias: TSamHandle;
   RelativeId: Cardinal;
+  NameStr: TNtUnicodeString;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamCreateAliasInDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamCreateAliasInDomain);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(NameStr, Name);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamCreateAliasInDomain';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_CREATE_ALIAS);
-  Result.Status := SamCreateAliasInDomain(hDomain, TNtUnicodeString.From(Name),
+  Result.Status := SamCreateAliasInDomain(HandleOrDefault(hxDomain), NameStr,
     DesiredAccess, hAlias, RelativeId);
 
   if not Result.IsSuccess then
@@ -1471,7 +1494,7 @@ function SamxOpenAlias;
 var
   hAlias: TSamHandle;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamOpenAlias);
+  Result := LdrxCheckDelayedImport(delayed_SamOpenAlias);
 
   if not Result.IsSuccess then
     Exit;
@@ -1480,7 +1503,8 @@ begin
   Result.LastCall.OpensForAccess(DesiredAccess);
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LOOKUP);
 
-  Result.Status := SamOpenAlias(hDomain, DesiredAccess, AliasId, hAlias);
+  Result.Status := SamOpenAlias(HandleOrDefault(hxDomain), DesiredAccess,
+    AliasId, hAlias);
 
   if Result.IsSuccess then
     hxAlias := TSamAutoHandle.Capture(hAlias);
@@ -1490,10 +1514,10 @@ function SamxOpenAliasByName;
 var
   Lookup: TRidAndUse;
 begin
-  Result := SamxNameToRid(hDomain, Name, Lookup);
+  Result := SamxNameToRid(hxDomain, Name, Lookup);
 
   if Result.IsSuccess then
-    Result := SamxOpenAlias(hxAlias, hDomain, Lookup.RelativeID, DesiredAccess);
+    Result := SamxOpenAlias(hxAlias, hxDomain, Lookup.RelativeID, DesiredAccess);
 end;
 
 function SamxOpenAliasByFullName;
@@ -1503,7 +1527,7 @@ begin
   Result := SamxOpenDomainByName(hxDomain, DomainName, DOMAIN_LOOKUP, hxServer);
 
   if Result.IsSuccess then
-    Result := SamxOpenAliasByName(hxAlias, hxDomain.Handle, AliasName,
+    Result := SamxOpenAliasByName(hxAlias, hxDomain, AliasName,
       DesiredAccess);
 end;
 
@@ -1516,7 +1540,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  Result := SamxOpenAlias(hxAlias, hxDomain.Handle, RtlxRidSid(Sid),
+  Result := SamxOpenAlias(hxAlias, hxDomain, RtlxRidSid(Sid),
     DesiredAccess);
 end;
 
@@ -1527,7 +1551,7 @@ var
   Count: Cardinal;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamGetMembersInAlias);
+  Result := LdrxCheckDelayedImport(delayed_SamGetMembersInAlias);
 
   if not Result.IsSuccess then
     Exit;
@@ -1535,7 +1559,7 @@ begin
   Result.Location := 'SamGetMembersInAlias';
   Result.LastCall.Expects<TAliasAccessMask>(ALIAS_LIST_MEMBERS);
 
-  Result.Status := SamGetMembersInAlias(hAlias, Buffer, Count);
+  Result.Status := SamGetMembersInAlias(HandleOrDefault(hxAlias), Buffer, Count);
 
   if not Result.IsSuccess then
     Exit;
@@ -1554,14 +1578,14 @@ end;
 
 function SamxAddMemberAlias;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamAddMemberToAlias);
+  Result := LdrxCheckDelayedImport(delayed_SamAddMemberToAlias);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamAddMemberToAlias';
   Result.LastCall.Expects<TAliasAccessMask>(ALIAS_ADD_MEMBER);
-  Result.Status := SamAddMemberToAlias(hAlias, MemberId.Data);
+  Result.Status := SamAddMemberToAlias(HandleOrDefault(hxAlias), MemberId.Data);
 end;
 
 function SamxAddMembersAlias;
@@ -1569,8 +1593,7 @@ var
   Members: TArray<PSid>;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamAddMultipleMembersToAlias);
+  Result := LdrxCheckDelayedImport(delayed_SamAddMultipleMembersToAlias);
 
   if not Result.IsSuccess then
     Exit;
@@ -1582,21 +1605,21 @@ begin
 
   Result.Location := 'SamAddMultipleMembersToAlias';
   Result.LastCall.Expects<TAliasAccessMask>(ALIAS_ADD_MEMBER);
-  Result.Status := SamAddMultipleMembersToAlias(hAlias, Members,
-    Length(Members));
+  Result.Status := SamAddMultipleMembersToAlias(HandleOrDefault(hxAlias),
+    Members, Length(Members));
 end;
 
 function SamxRemoveMemberAlias;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamRemoveMemberFromAlias);
+  Result := LdrxCheckDelayedImport(delayed_SamRemoveMemberFromAlias);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamRemoveMemberFromAlias';
   Result.LastCall.Expects<TAliasAccessMask>(ALIAS_REMOVE_MEMBER);
-  Result.Status := SamRemoveMemberFromAlias(hAlias, MemberId.Data);
+  Result.Status := SamRemoveMemberFromAlias(HandleOrDefault(hxAlias),
+    MemberId.Data);
 end;
 
 function SamxRemoveMembersAlias;
@@ -1604,8 +1627,7 @@ var
   Members: TArray<PSid>;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamRemoveMultipleMembersFromAlias);
+  Result := LdrxCheckDelayedImport(delayed_SamRemoveMultipleMembersFromAlias);
 
   if not Result.IsSuccess then
     Exit;
@@ -1617,16 +1639,15 @@ begin
 
   Result.Location := 'SamRemoveMultipleMembersFromAlias';
   Result.LastCall.Expects<TAliasAccessMask>(ALIAS_REMOVE_MEMBER);
-  Result.Status := SamRemoveMultipleMembersFromAlias(hAlias, Members,
-    Length(Members));
+  Result.Status := SamRemoveMultipleMembersFromAlias(HandleOrDefault(hxAlias),
+    Members, Length(Members));
 end;
 
 function SamxQueryAlias;
 var
   Buffer: Pointer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamQueryInformationAlias);
+  Result := LdrxCheckDelayedImport(delayed_SamQueryInformationAlias);
 
   if not Result.IsSuccess then
     Exit;
@@ -1635,7 +1656,8 @@ begin
   Result.LastCall.UsesInfoClass(InfoClass, icQuery);
   Result.LastCall.Expects<TAliasAccessMask>(ALIAS_READ_INFORMATION);
 
-  Result.Status := SamQueryInformationAlias(hAlias, InfoClass, Buffer);
+  Result.Status := SamQueryInformationAlias(HandleOrDefault(hxAlias), InfoClass,
+    Buffer);
 
   if Result.IsSuccess then
     xBuffer := TSamAutoPointer.Capture(Buffer);
@@ -1643,8 +1665,7 @@ end;
 
 function SamxSetAlias;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamSetInformationAlias);
+  Result := LdrxCheckDelayedImport(delayed_SamSetInformationAlias);
 
   if not Result.IsSuccess then
     Exit;
@@ -1652,14 +1673,14 @@ begin
   Result.Location := 'SamSetInformationAlias';
   Result.LastCall.UsesInfoClass(InfoClass, icSet);
   Result.LastCall.Expects<TAliasAccessMask>(ALIAS_WRITE_ACCOUNT);
-  Result.Status := SamSetInformationAlias(hAlias, InfoClass, Buffer);
+  Result.Status := SamSetInformationAlias(HandleOrDefault(hxAlias), InfoClass, Buffer);
 end;
 
 class function SamxAlias.Query<T>;
 var
   xBuffer: IAutoPointer;
 begin
-  Result := SamxQueryAlias(hAlias, InfoClass, xBuffer);
+  Result := SamxQueryAlias(hxAlias, InfoClass, xBuffer);
 
   if Result.IsSuccess then
     Buffer := T(xBuffer.Data^);
@@ -1667,31 +1688,30 @@ end;
 
 class function SamxAlias.&Set<T>;
 begin
-  Result := SamxSetAlias(hAlias, InfoClass, @Buffer);
+  Result := SamxSetAlias(hxAlias, InfoClass, @Buffer);
 end;
 
 function SamxDeleteAlias;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamDeleteAlias);
+  Result := LdrxCheckDelayedImport(delayed_SamDeleteAlias);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamDeleteAlias';
   Result.LastCall.Expects<TAliasAccessMask>(_DELETE);
-  Result.Status := SamDeleteAlias(hAlias);
+  Result.Status := SamDeleteAlias(HandleOrDefault(hxAlias));
 end;
 
 function SamxGetAliasMembership;
 var
   SidData: TArray<PSid>;
-  MemberhsipCount: Cardinal;
+  MembershipCount: Cardinal;
   Buffer: PCardinalArray;
   BufferDeallocator: IAutoReleasable;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamGetAliasMembership);
+  Result := LdrxCheckDelayedImport(delayed_SamGetAliasMembership);
 
   if not Result.IsSuccess then
     Exit;
@@ -1703,14 +1723,14 @@ begin
 
   Result.Location := 'SamGetAliasMembership';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_GET_ALIAS_MEMBERSHIP);
-  Result.Status := SamGetAliasMembership(hDomain, Length(SidData), SidData,
-    MemberhsipCount, Buffer);
+  Result.Status := SamGetAliasMembership(HandleOrDefault(hxDomain),
+    Length(SidData), SidData, MembershipCount, Buffer);
 
   if not Result.IsSuccess then
     Exit;
 
   BufferDeallocator := SamxDelayAutoFree(Buffer);
-  SetLength(AliasIds, MemberhsipCount);
+  SetLength(AliasIds, MembershipCount);
 
   for i := 0 to High(AliasIds) do
     AliasIds[i] := Buffer{$R-}[i]{$IFDEF R+}{$R+}{$ENDIF};
@@ -1718,15 +1738,15 @@ end;
 
 function SamxRemoveMemberFromForeignDomain;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamRemoveMemberFromForeignDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamRemoveMemberFromForeignDomain);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamRemoveMemberFromForeignDomain';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LOOKUP);
-  Result.Status := SamRemoveMemberFromForeignDomain(hDomain, MemberId.Data);
+  Result.Status := SamRemoveMemberFromForeignDomain(HandleOrDefault(hxDomain),
+    MemberId.Data);
 end;
 
 { Users }
@@ -1739,8 +1759,7 @@ var
   Count: Cardinal;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamEnumerateUsersInDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamEnumerateUsersInDomain);
 
   if not Result.IsSuccess then
     Exit;
@@ -1749,8 +1768,8 @@ begin
   Result.Location := 'SamEnumerateUsersInDomain';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LIST_ACCOUNTS);
 
-  Result.Status := SamEnumerateUsersInDomain(hDomain, EnumContext,
-    UserType, Buffer, MAX_UINT, Count);
+  Result.Status := SamEnumerateUsersInDomain(HandleOrDefault(hxDomain),
+    EnumContext, UserType, Buffer, MAX_UINT, Count);
 
   if not Result.IsSuccess then
     Exit;
@@ -1770,16 +1789,21 @@ var
   hUser: TSamHandle;
   GrantedAccess: TUserAccessMask;
   RelativeId: Cardinal;
+  NameStr: TNtUnicodeString;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamCreateUser2InDomain);
+  Result := LdrxCheckDelayedImport(delayed_SamCreateUser2InDomain);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(NameStr, Name);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamCreateUser2InDomain';
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_CREATE_USER);
-  Result.Status := SamCreateUser2InDomain(hDomain, TNtUnicodeString.From(Name),
+  Result.Status := SamCreateUser2InDomain(HandleOrDefault(hxDomain), NameStr,
     AccountType, DesiredAccess, hUser, GrantedAccess, RelativeId);
 
   if not Result.IsSuccess then
@@ -1798,7 +1822,7 @@ function SamxOpenUser;
 var
   hUser: TSamHandle;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamOpenUser);
+  Result := LdrxCheckDelayedImport(delayed_SamOpenUser);
 
   if not Result.IsSuccess then
     Exit;
@@ -1807,7 +1831,8 @@ begin
   Result.LastCall.OpensForAccess(DesiredAccess);
   Result.LastCall.Expects<TDomainAccessMask>(DOMAIN_LOOKUP);
 
-  Result.Status := SamOpenUser(hDomain, DesiredAccess, UserId, hUser);
+  Result.Status := SamOpenUser(HandleOrDefault(hxDomain), DesiredAccess, UserId,
+    hUser);
 
   if Result.IsSuccess then
     hxUser := TSamAutoHandle.Capture(hUser);
@@ -1817,10 +1842,10 @@ function SamxOpenUserByName;
 var
   Lookup: TRidAndUse;
 begin
-  Result := SamxNameToRid(hDomain, Name, Lookup);
+  Result := SamxNameToRid(hxDomain, Name, Lookup);
 
   if Result.IsSuccess then
-    Result := SamxOpenUser(hxUser, hDomain, Lookup.RelativeID, DesiredAccess);
+    Result := SamxOpenUser(hxUser, hxDomain, Lookup.RelativeID, DesiredAccess);
 end;
 
 function SamxOpenUserByFullName;
@@ -1830,7 +1855,7 @@ begin
   Result := SamxOpenDomainByName(hxDomain, DomainName, DOMAIN_LOOKUP, hxServer);
 
   if Result.IsSuccess then
-    Result := SamxOpenUserByName(hxUser, hxDomain.Handle, UserName,
+    Result := SamxOpenUserByName(hxUser, hxDomain, UserName,
       DesiredAccess);
 end;
 
@@ -1843,7 +1868,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  Result := SamxOpenUser(hxUser, hxDomain.Handle, RtlxRidSid(Sid),
+  Result := SamxOpenUser(hxUser, hxDomain, RtlxRidSid(Sid),
     DesiredAccess);
 end;
 
@@ -1854,7 +1879,7 @@ var
   Count: Cardinal;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamGetGroupsForUser);
+  Result := LdrxCheckDelayedImport(delayed_SamGetGroupsForUser);
 
   if not Result.IsSuccess then
     Exit;
@@ -1862,7 +1887,7 @@ begin
   Result.Location := 'SamGetGroupsForUser';
   Result.LastCall.Expects<TUserAccessMask>(USER_LIST_GROUPS);
 
-  Result.Status := SamGetGroupsForUser(hUser, Buffer, Count);
+  Result.Status := SamGetGroupsForUser(HandleOrDefault(hxUser), Buffer, Count);
 
   if not Result.IsSuccess then
     Exit;
@@ -1878,8 +1903,7 @@ function SamxQueryUser;
 var
   Buffer: Pointer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamQueryInformationUser);
+  Result := LdrxCheckDelayedImport(delayed_SamQueryInformationUser);
 
   if not Result.IsSuccess then
     Exit;
@@ -1888,7 +1912,8 @@ begin
   Result.LastCall.UsesInfoClass(InfoClass, icQuery);
   Result.LastCall.Expects(ExpectedUserQueryAccess(InfoClass));
 
-  Result.Status := SamQueryInformationUser(hUser, InfoClass, Buffer);
+  Result.Status := SamQueryInformationUser(HandleOrDefault(hxUser), InfoClass,
+    Buffer);
 
   if Result.IsSuccess then
     xBuffer := TSamAutoPointer.Capture(Buffer);
@@ -1896,8 +1921,7 @@ end;
 
 function SamxSetUser;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamSetInformationUser);
+  Result := LdrxCheckDelayedImport(delayed_SamSetInformationUser);
 
   if not Result.IsSuccess then
     Exit;
@@ -1905,14 +1929,15 @@ begin
   Result.Location := 'SamSetInformationUser';
   Result.LastCall.UsesInfoClass(InfoClass, icSet);
   Result.LastCall.Expects(ExpectedUserSetAccess(InfoClass));
-  Result.Status := SamSetInformationUser(hUser, InfoClass, Buffer);
+  Result.Status := SamSetInformationUser(HandleOrDefault(hxUser), InfoClass,
+    Buffer);
 end;
 
 class function SamxUser.Query<T>;
 var
   xBuffer: IAutoPointer;
 begin
-  Result := SamxQueryUser(hUser, InfoClass, xBuffer);
+  Result := SamxQueryUser(hxUser, InfoClass, xBuffer);
 
   if Result.IsSuccess then
     Buffer := T(xBuffer.Data^);
@@ -1920,34 +1945,34 @@ end;
 
 class function SamxUser.&Set<T>;
 begin
-  Result := SamxSetUser(hUser, InfoClass, @Buffer);
+  Result := SamxSetUser(hxUser, InfoClass, @Buffer);
 end;
 
 function SamxDeleteUser;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib, delayed_SamDeleteUser);
+  Result := LdrxCheckDelayedImport(delayed_SamDeleteUser);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamDeleteUser';
   Result.LastCall.Expects<TUserAccessMask>(_DELETE);
-  Result.Status := SamDeleteUser(hUser);
+  Result.Status := SamDeleteUser(HandleOrDefault(hxUser));
 end;
 
 function SamxQuerySecurityObject;
 var
   Buffer: PSecurityDescriptor;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamQuerySecurityObject);
+  Result := LdrxCheckDelayedImport(delayed_SamQuerySecurityObject);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamQuerySecurityObject';
   Result.LastCall.Expects(SecurityReadAccess(Info));
-  Result.Status := SamQuerySecurityObject(SamHandle, Info, Buffer);
+  Result.Status := SamQuerySecurityObject(HandleOrDefault(SamHandle), Info,
+    Buffer);
 
   if Result.IsSuccess then
     IMemory(SD) := TSamAutoMemory.Capture(Buffer,
@@ -1956,15 +1981,14 @@ end;
 
 function SamxSetSecurityObject;
 begin
-  Result := LdrxCheckDelayedImport(delayed_samlib,
-    delayed_SamSetSecurityObject);
+  Result := LdrxCheckDelayedImport(delayed_SamSetSecurityObject);
 
   if not Result.IsSuccess then
     Exit;
 
   Result.Location := 'SamSetSecurityObject';
   Result.LastCall.Expects(SecurityWriteAccess(Info));
-  Result.Status := SamSetSecurityObject(SamHandle, Info, SD);
+  Result.Status := SamSetSecurityObject(HandleOrDefault(SamHandle), Info, SD);
 end;
 
 end.

@@ -78,6 +78,7 @@ const
 function RtlxpSuggestWellKnownSIDs: TArray<ISid>;
 var
   KnownDefinitions: TArray<TArray<Cardinal>>;
+  i, Count: Integer;
 begin
   KnownDefinitions := [
     [SECURITY_NULL_SID_AUTHORITY, SECURITY_NULL_RID],
@@ -89,6 +90,7 @@ begin
     [SECURITY_CREATOR_SID_AUTHORITY, SECURITY_CREATOR_OWNER_SERVER_RID],
     [SECURITY_CREATOR_SID_AUTHORITY, SECURITY_CREATOR_GROUP_SERVER_RID],
     [SECURITY_CREATOR_SID_AUTHORITY, SECURITY_CREATOR_OWNER_RIGHTS_RID],
+    [SECURITY_NON_UNIQUE_AUTHORITY],
     [SECURITY_NT_AUTHORITY, SECURITY_DIALUP_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_NETWORK_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_BATCH_RID],
@@ -155,16 +157,32 @@ begin
     [SECURITY_NT_AUTHORITY, SECURITY_CRED_TYPE_BASE_RID, SECURITY_CRED_TYPE_THIS_ORG_CERT_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_SERVICE_ID_BASE_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_SERVICE_ID_BASE_RID, SECURITY_SERVICE_ID_GROUP_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_APPPOOL_ID_BASE_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_VIRTUALSERVER_ID_BASE_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_VIRTUALSERVER_ID_BASE_RID, SECURITY_VIRTUALSERVER_ID_GROUP_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_USERMODEDRIVERHOST_ID_BASE_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_USERMODEDRIVERHOST_ID_BASE_RID, 0, 0, 0, 0, SECURITY_USERMODEDRIVERHOST_ID_GROUP_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_CLOUD_INFRASTRUCTURE_SERVICES_ID_BASE_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_WMIHOST_ID_BASE_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_TASK_ID_BASE_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_NFS_ID_BASE_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_COM_ID_BASE_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_WINDOW_MANAGER_BASE_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_WINDOW_MANAGER_BASE_RID, SECURITY_WINDOW_MANAGER_GROUP],
+    [SECURITY_NT_AUTHORITY, SECURITY_RDV_GFX_BASE_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_DASHOST_ID_BASE_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_USERMANAGER_ID_BASE_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_WINRM_ID_BASE_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_CCG_ID_BASE_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_UMFD_BASE_RID],
+    [SECURITY_NT_AUTHORITY, SECURITY_WINDOWSMOBILE_ID_BASE_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_LOCAL_ACCOUNT_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_LOCAL_ACCOUNT_AND_ADMIN_RID],
     [SECURITY_NT_AUTHORITY, SECURITY_OTHER_ORGANIZATION_RID],
+    [SECURITY_SITESERVER_AUTHORITY],
+    [SECURITY_INTERNETSITE_AUTHORITY],
+    [SECURITY_EXCHANGE_AUTHORITY],
+    [SECURITY_RESOURCE_MANAGER_AUTHORITY],
     [SECURITY_APP_PACKAGE_AUTHORITY, SECURITY_APP_PACKAGE_BASE_RID, SECURITY_BUILTIN_PACKAGE_ANY_PACKAGE],
     [SECURITY_APP_PACKAGE_AUTHORITY, SECURITY_APP_PACKAGE_BASE_RID, SECURITY_BUILTIN_PACKAGE_ANY_RESTRICTED_PACKAGE],
     [SECURITY_APP_PACKAGE_AUTHORITY, SECURITY_CAPABILITY_BASE_RID, SECURITY_CAPABILITY_INTERNET_CLIENT],
@@ -187,6 +205,7 @@ begin
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_HIGH_RID],
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_SYSTEM_RID],
     [SECURITY_MANDATORY_LABEL_AUTHORITY, SECURITY_MANDATORY_PROTECTED_PROCESS_RID],
+    [SECURITY_SCOPED_POLICY_ID_AUTHORITY],
     [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_AUTHORITY_ASSERTED_RID],
     [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_SERVICE_ASSERTED_RID],
     [SECURITY_AUTHENTICATION_AUTHORITY, SECURITY_AUTHENTICATION_FRESH_KEY_AUTH_RID],
@@ -206,16 +225,15 @@ begin
     [SECURITY_PROCESS_TRUST_AUTHORITY, SECURITY_PROCESS_PROTECTION_TYPE_FULL_RID, SECURITY_PROCESS_PROTECTION_LEVEL_WINTCB_RID]
   ];
 
-  Result := TArray.Convert<TArray<Cardinal>, ISid>(KnownDefinitions,
-    function (const Authorities: TArray<Cardinal>; out Sid: ISid): Boolean
-    begin
-      if Length(Authorities) < 1 then
-        Exit(False);
+  SetLength(Result, Length(KnownDefinitions));
+  Count := 0;
 
-      Result := RtlxCreateSid(Sid, Authorities[0], Copy(Authorities, 1,
-        Length(Authorities) - 1)).IsSuccess;
-    end
-  );
+  for i := 0 to High(Result) do
+    if RtlxCreateSidFromArray(Result[Count], KnownDefinitions[i]).IsSuccess then
+      Inc(Count);
+
+  if Count <> Length(KnownDefinitions) then
+    SetLength(Result, Count);
 end;
 
 function RtlxpSuggestVirtualAccountSIDs: TArray<ISid>;
@@ -275,29 +293,29 @@ begin
 
   // Add users
   if (SidTypeUser in SidTypes) and
-    SamxEnumerateUsers(hxDomain.Handle, Members).IsSuccess then
+    SamxEnumerateUsers(hxDomain, Members).IsSuccess then
     AllMembers := AllMembers + Members;
 
   // Add groups
   if (SidTypeGroup in SidTypes) and
-    SamxEnumerateGroups(hxDomain.Handle, Members).IsSuccess then
+    SamxEnumerateGroups(hxDomain, Members).IsSuccess then
     AllMembers := AllMembers + Members;
 
   // Add aliases
   if (SidTypeAlias in SidTypes) and
-    SamxEnumerateAliases(hxDomain.Handle, Members).IsSuccess then
+    SamxEnumerateAliases(hxDomain, Members).IsSuccess then
     AllMembers := AllMembers + Members;
 
   if Length(AllMembers) = 0 then
     Exit;
 
-  // Convers RIDs to SIDs
+  // Converts RIDs to SIDs
   SetLength(RIDs, Length(AllMembers));
 
   for i := 0 to High(AllMembers) do
     RIDs[i] := AllMembers[i].RelativeID;
 
-  if not SamxRidsToSids(hxDomain.Handle, RIDs, Result).IsSuccess then
+  if not SamxRidsToSids(hxDomain, RIDs, Result).IsSuccess then
     Result := nil;
 end;
 
@@ -378,7 +396,7 @@ begin
     var
       Info: ILogonSession;
      begin
-      // Lookup ownwer of each logon session
+      // Lookup owner of each logon session
       Result := LsaxQueryLogonSession(LogonId, Info).IsSuccess and
         Assigned(Info.Data.SID) and RtlxCopySid(Info.Data.SID, Sid).IsSuccess;
     end
@@ -432,7 +450,8 @@ function RtlxSuggestLogonSIDs: TArray<ISid>;
 var
   Sid: ISid;
 begin
-  if UsrxQuerySid(GetProcessWindowStation, Sid).IsSuccess and Assigned(Sid) then
+  if UsrxQuerySid(UsrxCurrentWindowStation, Sid).IsSuccess and
+    Assigned(Sid) then
     Result := [Sid]
   else
     Result := nil;
@@ -479,7 +498,7 @@ var
   TaskPrefix: String;
   OpenParameters: IFileParameters;
   Tasks: TArray<ISid>;
-  hxTaskDirecty: IHandle;
+  hxTaskDirectory: IHandle;
 begin
   // Add base SID
   Result := [RtlxMakeSid(SECURITY_NT_AUTHORITY, [SECURITY_TASK_ID_BASE_RID])];
@@ -490,14 +509,14 @@ begin
     .UseOptions(FILE_DIRECTORY_FILE);
 
   // Try opening the root of all scheduled tasks
-  Status := NtxOpenFile(hxTaskDirecty, OpenParameters.UseFileName(TASK_ROOT));
+  Status := NtxOpenFile(hxTaskDirectory, OpenParameters.UseFileName(TASK_ROOT));
 
   if not Status.IsSuccess then
   begin
     TaskPrefix := 'Microsoft';
 
     // Retry with tasks that might not require admin rights to enumerate
-    Status := NtxOpenFile(hxTaskDirecty, OpenParameters
+    Status := NtxOpenFile(hxTaskDirectory, OpenParameters
       .UseFileName(TASK_ROOT + '\' + TaskPrefix));
   end;
 
@@ -507,7 +526,7 @@ begin
   Tasks := nil;
 
   // Traverse the tasks and collect their names
-  Status := NtxTraverseDirectoryFile(hxTaskDirecty, OpenParameters,
+  Status := NtxTraverseDirectoryFile(hxTaskDirectory, OpenParameters,
     function(
       const FileInfo: TDirectoryFileEntry;
       const Root: IHandle;
@@ -603,7 +622,7 @@ begin
     Exit(nil);
   end;
 
-  // Make a fake lookup for rememebered names
+  // Make a fake lookup for remembered names
   Result := TArray.Convert<String, TTranslatedName>(
     RtlxEnumerateRememberedAppContainers(Filter),
     function (const Name: String; out Translated: TTranslatedName): Boolean
@@ -739,7 +758,7 @@ var
   ParentMoniker : String;
   Source: TSidSource;
 begin
-  Result.Status := STATUS_SUCCESS;
+  Result := NtxSuccess;
 
   if Root = '' then
   begin
@@ -825,7 +844,7 @@ var
   Provider: ISuggestionProvider;
   Callback: TExpandProvider;
 begin
-  // Create a provider class and capture it inside IAutoReleasable's decendent
+  // Create a provider class and capture it inside IAutoReleasable's descendant
   Provider := TSidSuggestionProvider.Create;
 
   // Make an anonymous function that forwards the requests and captures the

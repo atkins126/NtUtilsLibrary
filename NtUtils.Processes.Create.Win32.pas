@@ -23,6 +23,7 @@ uses
 [SupportedOption(spoSecurity)]
 [SupportedOption(spoWindowMode)]
 [SupportedOption(spoWindowTitle)]
+[SupportedOption(spoStdHandles)]
 [SupportedOption(spoDesktop)]
 [SupportedOption(spoToken)]
 [SupportedOption(spoParentProcess)]
@@ -50,6 +51,7 @@ function AdvxCreateProcess(
 [SupportedOption(spoEnvironment)]
 [SupportedOption(spoWindowMode)]
 [SupportedOption(spoWindowTitle)]
+[SupportedOption(spoStdHandles)]
 [SupportedOption(spoDesktop)]
 [SupportedOption(spoToken)]
 [SupportedOption(spoParentProcess)]
@@ -66,6 +68,7 @@ function AdvxCreateProcessWithToken(
 [SupportedOption(spoEnvironment)]
 [SupportedOption(spoWindowMode)]
 [SupportedOption(spoWindowTitle)]
+[SupportedOption(spoStdHandles)]
 [SupportedOption(spoDesktop)]
 [SupportedOption(spoParentProcess)]
 [SupportedOption(spoLogonFlags)]
@@ -92,7 +95,7 @@ uses
 type
   IPtAttributes = IMemory<PProcThreadAttributeList>;
 
-  TPtAutoMemory = class (TAutoMemory, IMemory)
+  TPtAutoMemory = class (TAutoMemory, IMemory, IAutoPointer, IAutoReleasable)
     Options: TCreateProcessOptions;
     hParent: THandle;
     HandleList: TArray<THandle>;
@@ -103,14 +106,14 @@ type
     ExtendedFlags: TProcExtendedFlag;
     ChildPolicy: TProcessChildFlags;
     Protection: TProtectionLevel;
-    SeSafePromtClaim: TSeSafeOpenPromptResults;
-    Initilalized: Boolean;
+    SeSafePromptClaim: TSeSafeOpenPromptResults;
+    Initialized: Boolean;
     procedure Release; override;
   end;
 
 procedure TPtAutoMemory.Release;
 begin
-  if Assigned(FData) and Initilalized then
+  if Assigned(FData) and Initialized then
     DeleteProcThreadAttributeList(FData);
 
   // Call the inherited memory deallocation
@@ -165,7 +168,7 @@ begin
   if Options.PackageName <> '' then
     Inc(Count);
 
-  if HasAny(Options.PackageBreaway) then
+  if HasAny(Options.PackageBreakaway) then
     Inc(Count);
 
   if Assigned(Options.hxJob) then
@@ -183,8 +186,7 @@ begin
   if Count = 0 then
   begin
     xMemory := nil;
-    Result.Status := STATUS_SUCCESS;
-    Exit;
+    Exit(NtxSuccess);
   end;
 
   // Determine the required size
@@ -201,11 +203,11 @@ begin
   Result.Win32Result := InitializeProcThreadAttributeList(xMemory.Data, Count,
     0, Required);
 
-  // NOTE: Since ProcThreadAttributeList stores pointers istead of the actual
+  // NOTE: Since ProcThreadAttributeList stores pointers instead of the actual
   // data, we need to make sure it does not go anywhere.
 
   if Result.IsSuccess then
-    PtAttributes.Initilalized := True
+    PtAttributes.Initialized := True
   else
     Exit;
 
@@ -333,11 +335,11 @@ begin
   end;
 
   // Package breakaway (aka Desktop App Policy)
-  if HasAny(Options.PackageBreaway) then
+  if HasAny(Options.PackageBreakaway) then
   begin
     Result := RtlxpUpdateProcThreadAttribute(xMemory.Data,
       PROC_THREAD_ATTRIBUTE_DESKTOP_APP_POLICY,
-      PtAttributes.Options.PackageBreaway, SizeOf(TProcessDesktopAppFlags));
+      PtAttributes.Options.PackageBreakaway, SizeOf(TProcessDesktopAppFlags));
 
     if not Result.IsSuccess then
       Exit;
@@ -392,20 +394,20 @@ begin
   // Safe open prompt origin claim
   if poUseSafeOpenPromptOriginClaim in Options.Flags then
   begin
-    PtAttributes.SeSafePromtClaim.Results :=
+    PtAttributes.SeSafePromptClaim.Results :=
       Options.SafeOpenPromptOriginClaimResult;
-    PtAttributes.SeSafePromtClaim.SetPath(Options.SafeOpenPromptOriginClaimPath);
+    PtAttributes.SeSafePromptClaim.SetPath(Options.SafeOpenPromptOriginClaimPath);
 
     Result := RtlxpUpdateProcThreadAttribute(xMemory.Data,
       PROC_THREAD_ATTRIBUTE_SAFE_OPEN_PROMPT_ORIGIN_CLAIM,
-      PtAttributes.SeSafePromtClaim, SizeOf(TSeSafeOpenPromptResults));
+      PtAttributes.SeSafePromptClaim, SizeOf(TSeSafeOpenPromptResults));
 
     if not Result.IsSuccess then
       Exit;
   end;
 end;
 
-{ Startup info preparation and supplimentary routines }
+{ Startup info preparation and supplementary routines }
 
 procedure PrepareStartupInfo(
   out SI: TStartupInfoW;
@@ -446,6 +448,15 @@ begin
   if (poForceWindowTitle in Options.Flags) or (Options.WindowTitle <> '') then
     SI.Title := PWideChar(Options.WindowTitle);
 
+  // Standard I/O handles
+  if poUseStdHandles in Options.Flags then
+  begin
+    SI.Flags := SI.Flags or STARTF_USESTDHANDLES;
+    SI.hStdInput := HandleOrDefault(Options.hxStdInput);
+    SI.hStdOutput := HandleOrDefault(Options.hxStdOutput);
+    SI.hStdError := HandleOrDefault(Options.hxStdError);
+  end;
+
   // Process protection
   if poUseProtection in Options.Flags then
     CreationFlags := CreationFlags or CREATE_PROTECTED_PROCESS;
@@ -476,7 +487,7 @@ begin
 
   if Assigned(PTA) then
   begin
-    // Use -Ex vertion and include attributes
+    // Use the -Ex version to include attributes
     SI.StartupInfo.cb := SizeOf(TStartupInfoExW);
     SI.AttributeList := PTA.Data;
     CreationFlags := CreationFlags or EXTENDED_STARTUPINFO_PRESENT;
@@ -562,14 +573,14 @@ end;
 
 function RtlxpAdjustProcessId(
   out Reverter: IAutoReleasable;
-  hTargetProcess: THandle
+  const hxTargetProcess: IHandle
 ): TNtxStatus;
 var
   Info: TProcessBasicInformation;
   OldPid: TProcessId;
 begin
   Reverter := nil;
-  Result := NtxProcess.Query(hTargetProcess, ProcessBasicInformation, Info);
+  Result := NtxProcess.Query(hxTargetProcess, ProcessBasicInformation, Info);
 
   if not Result.IsSuccess then
     Exit;
@@ -605,15 +616,13 @@ begin
   end;
 
   // Duplicate process handle from the new parent
-  if NtxDuplicateHandleFrom(hxParentProcess.Handle,
-    ProcessInfo.hProcess, Info.hxProcess, DUPLICATE_SAME_ACCESS or
-      DUPLICATE_CLOSE_SOURCE).IsSuccess then
+  if NtxDuplicateHandleFrom(hxParentProcess, ProcessInfo.hProcess, Info.hxProcess,
+    DUPLICATE_SAME_ACCESS or DUPLICATE_CLOSE_SOURCE).IsSuccess then
     Include(Info.ValidFields, piProcessHandle);
 
   // Duplicate thread handle from the parent
-  if NtxDuplicateHandleFrom(hxParentProcess.Handle,
-    ProcessInfo.hThread, Info.hxThread, DUPLICATE_SAME_ACCESS or
-      DUPLICATE_CLOSE_SOURCE).IsSuccess then
+  if NtxDuplicateHandleFrom(hxParentProcess, ProcessInfo.hThread, Info.hxThread,
+    DUPLICATE_SAME_ACCESS or DUPLICATE_CLOSE_SOURCE).IsSuccess then
     Include(Info.ValidFields, piThreadHandle);
 end;
 
@@ -645,8 +654,7 @@ begin
   if Assigned(Options.hxParentProcess) then
   begin
     // Temporarily adjust the process ID in TEB to allow re-parenting
-    Result := RtlxpAdjustProcessId(ProcessIdReverter,
-      Options.hxParentProcess.Handle);
+    Result := RtlxpAdjustProcessId(ProcessIdReverter, Options.hxParentProcess);
 
     if not Result.IsSuccess then
       Exit;
@@ -703,8 +711,7 @@ begin
   if Assigned(Options.hxParentProcess) then
   begin
     // Temporarily adjust the process ID in TEB to allow re-parenting
-    Result := RtlxpAdjustProcessId(ProcessIdReverter,
-      Options.hxParentProcess.Handle);
+    Result := RtlxpAdjustProcessId(ProcessIdReverter, Options.hxParentProcess);
 
     if not Result.IsSuccess then
       Exit;

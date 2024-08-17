@@ -40,21 +40,21 @@ function SafexQueryDescriptionLevel(
   out Description: String
 ): TNtxStatus;
 
-// Restricts a token unsing Safer API level
+// Restricts a token using Safer API level
 function SafexComputeSaferToken(
   out hxNewToken: IHandle;
   [Access(TOKEN_DUPLICATE or TOKEN_QUERY)] hxExistingToken: IHandle;
   hLevel: TSaferHandle;
-  MakeSanboxInert: Boolean = False
+  MakeSandboxInert: Boolean = False
 ): TNtxStatus;
 
-// Restricts a token unsing Safer API level identified by its IDs
+// Restricts a token using Safer API level identified by its IDs
 function SafexComputeSaferTokenById(
   out hxNewToken: IHandle;
   [Access(TOKEN_DUPLICATE or TOKEN_QUERY)] const hxExistingToken: IHandle;
   ScopeId: TSaferScopeId;
   LevelId: TSaferLevelId;
-  MakeSanboxInert: Boolean = False
+  MakeSandboxInert: Boolean = False
 ): TNtxStatus;
 
 implementation
@@ -67,7 +67,7 @@ uses
 {$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 type
-  TSaferAutoHandle = class(TCustomAutoHandle, ISaferHandle)
+  TSaferAutoHandle = class(TCustomAutoHandle, ISaferHandle, IAutoReleasable)
     procedure Release; override;
   end;
 
@@ -109,7 +109,7 @@ end;
 
 function SafexQueryNameLevel;
 var
-  xMemory: IWideChar;
+  xMemory: IMemory<PWideChar>;
 begin
   Result := SafexQueryLevel(hLevel, SaferObjectFriendlyName, IMemory(xMemory),
     SizeOf(WideChar));
@@ -120,7 +120,7 @@ end;
 
 function SafexQueryDescriptionLevel;
 var
-  xMemory: IWideChar;
+  xMemory: IMemory<PWideChar>;
 begin
   Result := SafexQueryLevel(hLevel, SaferObjectDescription, IMemory(xMemory),
     SizeOf(WideChar));
@@ -142,7 +142,7 @@ begin
     Exit;
 
   Flags := 0;
-  if MakeSanboxInert then
+  if MakeSandboxInert then
     Flags := Flags or SAFER_TOKEN_MAKE_INERT;
 
   Result.Location := 'SaferComputeTokenFromLevel';
@@ -163,7 +163,7 @@ begin
 
   if Result.IsSuccess then
     Result := SafexComputeSaferToken(hxNewToken, hxExistingToken,
-      hxLevel.Handle, MakeSanboxInert);
+      hxLevel.Handle, MakeSandboxInert);
 end;
 
 end.

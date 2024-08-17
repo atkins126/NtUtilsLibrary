@@ -67,7 +67,7 @@ type
   [FlagName(TDF_RTL_LAYOUT, 'RTL Layout')]
   [FlagName(TDF_NO_DEFAULT_RADIO_BUTTON, 'No Default Radio Button')]
   [FlagName(TDF_CAN_BE_MINIMIZED, 'Can Be Minimized')]
-  [FlagName(TDF_NO_SET_FOREGROUND, 'No Set Forground')]
+  [FlagName(TDF_NO_SET_FOREGROUND, 'No Set Foreground')]
   [FlagName(TDF_SIZE_TO_CONTENT, 'Size To Content')]
   TTaskDialogFlags = type Cardinal;
 
@@ -109,7 +109,7 @@ type
   // SDK::Commctrl.h
   [SDKName('TASKDIALOGCONFIG')]
   TTaskDialogConfig = packed record
-    [Bytes, Unlisted] cbSize: Cardinal;
+    [RecordSize] cbSize: Cardinal;
     Owner: THwnd;
     hInstance: HINST;
     Flags: TTaskDialogFlags;
@@ -145,7 +145,7 @@ function TaskDialogIndirect(
 ): HRESULT; stdcall; external comctl32 delayed;
 
 var delayed_TaskDialogIndirect: TDelayedLoadFunction = (
-  DllName: comctl32;
+  Dll: @delayed_comctl32;
   FunctionName: 'TaskDialogIndirect';
 );
 

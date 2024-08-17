@@ -11,13 +11,8 @@ interface
 {$WARN SYMBOL_PLATFORM OFF}
 
 uses
-  Ntapi.WinNt, Ntapi.Versions, DelphiApi.Reflection, DelphiApi.DelayLoad;
-
-const
-  combase = 'combase.dll';
-
-var
-  delayed_combase: TDelayedLoadDll = (DllName: combase);
+  Ntapi.WinNt, Ntapi.ObjBase, Ntapi.Versions, DelphiApi.Reflection,
+  DelphiApi.DelayLoad;
 
 const
   // private - WinRT string flags
@@ -44,8 +39,8 @@ type
   THStringHeader = record
     Flags: TWindowsRuntimeHStringFlags;
     Length: Cardinal;
-    [Reserved] Padding1: Cardinal;
-    [Reserved] Padding2: Cardinal;
+    [Unlisted] Padding1: Cardinal;
+    [Unlisted] Padding2: Cardinal;
     StringRef: PWideChar;
   end;
   PHStringHeader = ^THStringHeader;
@@ -160,7 +155,7 @@ function WindowsDeleteString(
 ): HResult; stdcall; external combase delayed;
 
 var delayed_WindowsDeleteString: TDelayedLoadFunction = (
-  DllName: combase;
+  Dll: @delayed_combase;
   FunctionName: 'WindowsDeleteString';
 );
 
@@ -173,7 +168,7 @@ function WindowsCreateString(
 ): HResult; stdcall; external combase delayed;
 
 var delayed_WindowsCreateString: TDelayedLoadFunction = (
-  DllName: combase;
+  Dll: @delayed_combase;
   FunctionName: 'WindowsCreateString';
 );
 
@@ -187,7 +182,7 @@ function WindowsCreateStringReference(
 ): HResult; stdcall; external combase delayed;
 
 var delayed_WindowsCreateStringReference: TDelayedLoadFunction = (
-  DllName: combase;
+  Dll: @delayed_combase;
   FunctionName: 'WindowsCreateStringReference';
 );
 
@@ -199,7 +194,7 @@ function WindowsGetStringLen(
 ): Cardinal; stdcall; external combase delayed;
 
 var delayed_WindowsGetStringLen: TDelayedLoadFunction = (
-  DllName: combase;
+  Dll: @delayed_combase;
   FunctionName: 'WindowsGetStringLen';
 );
 
@@ -211,7 +206,7 @@ function WindowsGetStringRawBuffer(
 ): PWideChar; stdcall; external combase delayed;
 
 var delayed_WindowsGetStringRawBuffer: TDelayedLoadFunction = (
-  DllName: combase;
+  Dll: @delayed_combase;
   FunctionName: 'WindowsGetStringRawBuffer';
 );
 
@@ -222,7 +217,7 @@ function WindowsIsStringEmpty(
 ): LongBool; stdcall; external combase delayed;
 
 var delayed_WindowsIsStringEmpty: TDelayedLoadFunction = (
-  DllName: combase;
+  Dll: @delayed_combase;
   FunctionName: 'WindowsIsStringEmpty';
 );
 
@@ -234,7 +229,7 @@ function WindowsStringHasEmbeddedNull(
 ): HResult; stdcall; external combase delayed;
 
 var delayed_WindowsStringHasEmbeddedNull: TDelayedLoadFunction = (
-  DllName: combase;
+  Dll: @delayed_combase;
   FunctionName: 'WindowsStringHasEmbeddedNull';
 );
 
@@ -246,7 +241,7 @@ function RoInitialize(
 ): HResult; stdcall; external combase delayed;
 
 var delayed_RoInitialize: TDelayedLoadFunction = (
-  DllName: combase;
+  Dll: @delayed_combase;
   FunctionName: 'RoInitialize';
 );
 
@@ -256,7 +251,7 @@ procedure RoUninitialize(
 ); stdcall; external combase delayed;
 
 var delayed_RoUninitialize: TDelayedLoadFunction = (
-  DllName: combase;
+  Dll: @delayed_combase;
   FunctionName: 'RoUninitialize';
 );
 
@@ -269,10 +264,14 @@ function RoActivateInstance(
 ): HResult; stdcall; external combase delayed;
 
 var delayed_RoActivateInstance: TDelayedLoadFunction = (
-  DllName: combase;
+  Dll: @delayed_combase;
   FunctionName: 'RoActivateInstance';
 );
 
 implementation
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 end.

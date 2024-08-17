@@ -112,7 +112,7 @@ function RtlxEnumerateAppContainerMonikers(
 ): TNtxStatus;
 
 // Construct the path to the registry storage of an AppContainer
-function RtlxQueryStoragePathAppContaier(
+function RtlxQueryStoragePathAppContainer(
   const Info: TAppContainerInfo
 ): String;
 
@@ -157,9 +157,15 @@ begin
 end;
 
 function RtlxDeriveCapabilitySids;
+var
+  NameStr: TNtUnicodeString;
 begin
-  Result := LdrxCheckDelayedImport(delayed_ntdll,
-    delayed_RtlDeriveCapabilitySidsFromName);
+  Result := LdrxCheckDelayedImport(delayed_RtlDeriveCapabilitySidsFromName);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(NameStr, Name);
 
   if not Result.IsSuccess then
     Exit;
@@ -172,13 +178,14 @@ begin
 
   // Ask ntdll to hash the name into SIDs
   Result.Location := 'RtlDeriveCapabilitySidsFromName';
-  Result.Status := RtlDeriveCapabilitySidsFromName(TNtUnicodeString.From(Name),
-    CapGroupSid.Data, CapSid.Data);
+  Result.Status := RtlDeriveCapabilitySidsFromName(NameStr, CapGroupSid.Data,
+    CapSid.Data);
 
   if not Result.IsSuccess then
     Exit;
 
-  // Older OS versions are not aware of silo capabilities; fix it here
+  // Older OS versions (before Windows 11 22H2) are not aware of
+  // AppSilo capabilities; fix it here
   if RtlxPrefixString('isolatedWin32-', Name) then
     CapSid.Data.SubAuthority[1] := SECURITY_CAPABILITY_APP_SILO_RID;
 end;
@@ -190,8 +197,7 @@ var
   Buffer: PSid;
   BufferDeallocator: IAutoReleasable;
 begin
-  Result := LdrxCheckDelayedImport(delayed_kernelbase,
-    delayed_AppContainerDeriveSidFromMoniker);
+  Result := LdrxCheckDelayedImport(delayed_AppContainerDeriveSidFromMoniker);
 
   if not Result.IsSuccess then
     Exit;
@@ -284,8 +290,7 @@ var
   Buffer: PSid;
   BufferDeallocator: IAutoReleasable;
 begin
-  Result := LdrxCheckDelayedImport(delayed_ntdll,
-    delayed_RtlGetAppContainerParent);
+  Result := LdrxCheckDelayedImport(delayed_RtlGetAppContainerParent);
 
   if not Result.IsSuccess then
     Exit;
@@ -309,8 +314,8 @@ begin
     FFriendlyName := DisplayName;
 
     // Display name might be a reference to a package resource string.
-    // Resolving them is a relatively heavy operaion, so we do it on demand and
-    // cache the result.
+    // Resolving them is a relatively heavy operation, so we do it on demand
+    // and cache the result.
     if RtlxPrefixString('@{', FFriendlyName) then
       PkgxExpandResourceStringVar(FFriendlyName);
   end;
@@ -351,7 +356,7 @@ begin
   if not Assigned(User) then
     Result := NtxQuerySidToken(NtxCurrentEffectiveToken, TokenUser, User)
   else
-    Result.Status := STATUS_SUCCESS;
+    Result := NtxSuccess;
 end;
 
 function RtlxOpenAppContainerRepository(
@@ -409,7 +414,7 @@ function RtlxVerifyAppContainerMoniker(
 var
   ParentSid, DerivedSid: ISid;
 begin
-  // Construst the SID from the moniker
+  // Construct the SID from the moniker
   if Info.IsChild then
   begin
     Result := RtlxDeriveParentAppContainerSid(Info.ParentMoniker, ParentSid);
@@ -490,7 +495,7 @@ begin
     Exit;
 
   // Read the moniker
-  Result := NtxQueryValueKeyString(hxKey.Handle, APPCONTAINER_MONIKER,
+  Result := NtxQueryValueKeyString(hxKey, APPCONTAINER_MONIKER,
     Info.Moniker);
 
   if not Result.IsSuccess then
@@ -498,13 +503,12 @@ begin
 
   // Read the display name (optional)
   if ResolveDisplayName then
-    NtxQueryValueKeyString(hxKey.Handle, APPCONTAINER_DISPLAY_NAME,
-      Info.DisplayName);
+    NtxQueryValueKeyString(hxKey, APPCONTAINER_DISPLAY_NAME, Info.DisplayName);
 
   if Info.IsChild then
   begin
     // Read the parent moniker
-    Result := NtxQueryValueKeyString(hxKey.Handle, APPCONTAINER_PARENT_MONIKER,
+    Result := NtxQueryValueKeyString(hxKey, APPCONTAINER_PARENT_MONIKER,
       Info.ParentMoniker);
 
     if not Result.IsSuccess then
@@ -518,7 +522,7 @@ end;
 function RtlxEnumerateAppContainerSIDs;
 var
   hxKey: IHandle;
-  SubKeys: TArray<String>;
+  SubKeys: TArray<TNtxRegKey>;
   ParentSddl: String;
   ExpectedType: TAppContainerSidType;
 begin
@@ -541,19 +545,19 @@ begin
     Exit;
 
   // Sub key names are AppContainer SIDs
-  Result := NtxEnumerateSubKeys(hxKey.Handle, SubKeys);
+  Result := NtxEnumerateKeys(hxKey, SubKeys);
 
   if not Result.IsSuccess then
     Exit;
 
   // Filter and convert
-  SIDs := TArray.Convert<String, ISid>(SubKeys,
+  SIDs := TArray.Convert<TNtxRegKey, ISid>(SubKeys,
     function (
-      const SDDL: String;
+      const Key: TNtxRegKey;
       out Sid: ISid
     ): Boolean
     begin
-      Result := RtlxStringToSidConverter(SDDL, Sid) and
+      Result := RtlxStringToSidConverter(Key.Name, Sid) and
         (RtlxGetAppContainerType(Sid) = ExpectedType);
     end
   );
@@ -562,6 +566,8 @@ end;
 function RtlxEnumerateAppContainerMonikers;
 var
   hxKey: IHandle;
+  SubKeys: TArray<TNtxRegKey>;
+  i: Integer;
 begin
   // Open the AppContainer storage repository
   Result := RtlxOpenAppContainerRepository(hxKey, User, arStorage,
@@ -571,13 +577,28 @@ begin
     Exit;
 
   // Key names are AppContainer monikers
-  Result := NtxEnumerateSubKeys(hxKey.Handle, Monikers);
+  Result := NtxEnumerateKeys(hxKey, SubKeys);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  SetLength(Monikers, Length(SubKeys));
+
+  for i := 0 to High(SubKeys) do
+    Monikers[i] := SubKeys[i].Name;
 end;
 
-function RtlxQueryStoragePathAppContaier;
+function RtlxQueryStoragePathAppContainer;
+var
+  ParentMoniker: String;
 begin
+  if Info.IsChild then
+    ParentMoniker := Info.ParentMoniker
+  else
+    ParentMoniker := Info.Moniker;
+
   Result := REG_PATH_USER + '\' + RtlxSidToString(Info.User) +
-    APPCONTAINER_REPOSITORY + APPCONTAINER_STORAGE;
+    APPCONTAINER_REPOSITORY + APPCONTAINER_STORAGE + '\' + ParentMoniker;
 
   if Info.IsChild then
     Result := Result + '\' + APPCONTAINER_CHILDREN + '\' + Info.Moniker;

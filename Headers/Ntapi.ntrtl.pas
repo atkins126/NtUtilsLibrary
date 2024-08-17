@@ -15,6 +15,38 @@ uses
   Ntapi.WinUser, DelphiApi.Reflection, DelphiApi.DelayLoad;
 
 const
+  // Critical sections
+
+  // SDK::winnt.h
+  RTL_CRITICAL_SECTION_FLAG_NO_DEBUG_INFO = $01000000;
+  RTL_CRITICAL_SECTION_FLAG_DYNAMIC_SPIN = $02000000;
+  RTL_CRITICAL_SECTION_FLAG_STATIC_INIT = $04000000;
+  RTL_CRITICAL_SECTION_FLAG_RESOURCE_TYPE = $08000000;
+  RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO = $10000000;
+
+  // Resources
+
+  // PHNT::ntrtl.h
+  RTL_RESOURCE_FLAG_LONG_TERM = $00000001;
+
+  // Condition Variables
+
+  // SDK::winnt.h
+  RTL_CONDITION_VARIABLE_LOCKMODE_SHARED = $00000001;
+
+  // Run Once
+
+  // SDK::winnt.h
+  RTL_RUN_ONCE_CHECK_ONLY = $00000001;
+  RTL_RUN_ONCE_ASYNC = $00000002;
+  RTL_RUN_ONCE_INIT_FAILED = $00000004;
+
+  // SDK::winnt.h
+  RTL_RUN_ONCE_CTX_RESERVED_BITS = 2;
+
+  // SDK::ntstatus.h
+  STATUS_PENDING = $00000103;
+
   // Processes
 
   // PHNT::ntrtl.h
@@ -56,7 +88,7 @@ const
   // PHNT::ntrtl.h
   RTL_USER_PROCESS_EXTENDED_PARAMETERS_VERSION = 1;
 
-  // Re-declare for annottations
+  // Re-declare for annotations
   JOB_OBJECT_ASSIGN_PROCESS = $0001; // Ntapi.ntpsapi
   DEBUG_PROCESS_ASSIGN = $0002; // Ntapi.ntdbg
 
@@ -99,6 +131,109 @@ const
 
 type
   PPEnvironment = ^PEnvironment;
+
+  // Critical Sections
+
+  [FlagName(RTL_CRITICAL_SECTION_FLAG_NO_DEBUG_INFO, 'No Debug Info')]
+  [FlagName(RTL_CRITICAL_SECTION_FLAG_DYNAMIC_SPIN, 'Dynamic Spin')]
+  [FlagName(RTL_CRITICAL_SECTION_FLAG_STATIC_INIT, 'Static Init')]
+  [FlagName(RTL_CRITICAL_SECTION_FLAG_RESOURCE_TYPE, 'Resource Type')]
+  [FlagName(RTL_CRITICAL_SECTION_FLAG_FORCE_DEBUG_INFO, 'Force Debug Info')]
+  TRtlCriticalSectionFlags = type Cardinal;
+
+  // SDK::winnt.h
+  [SDKName('RTL_CRITICAL_SECTION_DEBUG')]
+  TRtlCriticalSectionDebug = record
+    &Type: Word;
+    CreatorBackTraceIndex: Word;
+    CriticalSection: Pointer; // PRtlCriticalSection
+    ProcessLocksList: TListEntry;
+    EntryCount: Cardinal;
+    ContentionCount: Cardinal;
+    Flags: TRtlCriticalSectionFlags;
+    CreatorBackTraceIndexHigh: Word;
+    Identifier: Word;
+  end;
+  PRtlCriticalSectionDebug = ^TRtlCriticalSectionDebug;
+
+  // SDK::winnt.h
+  [SDKName('RTL_CRITICAL_SECTION')]
+  TRtlCriticalSection = record
+    DebugInfo: PRtlCriticalSectionDebug;
+    LockCount: Integer;
+    RecursionCount: Integer;
+    OwningThread: TThreadId;
+    LockSemaphore: THandle;
+    SpinCount: TNativeUIntArray;
+  end align 8;
+  PRtlCriticalSection = ^TRtlCriticalSection;
+
+  [SDKName('RTL_RESOURCE_DEBUG')]
+  TRtlResourceDebug = type TRtlCriticalSectionDebug;
+  PRtlResourceDebug = ^TRtlResourceDebug;
+
+  // Resources
+
+  [FlagName(RTL_RESOURCE_FLAG_LONG_TERM, 'Long-term')]
+  TRtlResourceFlags = type Cardinal;
+
+  // PHNT::ntrtl.h
+  [SDKName('RTL_RESOURCE')]
+  TRtlResource = record
+    CriticalSection: TRtlCriticalSection;
+    SharedSemaphore: THandle;
+    [volatile] NumberOfWaitingShared: Cardinal;
+    ExclusiveSemaphore: THandle;
+    [volatile] NumberOfWaitingExclusive: Cardinal;
+    [volatile] NumberOfActive: Integer;
+    ExclusiveOwnerThread: TThreadId;
+    Flags: TRtlResourceFlags;
+    DebugInfo: PRtlResourceDebug;
+  end;
+  PRtlResource = ^TRtlResource;
+
+  // SRW Locks
+
+  // SDK::winnt.h
+  [SDKName('RTL_SRWLOCK')]
+  TRtlSRWLock = record
+    Ptr: Pointer;
+  end;
+  PRtlSRWLock = ^TRtlSRWLock;
+
+  // Condition Variables
+
+  [FlagName(RTL_CONDITION_VARIABLE_LOCKMODE_SHARED, 'Lock Mode Shared')]
+  TRtlConditionVariableFlags = type Cardinal;
+
+  // SDK::winnt.h
+  [SDKName('RTL_CONDITION_VARIABLE')]
+  TRtlConditionVariable = record
+    Ptr: Pointer;
+  end;
+  PRtlConditionVariable  = ^TRtlConditionVariable;
+
+  // RunOnce
+
+  [FlagName(RTL_RUN_ONCE_CHECK_ONLY, 'Check-only')]
+  [FlagName(RTL_RUN_ONCE_ASYNC, 'Async')]
+  [FlagName(RTL_RUN_ONCE_INIT_FAILED, 'Init Failed')]
+  TRtlRunOnceFlags = type Cardinal;
+
+  // SDK::winnt.h
+  [SDKName('RTL_RUN_ONCE')]
+  TRtlRunOnce = record
+    Ptr: Pointer;
+  end;
+  PRtlRunOnce = ^TRtlRunOnce;
+
+  // WDK::ntddk.h
+  [SDKName('RTL_RUN_ONCE_INIT_FN')]
+  TRtlRunOnceInitFn = function (
+    [in, out] var RunOnce: TRtlRunOnce;
+    [in, out, opt] Parameter: Pointer;
+    [in, out, opt] Context: PPointer
+  ): LongBool; stdcall;
 
   // Strings
 
@@ -166,7 +301,7 @@ type
   [SDKName('RTL_USER_PROCESS_PARAMETERS')]
   TRtlUserProcessParameters = record
     [Bytes, Unlisted] MaximumLength: Cardinal;
-    [Bytes, Unlisted] Length: Cardinal;
+    [RecordSize] Length: Cardinal;
 
     Flags: TRtlUserProcessFlags;
     [Hex] DebugFlags: Cardinal;
@@ -191,7 +326,7 @@ type
     CountCharsY: Cardinal;
     FillAttribute: Cardinal; // ConsoleApi.TConsoleFill
 
-    WindowFlags: Cardinal; // ProcessThreadsApi.TStarupFlags
+    WindowFlags: Cardinal; // ProcessThreadsApi.TStartupFlags
     ShowWindowFlags: TShowMode32;
     WindowTitle: TNtUnicodeString;
     DesktopInfo: TNtUnicodeString;
@@ -229,7 +364,7 @@ type
   // PHNT::ntrtl.h
   [SDKName('RTL_USER_PROCESS_INFORMATION')]
   TRtlUserProcessInformation = record
-    [Bytes, Unlisted] Length: Cardinal;
+    [RecordSize] Length: Cardinal;
     Process: THandle;
     Thread: THandle;
     ClientId: TClientId;
@@ -314,7 +449,7 @@ type
     LoadOrderIndex: Word;
     InitOrderIndex: Word;
     LoadCount: Word;
-    [Unlisted] OffsetToFileName: Word;
+    [Offset] OffsetToFileName: Word;
     FullPathName: array [Byte] of AnsiChar;
   end;
   PRtlProcessModuleInformation = ^TRtlProcessModuleInformation;
@@ -330,7 +465,7 @@ type
   // PHNT::ntldr.h - system info class 77
   [SDKName('RTL_PROCESS_MODULE_INFORMATION_EX')]
   TRtlProcessModuleInformationEx = record
-    [Unlisted] NextOffset: Word;
+    [Offset] NextOffset: Word;
     [Aggregate] BaseInfo: TRtlProcessModuleInformation;
     ImageChecksum: Cardinal;
     TimeDateStamp: TUnixTime;
@@ -410,6 +545,198 @@ type
     InvalidAppContainerSidType = 3
   );
 
+const
+  // SDK::winnt.h
+  RTL_SRWLOCK_INIT: TRtlSRWLock = (Ptr: nil);
+  RTL_CONDITION_VARIABLE_INIT: TRtlConditionVariable = (Ptr: nil);
+  RTL_RUN_ONCE_INIT: TRtlRunOnce = (Ptr: nil);
+
+// Critical sections
+
+// PHNT::ntrtl.h
+function RtlInitializeCriticalSection(
+  [out, ReleaseWith('RtlDeleteCriticalSection')]
+    out CriticalSection: TRtlCriticalSection
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlInitializeCriticalSectionAndSpinCount(
+  [out, ReleaseWith('RtlDeleteCriticalSection')]
+    out CriticalSection: TRtlCriticalSection;
+  [in] SpinCount: Cardinal
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlInitializeCriticalSectionEx(
+  [out, ReleaseWith('RtlDeleteCriticalSection')]
+    out CriticalSection: TRtlCriticalSection;
+  [in] SpinCount: Cardinal;
+  [in] Flags: TRtlCriticalSectionFlags
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlDeleteCriticalSection(
+  [in, out] CriticalSection: PRtlCriticalSection
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlEnterCriticalSection(
+  [in, out] CriticalSection: PRtlCriticalSection
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlLeaveCriticalSection(
+  [in, out] CriticalSection: PRtlCriticalSection
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlTryEnterCriticalSection(
+  [in, out] CriticalSection: PRtlCriticalSection
+): LongBool; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlIsCriticalSectionLocked(
+  [in] CriticalSection: PRtlCriticalSection
+): LongBool; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlIsCriticalSectionLockedByThread(
+  [in] CriticalSection: PRtlCriticalSection
+): LongBool; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlGetCriticalSectionRecursionCount(
+  [in] CriticalSection: PRtlCriticalSection
+): Cardinal; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlSetCriticalSectionSpinCount(
+  [in, out] CriticalSection: PRtlCriticalSection;
+  [in] SpinCount: Cardinal
+): Cardinal; stdcall; external ntdll;
+
+// Resources
+
+// PHNT::ntrtl.h
+procedure RtlInitializeResource(
+  [out, ReleaseWith('RtlDeleteResource')] out Resource: TRtlResource
+); stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+procedure RtlDeleteResource(
+  [in, out] Resource: PRtlResource
+); stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlAcquireResourceShared(
+  [in, out] Resource: PRtlResource;
+  [in] Wait: Boolean
+): Boolean; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlAcquireResourceExclusive(
+  [in, out] Resource: PRtlResource;
+  [in] Wait: Boolean
+): Boolean; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+procedure RtlReleaseResource(
+  [in, out] Resource: PRtlResource
+); stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+procedure RtlConvertSharedToExclusive(
+  [in, out] Resource: PRtlResource
+); stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+procedure RtlConvertExclusiveToShared(
+  [in, out] Resource: PRtlResource
+); stdcall; external ntdll;
+
+// SRW Locks
+
+// PHNT::ntrtl.h
+procedure RtlAcquireSRWLockExclusive(
+  [in, out] SRWLock: PRtlSRWLock
+); stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+procedure RtlAcquireSRWLockShared(
+  [in, out] SRWLock: PRtlSRWLock
+); stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+procedure RtlReleaseSRWLockExclusive(
+  [in, out] SRWLock: PRtlSRWLock
+); stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+procedure RtlReleaseSRWLockShared(
+  [in, out] SRWLock: PRtlSRWLock
+); stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlTryAcquireSRWLockExclusive(
+  [in, out] SRWLock: PRtlSRWLock
+): Boolean; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlTryAcquireSRWLockShared(
+  [in, out] SRWLock: PRtlSRWLock
+): Boolean; stdcall; external ntdll;
+
+// Condition Variables
+
+// PHNT::ntrtl.h
+function RtlSleepConditionVariableCS(
+  [in, out] ConditionVariable: PRtlConditionVariable;
+  [in, out] CriticalSection: PRtlCriticalSection;
+  [in, opt] Timeout: PLargeInteger
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+function RtlSleepConditionVariableSRW(
+  [in, out] ConditionVariable: PRtlConditionVariable;
+  [in, out] SRWLock: PRtlSRWLock;
+  [in, opt] Timeout: PLargeInteger;
+  [in] Flags: TRtlConditionVariableFlags
+): NTSTATUS; stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+procedure RtlWakeConditionVariable(
+  [in, out] ConditionVariable: PRtlConditionVariable
+); stdcall; external ntdll;
+
+// PHNT::ntrtl.h
+procedure RtlWakeAllConditionVariable(
+  [in, out] ConditionVariable: PRtlConditionVariable
+); stdcall; external ntdll;
+
+// Run Once
+
+// WDK::ntddk.h
+function RtlRunOnceExecuteOnce(
+  [in, out] RunOnce: PRtlRunOnce;
+  [in] InitFn: TRtlRunOnceInitFn;
+  [in, out, opt] Parameter: Pointer;
+  [out, opt, MayReturnNil] Context: PPointer
+): NTSTATUS; stdcall; external ntdll;
+
+// WDK::ntddk.h
+function RtlRunOnceBeginInitialize(
+  [in, out] RunOnce: PRtlRunOnce;
+  [in] Flags: TRtlRunOnceFlags;
+  [out, opt, MayReturnNil] Context: PPointer
+): NTSTATUS; stdcall; external ntdll;
+
+// WDK::ntddk.h
+function RtlRunOnceComplete(
+  [in, out] RunOnce: PRtlRunOnce;
+  [in] Flags: TRtlRunOnceFlags;
+  [in, opt] Context: Pointer
+): NTSTATUS; stdcall; external ntdll;
+
 // Strings
 
 // WDK::wdm.h
@@ -480,11 +807,21 @@ function RtlAppendUnicodeToString(
 ): NTSTATUS; stdcall; external ntdll;
 
 // WDK::wdm.h
+function RtlUpcaseUnicodeChar(
+  [in] SourceCharacter: WideChar
+): WideChar; stdcall; external ntdll;
+
+// WDK::wdm.h
 function RtlUpcaseUnicodeString(
   [in, out] var DestinationString: TNtUnicodeString;
   [in] const SourceString: TNtUnicodeString;
   [in] AllocateDestinationString: Boolean
 ): NTSTATUS; stdcall; external ntdll;
+
+// WDK::wdm.h
+function RtlDowncaseUnicodeChar(
+  [in] SourceCharacter: WideChar
+): WideChar; stdcall; external ntdll;
 
 // WDK::wdm.h
 function RtlDowncaseUnicodeString(
@@ -567,7 +904,7 @@ function RtlCreateUserProcessEx(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_RtlCreateUserProcessEx: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'RtlCreateUserProcessEx';
 );
 
@@ -1047,7 +1384,7 @@ function RtlDeriveCapabilitySidsFromName(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_RtlDeriveCapabilitySidsFromName: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'RtlDeriveCapabilitySidsFromName';
 );
 
@@ -1321,7 +1658,7 @@ function RtlGetTokenNamedObjectPath(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_RtlGetTokenNamedObjectPath: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'RtlGetTokenNamedObjectPath';
 );
 
@@ -1333,7 +1670,7 @@ function RtlGetAppContainerParent(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_RtlGetAppContainerParent: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'RtlGetAppContainerParent';
 );
 
@@ -1344,7 +1681,7 @@ function RtlIsCapabilitySid(
 ): Boolean; stdcall; external ntdll delayed;
 
 var delayed_RtlIsCapabilitySid: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'RtlIsCapabilitySid';
 );
 
@@ -1356,8 +1693,53 @@ function RtlGetAppContainerSidType(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_RtlGetAppContainerSidType: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'RtlGetAppContainerSidType';
+);
+
+{ Linked list macros }
+
+// WDK::wdm.h
+procedure InitializeListHead(
+  [out] ListHead: PListEntry
+);
+
+// WDK::wdm.h
+function IsListEmpty(
+  [in] ListHead: PListEntry
+): Boolean;
+
+// WDK::wdm.h
+function RemoveEntryList(
+  [in] Entry: PListEntry
+): Boolean;
+
+// WDK::wdm.h
+function RemoveHeadList(
+  [in, out] ListHead: PListEntry
+): PListEntry;
+
+// WDK::wdm.h
+function RemoveTailList(
+  [in, out] ListHead: PListEntry
+): PListEntry;
+
+// WDK::wdm.h
+procedure InsertTailList(
+  [in, out] ListHead: PListEntry;
+  [in, out] Entry: PListEntry
+);
+
+// WDK::wdm.h
+procedure InsertHeadList(
+  [in, out] ListHead: PListEntry;
+  [in, out] Entry: PListEntry
+);
+
+// WDK::wdm.h
+procedure AppendTailList(
+  [in, out] ListHead: PListEntry;
+  [in, out] ListToAppend: PListEntry
 );
 
 implementation
@@ -1365,5 +1747,80 @@ implementation
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
 {$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
+procedure InitializeListHead;
+begin
+  ListHead.Flink := ListHead;
+  ListHead.Blink := ListHead;
+end;
+
+function IsListEmpty;
+begin
+  Result := ListHead.Flink = ListHead;
+end;
+
+function RemoveEntryList;
+var
+  Blink, Flink: PListEntry;
+begin
+  Flink := Entry.Flink;
+  Blink := Entry.Blink;
+  Blink.Flink := Flink;
+  Flink.Blink := Blink;
+  Result := Flink = Blink;
+end;
+
+function RemoveHeadList;
+var
+  Flink: PListEntry;
+begin
+  Result := ListHead.Flink;
+  Flink := Result.Flink;
+  ListHead.Flink := Flink;
+  Flink.Blink := ListHead;
+end;
+
+function RemoveTailList;
+var
+  Blink: PListEntry;
+begin
+  Result := ListHead.Blink;
+  Blink := Result.Blink;
+  ListHead.Blink := Blink;
+  Blink.Flink := ListHead;
+end;
+
+procedure InsertTailList;
+var
+  Blink: PListEntry;
+begin
+  Blink := ListHead.Blink;
+  Entry.Flink := ListHead;
+  Entry.Blink := Blink;
+  Blink.Flink := Entry;
+  ListHead.Blink := Entry;
+end;
+
+procedure InsertHeadList;
+var
+  Flink: PListEntry;
+begin
+  Flink := ListHead.Flink;
+  Entry.Flink := Flink;
+  Entry.Blink := ListHead;
+  Flink.Blink := Entry;
+  ListHead.Flink := Entry;
+end;
+
+procedure AppendTailList;
+var
+  ListEnd: PListEntry;
+begin
+  ListEnd := ListHead.Blink;
+  ListHead.Blink.Flink := ListToAppend;
+  ListHead.Blink := ListToAppend.Blink;
+  ListToAppend.Blink.Flink := ListHead;
+  ListToAppend.Blink := ListEnd;
+end;
 
 end.

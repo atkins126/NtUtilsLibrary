@@ -2,7 +2,7 @@ unit DelphiUtils.AutoObjects;
 
 {
   This module provides the core facilities for automatic lifetime management
-  for resources that require cleanup. When interactining with such resources
+  for resources that require cleanup. When interacting with such resources
   through interfaces, Delphi automatically emits code that counts outstanding
   references and immediately releases the underlying resource when this value
   drops to zero. Here you can find the definitions for the interfaces, as
@@ -22,6 +22,7 @@ interface
 type
   // A wrapper for resources that implement automatic cleanup.
   IAutoReleasable = interface (IInterface)
+    ['{46841558-AE45-4161-AF45-ED93AACC2868}']
     function GetAutoRelease: Boolean;
     procedure SetAutoRelease(Value: Boolean);
     function GetReferenceCount: Integer;
@@ -32,6 +33,7 @@ type
 
   // An automatically releaseable resource defined by a THandle value.
   IHandle = interface (IAutoReleasable)
+    ['{DFCAFCC6-4921-4CDF-A72A-C0211C45D1BF}']
     function GetHandle: THandle;
     property Handle: THandle read GetHandle;
   end;
@@ -40,6 +42,7 @@ type
   // You can safely cast between IAutoObject<TClassA> and IAutoObject<TClassB>
   // whenever TClassA and TClassB form a compatible hierarchy.
   IAutoObject<T: class> = interface (IAutoReleasable)
+    ['{D9B743C7-A7E4-4EF4-9056-851FC66F14C6}']
     function GetSelf: T;
     property Self: T read GetSelf;
   end;
@@ -50,6 +53,7 @@ type
   // A wrapper that automatically releases a record pointer. You can safely
   // cast between IAutoPointer<P1> and IAutoPointer<P2> when necessary.
   IAutoPointer<P> = interface (IAutoReleasable) // P must be a Pointer type
+    ['{70B707BE-5B84-4EC7-856F-DF7F70DF81F6}']
     function GetData: P;
     property Data: P read GetData;
   end;
@@ -65,9 +69,10 @@ type
     class function Reference<T>(const [ref] Buffer: T): TMemory; static;
   end;
 
-  // An wapper that automatically releases a memory region.
+  // A wrapper that automatically releases a memory region.
   // You can safely cast between IMemory<P1> and IMemory<P2> when necessary.
   IMemory<P> = interface(IAutoPointer<P>) // P must be a Pointer type
+    ['{7AE23663-B557-4398-A003-405CD4846BE8}']
     property Data: P read GetData;
     function GetSize: NativeUInt;
     property Size: NativeUInt read GetSize;
@@ -79,7 +84,7 @@ type
   // An untyped automatic memory region
   IMemory = IMemory<Pointer>;
 
-  // A type for storing a weak reference to an interface
+  // A record type for storing a weak reference to an interface
   Weak<I: IInterface> = record
   private
     [Weak] FWeakRef: I;
@@ -88,8 +93,19 @@ type
     function Upgrade(out StrongRef: I): Boolean;
   end;
 
+  // An interface type for storing a weak reference to an interface
+  IWeak<I: IInterface> = interface (IAutoReleasable)
+    ['{BD834CC2-C269-4D4B-8D07-8D4A9E7754F0}']
+    procedure Assign(const StrongRef: I);
+    function Upgrade(out StrongRef: I): Boolean;
+  end;
+
   // A prototype for a delayed operation
   TOperation = reference to procedure;
+
+  // A prototype for anonymous for-in iterators
+  TEnumeratorPrepare = reference to function: Boolean;
+  TEnumeratorProvider<T> = reference to function (out Next: T): Boolean;
 
   Auto = class abstract
     // Automatically destroy an object when the last reference goes out of scope
@@ -107,12 +123,28 @@ type
     class function Allocate<T>: IMemory; static;
     class function Copy<T>(const Buffer: T): IMemory; static;
 
-    // A helper function for getting the underlying memory address or nil
-    class function RefOrNil<P>(const Memory: IAutoPointer<P>): P; static;
+    // Create a non-owning reference to a memory region
+    class function Address<T>(const [ref] Buffer: T): IMemory; static;
+    class function AddressRange(Start: Pointer; Size: NativeUInt): IMemory; static;
+
+    // Helper functions for getting the underlying memory address or nil
+    class function RefOrNil(const Memory: IAutoPointer): Pointer; overload; static;
+    class function RefOrNil<P>(const Memory: IAutoPointer<P>): P; overload; static;
+    class function SizeOrZero(const Memory: IMemory): NativeUInt; static;
+
+    // Create a non-owning reference to a handle
+    class function RefHandle(Handle: THandle): IHandle; static;
+
+    // Create a non-owning weak reference to an interface
+    class function RefWeak<I: IInterface>(const StrongRef: I): IWeak<I>;
 
     // Perform an operation defined by the callback when the last reference to
     // the object goes out of scope.
     class function Delay(Operation: TOperation): IAutoReleasable; static;
+
+    // Use an anonymous function as a for-in iterator
+    class function Iterate<T>(Provider: TEnumeratorProvider<T>): IEnumerable<T>; static;
+    class function IterateEx<T>(Prepare: TEnumeratorPrepare; Provider: TEnumeratorProvider<T>): IEnumerable<T>; static;
   end;
 
   { Base classes (for custom implementations) }
@@ -121,10 +153,10 @@ type
   protected
     FAutoRelease: Boolean;
     procedure Release; virtual; abstract;
-  public
-    function GetAutoRelease: Boolean;
+    function GetAutoRelease: Boolean; virtual;
     procedure SetAutoRelease(Value: Boolean); virtual;
-    function GetReferenceCount: Integer;
+    function GetReferenceCount: Integer; virtual;
+  public
     procedure AfterConstruction; override;
     destructor Destroy; override;
   end;
@@ -132,45 +164,62 @@ type
   TCustomAutoHandle = class abstract (TCustomAutoReleasable)
   protected
     FHandle: THandle;
-  public
     constructor Capture(hObject: THandle);
-    function GetHandle: THandle;
+    function GetHandle: THandle; virtual;
   end;
 
   TCustomAutoPointer = class abstract (TCustomAutoReleasable)
   protected
     FData: Pointer;
-  public
     constructor Capture(Address: Pointer);
-    function GetData: Pointer;
+    function GetData: Pointer; virtual;
   end;
 
   TCustomAutoMemory = class abstract (TCustomAutoPointer)
   protected
     FSize: NativeUInt;
-  public
     constructor Capture(Address: Pointer; Size: NativeUInt);
-    function GetSize: NativeUInt;
-    function GetRegion: TMemory;
-    function Offset(Bytes: NativeUInt): Pointer;
+    function GetSize: NativeUInt; virtual;
+    function GetRegion: TMemory; virtual;
+    function Offset(Bytes: NativeUInt): Pointer; virtual;
   end;
 
   { Default implementations }
 
-  // A wrapper that maintains ownership over an instance of a Delphi class
-  // derived from TObject.
-  TAutoObject = class (TCustomAutoReleasable, IAutoObject)
+  // Encapsulate a weak reference to an interface
+  TWeakReference<I: IInterface> = class (TCustomAutoReleasable, IWeak<I>)
+  protected
+    [Weak] FWeakRef: I;
+    procedure Assign(const StrongRef: I); virtual;
+    function Upgrade(out StrongRef: I): Boolean; virtual;
+    procedure Release; override;
+    constructor Create(const StrongRef: I);
+  end;
+
+  // Reference a handle value without taking ownership
+  THandleReference = class (TCustomAutoHandle, IHandle)
+  protected
+    procedure Release; override;
+  end;
+
+  // Maintains ownership over an instance of a Delphi class derived from TObject
+  TAutoObject = class (TCustomAutoReleasable, IAutoObject, IAutoReleasable)
   protected
     FObject: TObject;
     procedure Release; override;
     constructor Capture(&Object: TObject);
-  public
-    function GetSelf: TObject;
+    function GetSelf: TObject; virtual;
   end;
 
-  // A wrapper that maintains ownership over a pointer to Delphi memory
-  // managed via AllocMem/FreeMem.
-  TAutoMemory = class (TCustomAutoMemory, IMemory)
+  // References a memory region without taking ownership
+  TMemoryReference = class (TCustomAutoMemory, IMemory, IAutoPointer,
+    IAutoReleasable)
+  protected
+    procedure Release; override;
+  end;
+
+  // Maintains ownership over a pointer to memory managed via AllocMem/FreeMem.
+  TAutoMemory = class (TCustomAutoMemory, IMemory, IAutoPointer, IAutoReleasable)
   protected
     procedure Release; override;
     constructor Allocate(Size: NativeUInt);
@@ -182,7 +231,7 @@ type
   // (both directly and as part of managed records). These include interfaces,
   // strings, dynamic arrays, and anonymous functions. This wrapper is similar
   // to TAutoMemory, but adds type-specific calls to Initialize/Finalize.
-  TAutoManagedType<T> = class (TAutoMemory, IMemory)
+  TAutoManagedType<T> = class (TAutoMemory, IMemory, IAutoPointer, IAutoReleasable)
   protected
     procedure Release; override;
     constructor Create;
@@ -195,6 +244,30 @@ type
     FOperation: TOperation;
     procedure Release; override;
     constructor Create(Operation: TOperation);
+  end;
+
+  // A wrapper for using anonymous functions as for-in loop providers
+  TAnonymousEnumerator<T> = class (TInterfacedObject, IEnumerator<T>,
+    IEnumerable<T>)
+  protected
+    FCurrent: T;
+    FIsPrepared: Boolean;
+    FPrepare: TEnumeratorPrepare;
+    FProvider: TEnumeratorProvider<T>;
+  private
+    function GetCurrent: TObject; // legacy (untyped)
+    function GetEnumerator: IEnumerator; // legacy (untyped)
+  public
+    constructor Create(
+      const Prepare: TEnumeratorPrepare;
+      const Provider: TEnumeratorProvider<T>
+    );
+    procedure Reset;
+    function MoveNext: Boolean;
+    function GetCurrentT: T;
+    function GetEnumeratorT: IEnumerator<T>;
+    function IEnumerator<T>.GetCurrent = GetCurrentT;
+    function IEnumerable<T>.GetEnumerator = GetEnumeratorT;
   end;
 
 implementation
@@ -326,6 +399,37 @@ begin
   Result := PByte(FData) + Bytes;
 end;
 
+{ TWeakReference<I> }
+
+procedure TWeakReference<I>.Assign;
+begin
+  FWeakRef := StrongRef;
+end;
+
+constructor TWeakReference<I>.Create;
+begin
+  inherited Create;
+  FWeakRef := StrongRef;
+end;
+
+procedure TWeakReference<I>.Release;
+begin
+  ; // Nothing as we ony store a weak reference
+end;
+
+function TWeakReference<I>.Upgrade;
+begin
+  StrongRef := FWeakRef;
+  Result := Assigned(StrongRef);
+end;
+
+{ THandleReference }
+
+procedure THandleReference.Release;
+begin
+  ; // Nothing as we don't own the handle
+end;
+
 { TAutoObject }
 
 constructor TAutoObject.Capture;
@@ -346,6 +450,13 @@ begin
 
   FObject := nil;
   inherited;
+end;
+
+{ TMemoryReference }
+
+procedure TMemoryReference.Release;
+begin
+  ; // Nothing as we don't own the memory region
 end;
 
 { TAutoMemory }
@@ -406,10 +517,71 @@ begin
     FOperation;
 
   FOperation := nil;
-  inherited
+  inherited;
+end;
+
+{ TAnonymousEnumerator<T> }
+
+constructor TAnonymousEnumerator<T>.Create;
+begin
+  FPrepare := Prepare;
+  FProvider := Provider;
+end;
+
+function TAnonymousEnumerator<T>.GetCurrent;
+begin
+  Assert(False, 'Legacy (untyped) IEnumerator.GetCurrent not supported');
+  Result := nil;
+end;
+
+function TAnonymousEnumerator<T>.GetCurrentT;
+begin
+  Result := FCurrent;
+end;
+
+function TAnonymousEnumerator<T>.GetEnumerator;
+begin
+  Assert(False, 'Legacy (untyped) IEnumerable.GetEnumerator not supported');
+  Result := nil;
+end;
+
+function TAnonymousEnumerator<T>.GetEnumeratorT;
+begin
+  Result := Self;
+end;
+
+function TAnonymousEnumerator<T>.MoveNext;
+begin
+  // Run one-time preparation
+  if Assigned(FPrepare) and not FIsPrepared then
+  begin
+    Result := FPrepare;
+
+    if not Result then
+      Exit;
+
+    FIsPrepared := True;
+  end;
+
+  Result := FProvider(FCurrent);
+end;
+
+procedure TAnonymousEnumerator<T>.Reset;
+begin
+  ; // not supported
 end;
 
 { Auto }
+
+class function Auto.Address<T>;
+begin
+  Result := TMemoryReference.Capture(@Buffer, SizeOf(Buffer));
+end;
+
+class function Auto.AddressRange;
+begin
+  Result := TMemoryReference.Capture(Start, Size);
+end;
 
 class function Auto.Allocate<T>;
 begin
@@ -441,12 +613,48 @@ begin
   IAutoObject(Result) := TAutoObject.Capture(&Object);
 end;
 
-class function Auto.RefOrNil<P>;
+class function Auto.Iterate<T>;
+begin
+  Result := TAnonymousEnumerator<T>.Create(nil, Provider);
+end;
+
+class function Auto.IterateEx<T>;
+begin
+  Result := TAnonymousEnumerator<T>.Create(Prepare, Provider);
+end;
+
+class function Auto.RefHandle;
+begin
+  Result := THandleReference.Capture(Handle);
+end;
+
+class function Auto.RefOrNil(const Memory: IAutoPointer): Pointer;
+begin
+  if Assigned(Memory) then
+    Result := Memory.Data
+  else
+    Result := nil;
+end;
+
+class function Auto.RefOrNil<P>(const Memory: IAutoPointer<P>): P;
 begin
   if Assigned(Memory) then
     Result := Memory.Data
   else
     Result := Default(P); // nil
+end;
+
+class function Auto.RefWeak<I>;
+begin
+  Result := TWeakReference<I>.Create(StrongRef);
+end;
+
+class function Auto.SizeOrZero;
+begin
+  if Assigned(Memory) then
+    Result := Memory.Size
+  else
+    Result := 0;
 end;
 
 end.

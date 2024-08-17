@@ -7,6 +7,8 @@ unit DelphiApi.Reflection;
 
 interface
 
+{$MINENUMSIZE 4}
+
 type
   TCustomAttributeClass = class of TCustomAttribute;
 
@@ -114,6 +116,10 @@ type
     constructor Create(MinimalDigits: Integer = 0);
   end;
 
+  // Display the underlying magic value as an ASCII string
+  AsciiMagicAttribute = class(TCustomAttribute)
+  end;
+
   // Display the underlying data as a size in bytes
   BytesAttribute = class(TCustomAttribute)
   end;
@@ -129,7 +135,7 @@ type
     constructor Create(const ExpectedValue: UInt64 = 0);
   end;
 
-  // Skip this entry when performing enumeration
+  // Skip this field when performing record traversing
   UnlistedAttribute = class(TCustomAttribute)
   end;
 
@@ -139,6 +145,10 @@ type
 
   // The field indicates the size of the entire structure
   RecordSizeAttribute = class(TCustomAttribute)
+  end;
+
+  // The field indicates an offset value in bytes
+  OffsetAttribute = class(TCustomAttribute)
   end;
 
   { Parameters }
@@ -223,10 +233,20 @@ type
     constructor Create(ATypeInfo: Pointer);
   end;
 
+  // Annotates known thread safety state for a type or a function
+  ThreadSafeAttribute = class (TCustomAttribute)
+    IsThreadSafe: Boolean;
+    constructor Create(IsThreadSafe: Boolean = True);
+  end;
+
 // Make sure a class is accessible through reflection
 procedure CompileTimeInclude(MetaClass: TClass);
 
 implementation
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 { NamingStyleAttribute }
 
@@ -369,10 +389,17 @@ var
   TypeInfoPtr: PPointer absolute ATypeInfo;
 begin
   // For some reason, Delphi gives us an indirect pointer that we need to
-  // dereferece.
+  // dereference.
 
   if Assigned(TypeInfoPtr) then
     Self.TypeInfo := TypeInfoPtr^;
+end;
+
+{ ThreadSafeAttribute }
+
+constructor ThreadSafeAttribute.Create;
+begin
+  Self.IsThreadSafe := IsThreadSafe;
 end;
 
 { Functions }

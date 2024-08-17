@@ -17,7 +17,7 @@ type
 function CsrxAllocateCaptureBuffer(
   out CaptureBuffer: ICsrCaptureHeader;
   TotalLength: Cardinal;
-  PoinerCount: Cardinal
+  PointerCount: Cardinal
 ): TNtxStatus;
 
 // Prepare a region for storing data in a capture buffer
@@ -71,10 +71,10 @@ function CsrxDefineDosDevice(
 
 // Register a process with SxS
 function CsrxRegisterProcessManifest(
-  [Access(PROCESS_QUERY_LIMITED_INFORMATION)] hProcess: THandle;
-  hThread: THandle;
+  [Access(PROCESS_QUERY_LIMITED_INFORMATION)] const hxProcess: IHandle;
+  const hxThread: IHandle;
   const ClientId: TClientId;
-  Handle: THandle;
+  const Handle: IHandle;
   HandleType: TBaseMsgHandleType;
   const Region: TMemory;
   const Path: String
@@ -82,8 +82,8 @@ function CsrxRegisterProcessManifest(
 
 // Register a process with SxS using an external manifest from a file
 function CsrxRegisterProcessManifestFromFile(
-  [Access(PROCESS_QUERY_LIMITED_INFORMATION)] hProcess: THandle;
-  hThread: THandle;
+  [Access(PROCESS_QUERY_LIMITED_INFORMATION)] const hxProcess: IHandle;
+  const hxThread: IHandle;
   const ClientId: TClientId;
   const FileName: String;
   const Path: String
@@ -91,8 +91,8 @@ function CsrxRegisterProcessManifestFromFile(
 
 // Register a process with SxS using an external manifest from a string
 function CsrxRegisterProcessManifestFromString(
-  [Access(PROCESS_QUERY_LIMITED_INFORMATION)] hProcess: THandle;
-  hThread: THandle;
+  [Access(PROCESS_QUERY_LIMITED_INFORMATION)] const hxProcess: IHandle;
+  const hxThread: IHandle;
   const ClientId: TClientId;
   const ManifestString: UTF8String;
   const Path: String
@@ -101,13 +101,13 @@ function CsrxRegisterProcessManifestFromString(
 // Create an activation context via a message to SxS
 function CsrxCreateActivationContext(
   out hxActCtx: IActivationContext;
-  Handle: THandle;
+  const Handle: IHandle;
   HandleType: TBaseMsgHandleType;
   const Region: TMemory;
   const ManifestPath: String = '';
   AssemblyDirectory: String = '';
   ResourceId: PWideChar = CREATEPROCESS_MANIFEST_RESOURCE_ID;
-  ProcessorArchitecture: TProcessorArchitecture = PROCESSOR_ARCHITECTURE_CURRENT
+  ProcessorArchitecture: TProcessorArchitecture16 = PROCESSOR_ARCHITECTURE_CURRENT
 ): TNtxStatus;
 
 // Create an activation context using an external manifest from a file
@@ -116,7 +116,7 @@ function CsrxCreateActivationContextFromFile(
   const FileName: String;
   const AssemblyDirectory: String = '';
   ResourceId: PWideChar = CREATEPROCESS_MANIFEST_RESOURCE_ID;
-  ProcessorArchitecture: TProcessorArchitecture = PROCESSOR_ARCHITECTURE_CURRENT
+  ProcessorArchitecture: TProcessorArchitecture16 = PROCESSOR_ARCHITECTURE_CURRENT
 ): TNtxStatus;
 
 // Create an activation context using an external manifest from a string
@@ -126,7 +126,7 @@ function CsrxCreateActivationContextFromString(
   const FileName: String = '';
   const AssemblyDirectory: String = '';
   ResourceId: PWideChar = CREATEPROCESS_MANIFEST_RESOURCE_ID;
-  ProcessorArchitecture: TProcessorArchitecture = PROCESSOR_ARCHITECTURE_CURRENT
+  ProcessorArchitecture: TProcessorArchitecture16 = PROCESSOR_ARCHITECTURE_CURRENT
 ): TNtxStatus;
 
 implementation
@@ -141,7 +141,7 @@ uses
 {$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 type
-  TCsrAutoBuffer = class (TCustomAutoMemory, IMemory)
+  TCsrAutoBuffer = class (TCustomAutoMemory, IMemory, IAutoPointer, IAutoReleasable)
     procedure Release; override;
   end;
 
@@ -158,7 +158,7 @@ function CsrxAllocateCaptureBuffer;
 var
   Buffer: PCsrCaptureHeader;
 begin
-  Buffer := CsrAllocateCaptureBuffer(PoinerCount, TotalLength);
+  Buffer := CsrAllocateCaptureBuffer(PointerCount, TotalLength);
 
   if not Assigned(Buffer) then
   begin
@@ -168,7 +168,7 @@ begin
   else
   begin
     IMemory(CaptureBuffer) := TCsrAutoBuffer.Capture(Buffer, TotalLength);
-    Result.Status := STATUS_SUCCESS;
+    Result := NtxSuccess;
   end
 end;
 
@@ -185,7 +185,7 @@ begin
     Result.Status := STATUS_NO_MEMORY;
   end
   else
-    Result.Status := STATUS_SUCCESS;
+    Result := NtxSuccess;
 end;
 
 procedure CsrxCaptureMessageString;
@@ -359,21 +359,22 @@ var
   BasicInfo: TProcessBasicInformation;
   WoW64Peb: Pointer;
   ImageInfo: TSectionImageInformation;
+  AssemblyDirectory: String;
 begin
   // Determine native PEB location
-  Result := NtxProcess.Query(hProcess, ProcessBasicInformation,  BasicInfo);
+  Result := NtxProcess.Query(hxProcess, ProcessBasicInformation,  BasicInfo);
 
   if not Result.IsSuccess then
     Exit;
 
   // Determine WoW64 PEB location
-  Result := NtxProcess.Query(hProcess, ProcessWow64Information, WoW64Peb);
+  Result := NtxProcess.Query(hxProcess, ProcessWow64Information, WoW64Peb);
 
   if not Result.IsSuccess then
     Exit;
 
   // Determine image architecture
-  Result := NtxProcess.Query(hProcess, ProcessImageInformation, ImageInfo);
+  Result := NtxProcess.Query(hxProcess, ProcessImageInformation, ImageInfo);
 
   if not Result.IsSuccess then
     Exit;
@@ -381,21 +382,36 @@ begin
   // Prepare a message to Csr/SxS
   IMemory(Msg) := Auto.AllocateDynamic(SizeOf(TBaseCreateProcessMsgV1));
 
-  Msg.Data.ProcessHandle := hProcess;
-  Msg.Data.ThreadHandle := hThread;
+  Result := RtlxInitUnicodeString(Msg.Data.Sxs.Union.Classic.Manifest.Path,
+    Path);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  AssemblyDirectory := RtlxExtractRootPath(Path);
+  Result := RtlxInitUnicodeString(Msg.Data.Sxs.Union.Classic.AssemblyDirectory,
+    AssemblyDirectory);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(Msg.Data.Sxs.CultureFallbacks,
+    DEFAULT_CULTURE_FALLBACKS);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Msg.Data.ProcessHandle := HandleOrDefault(hxProcess);
+  Msg.Data.ThreadHandle := HandleOrDefault(hxThread);
   Msg.Data.ClientID := ClientID;
   Msg.Data.Sxs.Flags := BASE_MSG_SXS_MANIFEST_PRESENT;
   Msg.Data.Sxs.ProcessParameterFlags := RTL_USER_PROC_APP_MANIFEST_PRESENT;
   Msg.Data.Sxs.Union.Classic.Manifest.FileType := BASE_MSG_FILETYPE_XML;
   Msg.Data.Sxs.Union.Classic.Manifest.PathType := BASE_MSG_PATHTYPE_FILE;
   Msg.Data.Sxs.Union.Classic.Manifest.HandleType := HandleType;
-  Msg.Data.Sxs.Union.Classic.Manifest.Path := TNtUnicodeString.From(Path);
-  Msg.Data.Sxs.Union.Classic.Manifest.Handle := Handle;
+  Msg.Data.Sxs.Union.Classic.Manifest.Handle := HandleOrDefault(Handle);
   Msg.Data.Sxs.Union.Classic.Manifest.Offset := UIntPtr(Region.Address);
   Msg.Data.Sxs.Union.Classic.Manifest.Size := Region.Size;
-  Msg.Data.Sxs.Union.Classic.AssemblyDirectory := TNtUnicodeString.From(
-    RtlxExtractRootPath(Path));
-  Msg.Data.Sxs.CultureFallbacks := TNtUnicodeString.From(DEFAULT_CULTURE_FALLBACKS);
   Msg.Data.PebAddressNative := UIntPtr(BasicInfo.PebBaseAddress);
   Msg.Data.PebAddressWow64 := UIntPtr(WoW64Peb);
 
@@ -439,21 +455,20 @@ begin
     Exit;
 
   // Determine its size
-  Result := NtxFile.Query(hxFile.Handle, FileStandardInformation, FileInfo);
+  Result := NtxFile.Query(hxFile, FileStandardInformation, FileInfo);
 
   if not Result.IsSuccess then
     Exit;
 
   // Create a section from the manifest
-  Result := NtxCreateFileSection(hxSection, hxFile.Handle, PAGE_READONLY,
-    SEC_COMMIT);
+  Result := NtxCreateFileSection(hxSection, hxFile, PAGE_READONLY, SEC_COMMIT);
 
   if not Result.IsSuccess then
     Exit;
 
   // Use the section object as the manifest source
-  Result := CsrxRegisterProcessManifest(hProcess, hThread, ClientId,
-    hxSection.Handle, BASE_MSG_HANDLETYPE_SECTION, TMemory.From(nil,
+  Result := CsrxRegisterProcessManifest(hxProcess, hxThread, ClientId,
+    hxSection, BASE_MSG_HANDLETYPE_SECTION, TMemory.From(nil,
     FileInfo.EndOfFile), Path);
 end;
 
@@ -472,7 +487,8 @@ begin
     Exit;
 
   // Map it locally to fill in the content
-  Result := NtxMapViewOfSection(Mapping, hxSection.Handle, NtxCurrentProcess);
+  Result := NtxMapViewOfSection(hxSection, NtxCurrentProcess, Mapping,
+    MappingParameters.UseProtection(PAGE_READWRITE));
 
   if not Result.IsSuccess then
     Exit;
@@ -481,8 +497,8 @@ begin
   Move(PUTF8Char(ManifestString)^, Mapping.Data^, ManifestSize);
 
   // Send the message to SxS
-  Result := CsrxRegisterProcessManifest(hProcess, hThread, ClientId,
-    hxSection.Handle, BASE_MSG_HANDLETYPE_SECTION, TMemory.From(nil,
+  Result := CsrxRegisterProcessManifest(hxProcess, hxThread, ClientId,
+    hxSection, BASE_MSG_HANDLETYPE_SECTION, TMemory.From(nil,
     ManifestSize), Path);
 end;
 
@@ -495,23 +511,35 @@ begin
   if AssemblyDirectory = '' then
     AssemblyDirectory := USER_SHARED_DATA.NtSystemRoot + '\WinSxS';
 
+  Result := RtlxInitUnicodeString(Msg.AssemblyDirectory, AssemblyDirectory);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := RtlxInitUnicodeString(Msg.CultureFallbacks, DEFAULT_CULTURE_FALLBACKS);
+
+  if not Result.IsSuccess then
+    Exit;
+
   Msg := Default(TBaseSxsCreateActivationContextMsg);
   Msg.Flags := BASE_MSG_SXS_MANIFEST_PRESENT;
   Msg.ProcessorArchitecture := ProcessorArchitecture;
-  Msg.CultureFallbacks := TNtUnicodeString.From(DEFAULT_CULTURE_FALLBACKS);
   Msg.Manifest.FileType := BASE_MSG_FILETYPE_XML;
   Msg.Manifest.HandleType := HandleType;
-  Msg.Manifest.Handle := Handle;
+  Msg.Manifest.Handle := HandleOrDefault(Handle);
   Msg.Manifest.Offset := UIntPtr(Region.Address);
   Msg.Manifest.Size := Region.Size;
-  Msg.AssemblyDirectory := TNtUnicodeString.From(AssemblyDirectory);
   Msg.ResourceId := ResourceId;
   Msg.ActivationContextData := @ActivationContextData;
 
   if ManifestPath <> '' then
   begin
     Msg.Manifest.PathType := BASE_MSG_PATHTYPE_FILE;
-    Msg.Manifest.Path := TNtUnicodeString.From(ManifestPath);
+
+    Result := RtlxInitUnicodeString(Msg.Manifest.Path, ManifestPath);
+
+    if not Result.IsSuccess then
+      Exit;
   end;
 
   // Capture string buffers
@@ -534,7 +562,7 @@ begin
 
   // Make sure to unmap the data if something goes wrong
   if not Result.IsSuccess then
-    NtxUnmapViewOfSection(ActivationContextData);
+    NtxUnmapViewOfSection(NtxCurrentProcess, ActivationContextData);
 end;
 
 function CsrxCreateActivationContextFromFile;
@@ -554,20 +582,19 @@ begin
     Exit;
 
   // Determine its size
-  Result := NtxFile.Query(hxFile.Handle, FileStandardInformation, FileInfo);
+  Result := NtxFile.Query(hxFile, FileStandardInformation, FileInfo);
 
   if not Result.IsSuccess then
     Exit;
 
   // Create a section from the manifest
-  Result := NtxCreateFileSection(hxSection, hxFile.Handle, PAGE_READONLY,
-    SEC_COMMIT);
+  Result := NtxCreateFileSection(hxSection, hxFile, PAGE_READONLY, SEC_COMMIT);
 
   if not Result.IsSuccess then
     Exit;
 
   // Use the section object as the manifest source
-  Result := CsrxCreateActivationContext(hxActCtx, hxSection.Handle,
+  Result := CsrxCreateActivationContext(hxActCtx, hxSection,
     BASE_MSG_HANDLETYPE_SECTION, TMemory.From(nil, FileInfo.EndOfFile),
     FileName, AssemblyDirectory, ResourceId, ProcessorArchitecture);
 end;
@@ -587,7 +614,8 @@ begin
     Exit;
 
   // Map it locally to fill in the content
-  Result := NtxMapViewOfSection(Mapping, hxSection.Handle, NtxCurrentProcess);
+  Result := NtxMapViewOfSection(hxSection, NtxCurrentProcess, Mapping,
+    MappingParameters.UseProtection(PAGE_READWRITE));
 
   if not Result.IsSuccess then
     Exit;
@@ -596,7 +624,7 @@ begin
   Move(PUTF8Char(ManifestString)^, Mapping.Data^, ManifestSize);
 
   // Send the message to SxS
-  Result := CsrxCreateActivationContext(hxActCtx, hxSection.Handle,
+  Result := CsrxCreateActivationContext(hxActCtx, hxSection,
     BASE_MSG_HANDLETYPE_SECTION, TMemory.From(nil, ManifestSize), FileName,
     AssemblyDirectory, ResourceId, ProcessorArchitecture);
 end;

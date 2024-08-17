@@ -9,12 +9,6 @@ interface
 uses
   Ntapi.WinNt, Ntapi.ntdef, Ntapi.ntseapi, NtUtils, NtUtils.Objects;
 
-const
-  // Now supported everywhere on all OS versions
-  NtCurrentProcessToken = THandle(-4);
-  NtCurrentThreadToken = THandle(-5);
-  NtCurrentEffectiveToken = THandle(-6);
-
 type
   TFbqnValue = record
     Version: UInt64;
@@ -64,14 +58,10 @@ type
 
 { Pseudo-handles }
 
-function NtxCurrentProcessToken: IHandle;
-function NtxCurrentThreadToken: IHandle;
-function NtxCurrentEffectiveToken: IHandle;
-
 // Open a token of a process
 function NtxOpenProcessToken(
   out hxToken: IHandle;
-  [Access(PROCESS_QUERY_LIMITED_INFORMATION)] hProcess: THandle;
+  [Access(PROCESS_QUERY_LIMITED_INFORMATION)] const hxProcess: IHandle;
   DesiredAccess: TTokenAccessMask;
   HandleAttributes: TObjectAttributesFlags = 0
 ): TNtxStatus;
@@ -88,7 +78,7 @@ function NtxOpenProcessTokenById(
 // Open a token of a thread
 function NtxOpenThreadToken(
   out hxToken: IHandle;
-  [Access(THREAD_QUERY_LIMITED_INFORMATION)] hThread: THandle;
+  [Access(THREAD_QUERY_LIMITED_INFORMATION)] const hxThread: IHandle;
   DesiredAccess: TTokenAccessMask;
   HandleAttributes: TObjectAttributesFlags = 0;
   InvertOpenLogic: Boolean = False
@@ -129,7 +119,7 @@ function NtxDuplicateToken(
   [opt] const ObjectAttributes: IObjectAttributes = nil
 ): TNtxStatus;
 
-// Duplicate existine token in-place
+// Duplicate an existing token in-place
 function NtxDuplicateTokenLocal(
   [Access(TOKEN_DUPLICATE)] var hxToken: IHandle;
   TokenType: TTokenType;
@@ -245,26 +235,6 @@ uses
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
 {$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
-{ Pseudo-handles }
-
-function NtxCurrentProcessToken;
-begin
-  Result := Auto.CaptureHandle(NtCurrentProcessToken);
-  Result.AutoRelease := False;
-end;
-
-function NtxCurrentThreadToken;
-begin
-  Result := Auto.CaptureHandle(NtCurrentThreadToken);
-  Result.AutoRelease := False;
-end;
-
-function NtxCurrentEffectiveToken;
-begin
-  Result := Auto.CaptureHandle(NtCurrentEffectiveToken);
-  Result.AutoRelease := False;
-end;
-
 { Creation }
 
 function NtxOpenProcessToken;
@@ -275,8 +245,8 @@ begin
   Result.LastCall.OpensForAccess(DesiredAccess);
   Result.LastCall.Expects<TProcessAccessMask>(PROCESS_QUERY_LIMITED_INFORMATION);
 
-  Result.Status := NtOpenProcessTokenEx(hProcess, DesiredAccess,
-    HandleAttributes, hToken);
+  Result.Status := NtOpenProcessTokenEx(HandleOrDefault(hxProcess),
+    DesiredAccess, HandleAttributes, hToken);
 
   if Result.IsSuccess then
     hxToken := Auto.CaptureHandle(hToken);
@@ -289,7 +259,7 @@ begin
   Result := NtxOpenProcess(hxProcess, PID, PROCESS_QUERY_LIMITED_INFORMATION);
 
   if Result.IsSuccess then
-    Result := NtxOpenProcessToken(hxToken, hxProcess.Handle, DesiredAccess,
+    Result := NtxOpenProcessToken(hxToken, hxProcess, DesiredAccess,
       HandleAttributes);
 end;
 
@@ -305,8 +275,9 @@ begin
   // security context. When reading a token from the current thread use the
   // process' security context.
 
-  Result.Status := NtOpenThreadTokenEx(hThread, DesiredAccess,
-    (hThread = NtCurrentThread) xor InvertOpenLogic, HandleAttributes, hToken);
+  Result.Status := NtOpenThreadTokenEx(HandleOrDefault(hxThread), DesiredAccess,
+    (Assigned(hxThread) and (hxThread.Handle = NtCurrentThread)) xor
+    InvertOpenLogic, HandleAttributes, hToken);
 
   if Result.IsSuccess then
     hxToken := Auto.CaptureHandle(hToken);
@@ -319,7 +290,7 @@ begin
   Result := NtxOpenThread(hxThread, TID, THREAD_QUERY_LIMITED_INFORMATION);
 
   if Result.IsSuccess then
-    Result := NtxOpenThreadToken(hxToken, hxThread.Handle, DesiredAccess,
+    Result := NtxOpenThreadToken(hxToken, hxThread, DesiredAccess,
       HandleAttributes, InvertOpenLogic);
 end;
 
@@ -339,28 +310,35 @@ end;
 function NtxExpandToken;
 begin
   if not Assigned(hxToken) then
-    Result.Status := STATUS_SUCCESS
+    Result := NtxSuccess
 
   else if hxToken.Handle = NtCurrentProcessToken then
-    Result := NtxOpenProcessToken(hxToken, NtCurrentProcess, DesiredAccess)
+    Result := NtxOpenProcessToken(hxToken, NtxCurrentProcess, DesiredAccess)
 
   else if hxToken.Handle = NtCurrentThreadToken then
-    Result := NtxOpenThreadToken(hxToken, NtCurrentThread, DesiredAccess)
+    Result := NtxOpenThreadToken(hxToken, NtxCurrentThread, DesiredAccess)
 
   else if hxToken.Handle = NtCurrentEffectiveToken then
     Result := NtxOpenEffectiveTokenById(hxToken, NtCurrentTeb.ClientId,
       DesiredAccess)
 
   else
-    Result.Status := STATUS_SUCCESS;
+    Result := NtxSuccess
 end;
 
 function NtxDuplicateToken;
 var
+  ObjAttr: PObjectAttributes;
   hToken: THandle;
 begin
   // Manage support for pseudo-handles
   Result := NtxExpandToken(hxExistingToken, TOKEN_DUPLICATE);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := AttributeBuilder(ObjectAttributes)
+    .UseImpersonation(ImpersonationLevel).Build(ObjAttr);
 
   if not Result.IsSuccess then
     Exit;
@@ -371,9 +349,7 @@ begin
   Result.Status := NtDuplicateToken(
     hxExistingToken.Handle,
     AccessMaskOverride(TOKEN_ALL_ACCESS, ObjectAttributes),
-    AttributeBuilder(ObjectAttributes)
-      .UseImpersonation(ImpersonationLevel)
-      .ToNative,
+    ObjAttr,
     Assigned(ObjectAttributes) and ObjectAttributes.EffectiveOnly,
     TokenType,
     hToken
@@ -434,12 +410,19 @@ end;
 
 function NtxCreateToken;
 var
+  ObjAttr: PObjectAttributes;
   hToken: THandle;
   TokenUser: TSidAndAttributes;
   TokenPrimaryGroup: TTokenSidInformation;
   OwnerSid: PSid;
   DefaultAcl: PAcl;
 begin
+  Result := AttributeBuilder(ObjectAttributes)
+    .UseImpersonation(ImpersonationLevel).Build(ObjAttr);
+
+  if not Result.IsSuccess then
+    Exit;
+
   // Prepare the user
   TokenUser.Sid := User.Sid.Data;
   TokenUser.Attributes := User.Attributes;
@@ -455,9 +438,7 @@ begin
   Result.Status := NtCreateToken(
     hToken,
     AccessMaskOverride(TOKEN_ALL_ACCESS, ObjectAttributes),
-    AttributeBuilder(ObjectAttributes)
-      .UseImpersonation(ImpersonationLevel)
-      .ToNative,
+    ObjAttr,
     TokenType,
     AuthenticationId,
     ExpirationTime,
@@ -476,14 +457,32 @@ end;
 
 function NtxCreateTokenEx;
 var
+  ObjAttr: PObjectAttributes;
   hToken: THandle;
   TokenUser: TSidAndAttributes;
   TokenPrimaryGroup: TTokenSidInformation;
   OwnerSid: PSid;
   DefaultAcl: PAcl;
+  UserAttr, DeviceAttr: IMemory<PTokenSecurityAttributes>;
 begin
   // Check required function
-  Result := LdrxCheckDelayedImport(delayed_ntdll, delayed_NtCreateTokenEx);
+  Result := LdrxCheckDelayedImport(delayed_NtCreateTokenEx);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := AttributeBuilder(ObjectAttributes)
+    .UseImpersonation(ImpersonationLevel).Build(ObjAttr);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := NtxpAllocSecurityAttributes(UserAttr, UserAttributes);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := NtxpAllocSecurityAttributes(DeviceAttr, DeviceAttributes);
 
   if not Result.IsSuccess then
     Exit;
@@ -503,17 +502,15 @@ begin
   Result.Status := NtCreateTokenEx(
     hToken,
     AccessMaskOverride(TOKEN_ALL_ACCESS, ObjectAttributes),
-    AttributeBuilder(ObjectAttributes)
-      .UseImpersonation(ImpersonationLevel)
-      .ToNative,
+    ObjAttr,
     TokenType,
     AuthenticationId,
     ExpirationTime,
     TokenUser,
     NtxpAllocGroups2(Groups).Data,
     NtxpAllocPrivileges2(Privileges).Data,
-    NtxpAllocSecurityAttributes(UserAttributes).Data,
-    NtxpAllocSecurityAttributes(DeviceAttributes).Data,
+    UserAttr.Data,
+    DeviceAttr.Data,
     NtxpAllocGroups2(DeviceGroups).Data,
     MandatoryPolicy,
     SidInfoRefOrNil(OwnerSid),
@@ -528,12 +525,13 @@ end;
 
 function NtxCreateLowBoxToken;
 var
+  ObjAttr: PObjectAttributes;
   hToken: THandle;
   HandleValues: TArray<THandle>;
   CapArray: TArray<TSidAndAttributes>;
   i: Integer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_ntdll, delayed_NtCreateLowBoxToken);
+  Result := LdrxCheckDelayedImport(delayed_NtCreateLowBoxToken);
 
   if not Result.IsSuccess then
     Exit;
@@ -557,6 +555,11 @@ begin
     CapArray[i].Attributes := Capabilities[i].Attributes;
   end;
 
+  Result := AttributesRefOrNil(ObjAttr, ObjectAttributes);
+
+  if not Result.IsSuccess then
+    Exit;
+
   Result.Location := 'NtCreateLowBoxToken';
   Result.LastCall.Expects<TTokenAccessMask>(TOKEN_DUPLICATE);
 
@@ -564,7 +567,7 @@ begin
     hToken,
     hxExistingToken.Handle,
     AccessMaskOverride(TOKEN_ALL_ACCESS, ObjectAttributes),
-    AttributesRefOrNil(ObjectAttributes),
+    ObjAttr,
     Package.Data,
     Length(CapArray),
     CapArray,

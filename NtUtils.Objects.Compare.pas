@@ -64,7 +64,7 @@ uses
 
 function NtxQueryHandleHash;
 begin
-  // Try to peform hashing
+  // Try to perform hashing
   Result := HashingRoutine(hxObject, Hash);
 
   // If necessary, reopen the object and try again
@@ -108,7 +108,7 @@ var
   Info: TProcessBasicInformation;
 begin
   // Use ProcessId as a hash value
-  Result := NtxProcess.Query(hxProcess.Handle, ProcessBasicInformation, Info);
+  Result := NtxProcess.Query(hxProcess, ProcessBasicInformation, Info);
 
   if Result.IsSuccess then
     Hash := UInt64(Info.UniqueProcessId);
@@ -119,7 +119,7 @@ var
   Info: TThreadBasicInformation;
 begin
   // Use ThreadId as a hash value
-  Result := NtxThread.Query(hxThread.Handle, ThreadBasicInformation, Info);
+  Result := NtxThread.Query(hxThread, ThreadBasicInformation, Info);
 
   if Result.IsSuccess then
     Hash := UInt64(Info.ClientId.UniqueThread);
@@ -133,7 +133,7 @@ begin
    (hxObject.Handle = NtCurrentEffectiveToken) then
     Result := NtxExpandToken(hxObject, TOKEN_QUERY)
   else
-    Result.Status := STATUS_SUCCESS;
+    Result := NtxSuccess;
 end;
 
 function NtxCompareObjects;
@@ -143,12 +143,10 @@ var
   Handles: TArray<TSystemHandleEntry>;
   i, j: Integer;
 begin
-  Result.Status := STATUS_SUCCESS;
-
   if hxObject1.Handle = hxObject2.Handle then
   begin
     Equal := True;
-    Exit;
+    Exit(NtxSuccess);
   end;
 
   // Add support for token pseudo-handles
@@ -163,8 +161,7 @@ begin
     Exit;
 
   // Win 10 TH+ makes things way easier
-  if LdrxCheckDelayedImport(delayed_ntdll,
-    delayed_NtCompareObjects).IsSuccess then
+  if LdrxCheckDelayedImport(delayed_NtCompareObjects).IsSuccess then
   begin
     Result.Location := 'NtCompareObjects';
     Result.Status := NtCompareObjects(hxObject1.Handle, hxObject2.Handle);
@@ -174,8 +171,8 @@ begin
 
   // Get object's type if the caller didn't specify it
   if ObjectTypeName = '' then
-    if NtxQueryTypeObject(hxObject1.Handle, Type1).IsSuccess and
-      NtxQueryTypeObject(hxObject2.Handle, Type2).IsSuccess then
+    if NtxQueryTypeObject(hxObject1, Type1).IsSuccess and
+      NtxQueryTypeObject(hxObject2, Type2).IsSuccess then
     begin
       if Type1.TypeName <> Type2.TypeName then
       begin
@@ -211,19 +208,17 @@ begin
   // station appear the same, although they are not.
 
   // Compare named objects
-  if NtxQueryNameObject(hxObject1.Handle, Name1).IsSuccess and
-    NtxQueryNameObject(hxObject2.Handle, Name2).IsSuccess then
+  if NtxQueryNameObject(hxObject1, Name1).IsSuccess and
+    NtxQueryNameObject(hxObject2, Name2).IsSuccess then
     if (Name1 <> Name2) then
     begin
       Equal := False;
-      Result.Status := STATUS_SUCCESS;
-      Exit;
+      Exit(NtxSuccess);
     end
     else if (Name1 <> '') and (ObjectTypeName <> 'Desktop') then
     begin
       Equal := True;
-      Result.Status := STATUS_SUCCESS;
-      Exit;
+      Exit(NtxSuccess);
     end;
 
   // The last resort is to proceed via a handle snapshot

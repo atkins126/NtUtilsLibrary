@@ -33,8 +33,8 @@ function RtlxNtStatusMessage(Status: NTSTATUS): String;
 implementation
 
 uses
-  Ntapi.WinNt, Ntapi.ntldr, NtUtils.Ldr, NtUtils.SysUtils,
-  NtUtils.Errors, DelphiUiLib.Strings;
+  Ntapi.WinNt, Ntapi.ntldr, Ntapi.WinError, Ntapi.wimgapi, NtUtils.Ldr,
+  NtUtils.SysUtils, NtUtils.Errors, DelphiUiLib.Strings, DelphiApi.DelayLoad;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -73,15 +73,16 @@ begin
     if Status.IsWin32Error then
       Result := RtlxUIntToStr(Status.ToWin32Error) + ' [Win32]'
     else if Status.IsHResult then
-      Result := RtlxUIntToStr(Cardinal(Status.ToHResult), 16, 8) + ' [HRESULT]'
+      Result := RtlxUIntToStr(Cardinal(Status.ToHResult), nsHexadecimal, 8) +
+        ' [HRESULT]'
     else
-      Result :=  RtlxUIntToStr(Status, 16, 8) + ' [NTSTATUS]';
+      Result :=  RtlxUIntToStr(Status, nsHexadecimal, 8) + ' [NTSTATUS]';
   end;
 end;
 
 function RtlxNtStatusSummary;
 const
-  KnownPrefixes: array [0 .. 95] of String = ('STATUS_VOLMGR_',
+  KnownPrefixes: array [0 .. 96] of String = ('STATUS_VOLMGR_',
     'STATUS_XMLLITE_', 'STATUS_LOG_', 'STATUS_DS_', 'STATUS_CTX_',
     'STATUS_SXS_', 'STATUS_VHD_', 'STATUS_CLOUD_FILE_', 'STATUS_SMARTCARD_',
     'STATUS_APPEXEC_', 'STATUS_SYSTEM_INTEGRITY_', 'STATUS_WX86_',
@@ -97,11 +98,11 @@ const
     'ERROR_CS_ENCRYPTION_', 'ERROR_RWRAW_ENCRYPTED_', 'ERROR_WOF_',
     'ERROR_EDP_', 'ERROR_BCD_', 'ERROR_', 'CO_E_', 'RPC_NT_', 'RPC_S_',
     'SEC_E_', 'RPC_E_', 'STG_E_', 'SCHED_E_', 'E_', 'APPX_E_', 'RPC_X_',
-    'OLE_E_', 'DISP_E_', 'MK_E_', 'EVENT_E_', 'DBG_', 'SEC_I_', 'RO_E_',
-    'WER_S_', 'SCHED_S_', 'CS_E_', 'CONTEXT_E_', 'WER_E_', 'STG_S_', 'REGDB_E_',
-    'APPMODEL_ERROR_', 'DWM_E_', 'MK_S_', 'CLIPBRD_E_', 'STORE_ERROR_', 'S_',
-    'EPT_S_', 'EPT_NT_', 'OR_', 'OLEOBJ_S_', 'OLE_S_', 'MEM_E_', 'CLASS_E_',
-    'OLEOBJ_E_', 'EVENT_S_', 'DWM_S_', 'CO_S_', 'CAT_E_');
+    'OLE_E_', 'DISP_E_', 'DISMAPI_E_', 'MK_E_', 'EVENT_E_', 'DBG_', 'SEC_I_',
+    'RO_E_', 'WER_S_', 'SCHED_S_', 'CS_E_', 'CONTEXT_E_', 'WER_E_', 'STG_S_',
+    'REGDB_E_', 'APPMODEL_ERROR_', 'DWM_E_', 'MK_S_', 'CLIPBRD_E_',
+    'STORE_ERROR_', 'S_', 'EPT_S_', 'EPT_NT_', 'OR_', 'OLEOBJ_S_', 'OLE_S_',
+    'MEM_E_', 'CLASS_E_', 'OLEOBJ_E_', 'EVENT_S_', 'DWM_S_', 'CO_S_', 'CAT_E_');
 var
   Prefix: String;
 begin
@@ -123,21 +124,34 @@ end;
 
 function RtlxNtStatusMessage;
 var
-  hKernel32: PDllBase;
+  Module: PDelayedLoadDll;
+  Code: Cardinal;
 begin
-  // Messages for Win32 errors and HRESULT codes are located in kernel32
-  if Status.IsWin32Error or Status.IsHResult then
+  if Status.IsHResult and (NT_FACILITY(Status) = FACILITY_WIM) then
   begin
-    if not LdrxGetDllHandle(kernel32, hKernel32).IsSuccess or
-      not RtlxFindMessage(Result, hKernel32, Status.ToWin32Error).IsSuccess then
-      Result := '';
+    // WIM codes are HRESULTs with messages in wimgapi
+    Module := @delayed_wimgapi;
+    HResult(Code) := Status.ToHResult;
   end
+  else if Status.IsWin32Error or Status.IsHResult then
+  begin
+    // Win32 errors and HRESULT code messages are in kernel32
+    Module := @delayed_kernel32;
+    Code := Status.ToWin32Error;
+  end
+  else
+  begin
+    // Other NTSTATUS messages are in ntdll
+    Module := @delayed_ntdll;
+    Code := Status;
+  end;
 
-  // For native NTSTATUS vaules, use ntdll
-  else if not RtlxFindMessage(Result, hNtdll.DllBase, Status).IsSuccess then
+  // Load the message
+  if LdrxCheckDelayedModule(Module^).IsSuccess and
+    RtlxFindMessage(Result, Module.DllAddress, Code).IsSuccess then
+    Result := RemoveSummaryAndNewLines(Result)
+  else
     Result := '';
-
-  Result := RemoveSummaryAndNewLines(Result);
 
   if Result = '' then
     Result := '<No description available>';

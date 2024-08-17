@@ -9,6 +9,13 @@ interface
 uses
   Ntapi.ObjIdl, NtUtils, NtUtils.Processes.Create;
 
+type
+  TShlxCommandLineInfo = record
+    Application: String;
+    CommandLine: String;
+    Parameters: String;
+  end;
+
 // Create a new process via ShellExecCmdLine
 [SupportedOption(spoCurrentDirectory)]
 [SupportedOption(spoRequireElevation)]
@@ -32,16 +39,26 @@ function ShlxExecute(
   out Info: TProcessInfo
 ): TNtxStatus;
 
+{ Other functions }
+
 // Create a service provider for ICreatingProcess
-function ShlxMakeCreatingProcesProvider(
+function ShlxMakeCreatingProcessProvider(
   const Flags: TNewProcessFlags;
-  [opt] InnderProvider: IServiceProvider = nil
+  [opt] InnerProvider: IServiceProvider = nil
 ): IServiceProvider;
+
+// Parse a command line string into a program path and parameters
+// Note that this function does not respect the current directory and requires
+// the target file to exist.
+function ShlxEvaluateSystemCommandTemplate(
+  const CommandLine: String;
+  out Info: TShlxCommandLineInfo
+): TNtxStatus;
 
 implementation
 
 uses
-  Ntapi.WinError, Ntapi.ShellApi, Ntapi.WinUser,
+  Ntapi.WinError, Ntapi.ShellApi, Ntapi.WinUser, Ntapi.ObjBase,
   Ntapi.ProcessThreadsApi, NtUtils.Objects;
 
 {$BOOLEVAL OFF}
@@ -163,7 +180,7 @@ begin
     Result := E_NOINTERFACE;
 end;
 
-function ShlxMakeCreatingProcesProvider;
+function ShlxMakeCreatingProcessProvider;
 begin
   Result := TCreatingProcessProvider.Create(
     function (const cpi: ICreateProcessInputs): HResult
@@ -180,7 +197,7 @@ begin
 
       Result := cpi.AddCreateFlags(FlagsToAdd);
     end,
-    InnderProvider
+    InnerProvider
   );
 end;
 
@@ -213,7 +230,7 @@ begin
 
   if [poSuspended, poBreakawayFromJob] * Options.Flags <> [] then
   begin
-    CustomProvider := ShlxMakeCreatingProcesProvider(Options.Flags);
+    CustomProvider := ShlxMakeCreatingProcessProvider(Options.Flags);
     ExecInfo.Mask := ExecInfo.Mask or SEE_MASK_FLAG_HINST_IS_SITE;
     ExecInfo.hInstApp := UIntPtr(CustomProvider);
   end;
@@ -244,6 +261,41 @@ begin
     Include(Info.ValidFields, piProcessHandle);
     Info.hxProcess := Auto.CaptureHandle(ExecInfo.hProcess);
   end;
+end;
+
+function DelayCoTaskMemFree(
+  [in] Buffer: Pointer
+): IAutoReleasable;
+begin
+  Result := Auto.Delay(
+    procedure
+    begin
+      CoTaskMemFree(Buffer);
+    end
+  );
+end;
+
+function ShlxEvaluateSystemCommandTemplate;
+var
+  ApplicationBuffer, CommandLineBuffer, ParametersBuffer: PWideChar;
+  ApplicationDeallocator: IAutoReleasable;
+  CommandLineDeallocator: IAutoReleasable;
+  ParametersDeallocator: IAutoReleasable;
+begin
+  Result.Location := 'SHEvaluateSystemCommandTemplate';
+  Result.HResult := SHEvaluateSystemCommandTemplate(PWideChar(CommandLine),
+    ApplicationBuffer, CommandLineBuffer, ParametersBuffer);
+
+  if not Result.IsSuccess then
+    Exit;
+
+  ApplicationDeallocator := DelayCoTaskMemFree(ApplicationBuffer);
+  CommandLineDeallocator := DelayCoTaskMemFree(CommandLineBuffer);
+  ParametersDeallocator := DelayCoTaskMemFree(ParametersBuffer);
+
+  Info.Application := String(ApplicationBuffer);
+  Info.CommandLine := String(CommandLineBuffer);
+  Info.Parameters := String(ParametersBuffer);
 end;
 
 end.

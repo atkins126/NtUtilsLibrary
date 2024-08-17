@@ -67,7 +67,7 @@ type
   [SDKName('OBJECT_INFORMATION_CLASS')]
   [NamingStyle(nsCamelCase, 'Object')]
   TObjectInformationClass = (
-    ObjectBasicInformation = 0,     // q: TObjectBasicInformaion
+    ObjectBasicInformation = 0,     // q: TObjectBasicInformation
     ObjectNameInformation = 1,      // q: TNtUnicodeString
     ObjectTypeInformation = 2,      // q: TObjectTypeInformation
     ObjectTypesInformation = 3,     // q: TObjectTypesInformation + TObjectTypeInformation
@@ -83,7 +83,7 @@ type
     PointerCount: Cardinal;
     [Bytes] PagedPoolCharge: Cardinal;
     [Bytes] NonPagedPoolCharge: Cardinal;
-    Reserved: array [0..2] of Cardinal;
+    [Unlisted] Reserved: array [0..2] of Cardinal;
     [Bytes] NameInfoSize: Cardinal;
     [Bytes] TypeInfoSize: Cardinal;
     [Bytes] SecurityDescriptorSize: Cardinal;
@@ -113,7 +113,7 @@ type
     SecurityRequired: Boolean;
     MaintainHandleCount: Boolean;
     TypeIndex: Byte;
-    ReservedByte: Byte;
+    [Unlisted] ReservedByte: Byte;
     PoolType: Cardinal;
     [Bytes] DefaultPagedPoolCharge: Cardinal;
     [Bytes] DefaultNonPagedPoolCharge: Cardinal;
@@ -144,11 +144,14 @@ type
   end;
   PObjectDirectoryInformation = ^TObjectDirectoryInformation;
 
+  TObjectDirectoryInformationArray = TAnysizeArray<TObjectDirectoryInformation>;
+  PObjectDirectoryInformationArray = ^TObjectDirectoryInformationArray;
+
   // PHNT::ntobapi.h
   [SDKName('BOUNDARY_ENTRY_TYPE')]
-  [NamingStyle(nsCamelCase, 'OBNS_')]
+  [NamingStyle(nsCamelCase, 'OBNS_'), Range(1)]
   TBoundaryEntryType = (
-    OBNS_Invalid = 0,
+    [Reserved] OBNS_Invalid = 0,
     OBNS_Name = 1,
     OBNS_SID = 2,
     OBNS_IL = 3
@@ -179,7 +182,7 @@ type
   [SDKName('SYMBOLIC_LINK_INFO_CLASS')]
   [NamingStyle(nsCamelCase, 'SymbolicLink'), Range(1)]
   TLinkInformationClass = (
-    SymbolicLinkReserved = 0,
+    [Reserved] SymbolicLinkReserved = 0,
     SymbolicLinkGlobalInformation = 1, // s: LongBool
     SymbolicLinkAccessMask = 2         // s: TSymlinkAccessMask
   );
@@ -223,7 +226,6 @@ function NtDuplicateObject(
 ): NTSTATUS; stdcall; external ntdll;
 
 // WDK::wdm.h
-[RequiredPrivilege(SE_CREATE_PERMANENT_PRIVILEGE, rpAlways)]
 function NtMakeTemporaryObject(
   [in, Access(_DELETE)] Handle: THandle
 ): NTSTATUS; stdcall; external ntdll;
@@ -232,7 +234,7 @@ function NtMakeTemporaryObject(
 [Result: ReleaseWith('NtMakeTemporaryObject')]
 [RequiredPrivilege(SE_CREATE_PERMANENT_PRIVILEGE, rpAlways)]
 function NtMakePermanentObject(
-  [in, Access(_DELETE)] Handle: THandle
+  [in, Access(0)] Handle: THandle
 ): NTSTATUS; stdcall; external ntdll;
 
 // WDK::ntifs.h
@@ -280,7 +282,7 @@ function NtCompareObjects(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtCompareObjects: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtCompareObjects';
 );
 
@@ -305,7 +307,7 @@ function NtCreateDirectoryObjectEx(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtCreateDirectoryObjectEx: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtCreateDirectoryObjectEx';
 );
 
@@ -319,7 +321,7 @@ function NtOpenDirectoryObject(
 // PHNT::ntobapi.h
 function NtQueryDirectoryObject(
   [in, Access(DIRECTORY_QUERY)] DirectoryHandle: THandle;
-  [out, WritesTo] Buffer: Pointer;
+  [out, WritesTo] Buffer: PObjectDirectoryInformationArray;
   [in, NumberOfBytes] Length: Cardinal;
   [in] ReturnSingleEntry: Boolean;
   [in] RestartScan: Boolean;
@@ -408,7 +410,7 @@ function NtSetInformationSymbolicLink(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtSetInformationSymbolicLink: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtSetInformationSymbolicLink';
 );
 

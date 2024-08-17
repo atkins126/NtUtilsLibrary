@@ -101,6 +101,10 @@ uses
   System.SysUtils, DelphiUiLib.Reflection.Numeric,
   DelphiUiLib.Reflection.Strings, DelphiUtils.Arrays;
 
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
+
 { TWideCharRepresenter }
 
 class function TWideCharRepresenter.GetType;
@@ -152,7 +156,7 @@ end;
 { Representers }
 
 function TryRepresentCharArray(
-  var Represenation: TRepresentation;
+  var Representation: TRepresentation;
   RttiType: TRttiType;
   const Instance
 ): Boolean;
@@ -170,14 +174,14 @@ begin
     TypeInfo(WideChar)) and (ArrayType.DimensionCount = 1) then
   begin
     // Save type names
-    Represenation.TypeName := ArrayType.Name;
+    Representation.TypeName := ArrayType.Name;
 
     // Copy into a string. We can't be sure that the array is zero-terminated
-    SetString(Represenation.Text, PWideChar(@Instance),
+    SetString(Representation.Text, PWideChar(@Instance),
       ArrayType.TotalElementCount);
 
     // Trim on the first zero termination
-    SetLength(Represenation.Text, Length(PWideChar(Represenation.Text)));
+    SetLength(Representation.Text, Length(PWideChar(Representation.Text)));
 
     Result := True;
   end;
@@ -302,7 +306,7 @@ begin
 
     // Explicitly obtain a reference to interface types. The epilogue will
     // release it.
-    if Value.Kind = tkInterface then
+    if (Value.Kind = tkInterface) and not Value.IsEmpty then
       Value.AsType<IUnknown>._AddRef;
   end;
 

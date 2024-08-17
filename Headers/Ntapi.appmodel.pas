@@ -15,9 +15,11 @@ uses
 
 const
   MrmCoreR = 'MrmCoreR.dll';
+  ActivationManager = 'ActivationManager.dll';
 
 var
   delayed_MrmCoreR: TDelayedLoadDll = (DllName: MrmCoreR);
+  delayed_ActivationManager: TDelayedLoadDll = (DllName: ActivationManager);
 
 const
   // SDK::appmodel.h - information flags
@@ -65,6 +67,81 @@ const
   PACKAGE_ATTRIBUTE_SKUID_PRESENT = $0004;
   PACKAGE_ATTRIBUTE_XBOX_LI_PRESENT = $0008;
 
+  // private - state repository cache package flags
+  PackageFlags_IsDevelopmentMode = $00000001;
+  PackageFlags_HasServerApplication = $00000002;
+  PackageFlags_HasCentennial = $00000004;
+  PackageFlags_IsMachineRegistered = $00000008;
+  PackageFlags_IsPackagePayloadEncrypted = $00000010;
+  PackageFlags_IsMetadataLocationUnderSystemMetadata = $00000020;
+  PackageFlags_HasRunFullTrustCapability = $00000040;
+  PackageFlags_IsInRelatedSet = $00000080;
+  PackageFlags_DoNotAllowExecution = $00000100;
+  PackageFlags_IsNonQualifiedResourcePackage = $00000200;
+  PackageFlags_MostRecentlyStagedInFamily = $00000400;
+  PackageFlags_IsMsixvc = $00000800;
+  PackageFlags_IsSingletonRegistered = $00001000;
+  PackageFlags_NeedsSingletonRegistration = $00002000;
+  PackageFlags_FileSystemWriteVirtualizationDisabled = $00004000;
+  PackageFlags_RegistryWriteVirtualizationDisabled = $00008000;
+  PackageFlags_LoaderSearchPathOverride = $00010000;
+  PackageFlags_IsMutablePackageDirectoryProcessed = $00020000;
+  PackageFlags_IsModificationPackage = $00040000;
+  PackageFlags_HasDependencyTargetCapability = $00080000;
+  PackageFlags_HasWin32alacarte = $00100000;
+  PackageFlags_AllowExternalLocation = $00200000;
+  PackageFlags_StageInPlace = $00400000;
+  PackageFlags_HasFullTrust = $00800000;
+  PackageFlags_HasHostRuntime = $02000000;
+  PackageFlags_HasInstalledLocationVirtualization = $04000000;
+  PackageFlags_HasInProcessMediaExtensionCapability = $08000000;
+  PackageFlags_HasHostId = $10000000;
+
+  // private - state repository cache package flags v2
+  PackageFlags2_PackageIntegrityForExeSigning_EnforcementIsDefault = $00000001;
+  PackageFlags2_PackageIntegrityForExeSigning_EnforcementIsOn = $00000002;
+  PackageFlags2_PackageIntegrityForModuleSigning_EnforcementIsDefault = $00000004;
+  PackageFlags2_PackageIntegrityForModuleSigning_EnforcementIsOn = $00000008;
+  PackageFlags2_PackageIntegrityForContent_EnforcementIsDefault = $00000010;
+  PackageFlags2_PackageIntegrityForContent_EnforcementIsOn = $00000020;
+  PackageFlags2_PackageIntegrityForContent_EnforcementIsOff = $00000040;
+  PackageFlags2_IsVailPackaged = $00000080;
+  PackageFlags2_IsSystemRegistered = $00000100;
+  PackageFlags2_IsVailUnpackaged = $00000200;
+  PackageFlags2_IsUserMutablePackage = $00000400;
+  PackageFlags2_IsInstalledByElevatedUser = $00000800;
+  PackageFlags2_IsOneTimeRegistered = $00001000;
+  PackageFlags2_HasWindowsRTEKU = $00002000;
+  PackageFlags2_HasVersionSupercedencePerformed = $00004000;
+
+  // private - state repository cache package type
+  PackageType_Main = $00000001;
+  PackageType_Framework = $00000002;
+  PackageType_Resource = $00000004;
+  PackageType_Bundle = $00000008;
+  PackageType_Xap = $00000010;
+  PackageType_Optional = $00000020;
+
+  // private - state repository cache package application type
+  ApplicationFlags_SplashScreenIsOptional = $00000001;
+  ApplicationFlags_IsServerApplication = $00000002;
+  ApplicationFlags_TrustLevelIsFullTrust = $00000004;
+  ApplicationFlags_SupportsMultipleInstances = $00000008;
+  ApplicationFlags_RuntimeBehaviorIsDesktopBridge = $00000010;
+  ApplicationFlags_RuntimeBehaviorIsWin32alacarte = $00000020;
+  ApplicationFlags_TrustLevelIsPartialTrust = $00000080;
+  ApplicationFlags_RuntimeBehaviorIsUniversal = $00000100;
+  ApplicationFlags_TrustLevelIsAppSilo = $00000200;
+
+  // SDK::ShObjIdl_core.h
+  AO_DESIGNMODE	= $1;
+  AO_NOERRORUI = $2;
+  AO_NOSPLASHSCREEN = $4;
+  AO_PRELAUNCH = $2000000;
+
+  // SDK::ShObjIdl_core.h
+  CLSID_ApplicationActivationManager: TGuid = '{45BA127D-10A8-46EA-8AB7-56EA9078943C}';
+
   // Desktop AppX activation options
   DAXAO_ELEVATE = $00000001;
   DAXAO_NONPACKAGED_EXE = $00000002;
@@ -95,8 +172,7 @@ type
   [SDKName('PACKAGE_ID')]
   TPackageId = record
     [Unlisted] Reserved: Cardinal;
-    ProcessorArchitecture: TProcessorArchitecture;
-    [Unlisted] Padding: Word;
+    ProcessorArchitecture: TProcessorArchitecture32;
     Version: TPackageVersion;
     Name: PWideChar;
     Publisher: PWideChar;
@@ -195,7 +271,7 @@ type
   [MinOSVersion(OsWin8)]
   [SDKName('PACKAGE_INFO')]
   TPackageInfo = record
-    Reserved: Cardinal;
+    [Unlisted] Reserved: Cardinal;
     Flags: TPackageProperties;
     Path: PWideChar;
     PackageFullName: PWideChar;
@@ -229,7 +305,7 @@ type
     [Reserved] PackageProperty_Reserved = 0,
     PackageProperty_Name = 1,                  // q: PWideChar
     PackageProperty_Version = 2,               // q: TPackageVersion
-    PackageProperty_Architecture = 3,          // q: Cardinal (TProcessorArchitecture)
+    PackageProperty_Architecture = 3,          // q: TProcessorArchitecture32
     PackageProperty_ResourceId = 4,            // q: PWideChar
     PackageProperty_Publisher = 5,             // q: PWideChar
     PackageProperty_PublisherId = 6,           // q: PWideChar
@@ -339,10 +415,127 @@ type
     PackageGlobalizationProperty_UseWindowsDisplayLanguage = 2 // q: LongBool
   );
 
+  { Other }
+
+  // SDK::windows.applicationmodel.h
+  [SDKName('Windows::ApplicationModel::AppExecutionContext')]
+  [NamingStyle(nsCamelCase, 'AppExecutionContext_')]
+  TAppExecutionContext = (
+    AppExecutionContext_Unknown = 0,
+    AppExecutionContext_Host = 1,
+    AppExecutionContext_Guest = 2
+  );
+
+  { State repository }
+
+  [SDKName('Windows::Internal::StateRepository::PackageFlags')]
+  [FlagName(PackageFlags_IsDevelopmentMode, 'Is Development Mode')]
+  [FlagName(PackageFlags_HasServerApplication, 'Has Server Application')]
+  [FlagName(PackageFlags_HasCentennial, 'Has Centennial')]
+  [FlagName(PackageFlags_IsMachineRegistered, 'Is Machine-registered')]
+  [FlagName(PackageFlags_IsPackagePayloadEncrypted, 'Is Package Payload Encrypted')]
+  [FlagName(PackageFlags_IsMetadataLocationUnderSystemMetadata, 'Is System Metadata Location')]
+  [FlagName(PackageFlags_HasRunFullTrustCapability, 'Has Full Trust Capability')]
+  [FlagName(PackageFlags_IsInRelatedSet, 'Is In Related Set')]
+  [FlagName(PackageFlags_DoNotAllowExecution, 'Don''t Allow Execution')]
+  [FlagName(PackageFlags_IsNonQualifiedResourcePackage, 'Is Non-qualified Resource Package')]
+  [FlagName(PackageFlags_MostRecentlyStagedInFamily, 'Most Recently Staged In Family')]
+  [FlagName(PackageFlags_IsMsixvc, 'Is Msixvc')]
+  [FlagName(PackageFlags_IsSingletonRegistered, 'Is Singleton Registered')]
+  [FlagName(PackageFlags_NeedsSingletonRegistration, 'Needs Singleton Registration')]
+  [FlagName(PackageFlags_FileSystemWriteVirtualizationDisabled, 'FS Write Virtualization Disabled')]
+  [FlagName(PackageFlags_RegistryWriteVirtualizationDisabled, 'Registry Write Virtualization Disabled')]
+  [FlagName(PackageFlags_LoaderSearchPathOverride, 'Loader Search Path Override')]
+  [FlagName(PackageFlags_IsMutablePackageDirectoryProcessed, 'Is Mutable Package Directory Processed')]
+  [FlagName(PackageFlags_IsModificationPackage, 'Is Modification Package')]
+  [FlagName(PackageFlags_HasDependencyTargetCapability, 'Has Dependency Target Capability')]
+  [FlagName(PackageFlags_HasWin32alacarte, 'Has Win32 Alacarte')]
+  [FlagName(PackageFlags_AllowExternalLocation, 'Allow External Location')]
+  [FlagName(PackageFlags_StageInPlace, 'Stage In-place')]
+  [FlagName(PackageFlags_HasFullTrust, 'Has Full Trust')]
+  [FlagName(PackageFlags_HasHostRuntime, 'Has Host Runtime')]
+  [FlagName(PackageFlags_HasInstalledLocationVirtualization, 'Has Installed Location Virtualization')]
+  [FlagName(PackageFlags_HasInProcessMediaExtensionCapability, 'Has In-process Media Extension Capability')]
+  [FlagName(PackageFlags_HasHostId, 'Has Host ID')]
+  TStateRepositoryPackageFlags = type Cardinal;
+
+  [SDKName('Windows::Internal::StateRepository::PackageFlags2')]
+  [FlagName(PackageFlags2_PackageIntegrityForExeSigning_EnforcementIsDefault, 'Package Integrity For EXE Signing Enforcement Is Default')]
+  [FlagName(PackageFlags2_PackageIntegrityForExeSigning_EnforcementIsOn, 'Package Integrity For EXE Signing Enforcement Is On')]
+  [FlagName(PackageFlags2_PackageIntegrityForModuleSigning_EnforcementIsDefault, 'Package Integrity For Module Signing Enforcement Is Default')]
+  [FlagName(PackageFlags2_PackageIntegrityForModuleSigning_EnforcementIsOn, 'Package Integrity For Module Signing Enforcement Is On')]
+  [FlagName(PackageFlags2_PackageIntegrityForContent_EnforcementIsDefault, 'Package Integrity For Content Enforcement Is Default')]
+  [FlagName(PackageFlags2_PackageIntegrityForContent_EnforcementIsOn, 'Package Integrity For Content Enforcement Is On')]
+  [FlagName(PackageFlags2_PackageIntegrityForContent_EnforcementIsOff, 'Package Integrity For Content Enforcement Is Off')]
+  [FlagName(PackageFlags2_IsVailPackaged, 'Is Vail-packaged')]
+  [FlagName(PackageFlags2_IsSystemRegistered, 'Is System-registered')]
+  [FlagName(PackageFlags2_IsVailUnpackaged, 'Is Vail-unpackaged')]
+  [FlagName(PackageFlags2_IsUserMutablePackage, 'Is User-mutable Package')]
+  [FlagName(PackageFlags2_IsInstalledByElevatedUser, 'Is Installed By Elevated User')]
+  [FlagName(PackageFlags2_IsOneTimeRegistered, 'Is One-time Registered')]
+  [FlagName(PackageFlags2_HasWindowsRTEKU, 'Has Windows RTEKU')]
+  [FlagName(PackageFlags2_HasVersionSupercedencePerformed, 'Has Version Supercedence Performed')]
+  TStateRepositoryPackageFlags2 = type Cardinal;
+
+  [SDKName('Windows::Internal::StateRepository::PackageType')]
+  [FlagName(PackageType_Main, 'Main')]
+  [FlagName(PackageType_Framework, 'Framrwork')]
+  [FlagName(PackageType_Resource, 'Resource')]
+  [FlagName(PackageType_Bundle, 'Bundle')]
+  [FlagName(PackageType_Xap, 'XAP')]
+  [FlagName(PackageType_Optional, 'Optional')]
+  TStateRepositoryPackageType = type Cardinal;
+
+  [SDKName('Windows::Internal::StateRepository::ApplicationFlags')]
+  [FlagName(ApplicationFlags_SplashScreenIsOptional, 'Splash Screen Is Optional')]
+  [FlagName(ApplicationFlags_IsServerApplication, 'Is Server Application')]
+  [FlagName(ApplicationFlags_TrustLevelIsFullTrust, 'Trust Level Is FullTrust')]
+  [FlagName(ApplicationFlags_SupportsMultipleInstances, 'Supports Multiple Instances')]
+  [FlagName(ApplicationFlags_RuntimeBehaviorIsDesktopBridge, 'Runtime Behavior Is Desktop Bridge')]
+  [FlagName(ApplicationFlags_RuntimeBehaviorIsWin32alacarte, 'Runtime Behavior Is Win32 Alacarte')]
+  [FlagName(ApplicationFlags_TrustLevelIsPartialTrust, 'Trust Level Is Partial Trust')]
+  [FlagName(ApplicationFlags_RuntimeBehaviorIsUniversal, 'Runtime Behavior Is Universal')]
+  [FlagName(ApplicationFlags_TrustLevelIsAppSilo, 'Trust Level Is AppSilo')]
+  TStateRepositoryApplicationFlags = type Cardinal;
+
   { AppX Activation }
 
+  [SDKName('ACTIVATEOPTIONS')]
+  [FlagName(AO_DESIGNMODE, 'Design Mode')]
+  [FlagName(AO_NOERRORUI, 'No Error UI')]
+  [FlagName(AO_NOSPLASHSCREEN, 'No Splash Screen')]
+  [FlagName(AO_PRELAUNCH, 'Pre-launch')]
+  TActivateOptions = type Cardinal;
+
+  IShellItemArray = IUnknown;
+
+  // SDK::ShObjIdl_core.h
+  [MinOSVersion(OsWin8)]
+  IApplicationActivationManager = interface
+    ['{2e941141-7f97-4756-ba1d-9decde894a3d}']
+    function ActivateApplication(
+      [in] appUserModelId: PWideChar;
+      [in, opt] arguments: PWideChar;
+      [in] options: TActivateOptions;
+      [out] out processId: TProcessId32
+    ): HResult; stdcall;
+
+    function ActivateForFile(
+      [in] appUserModelId: PWideChar;
+      [in] const itemArray: IShellItemArray;
+      [in] verb: PWideChar;
+      [out] out processId: TProcessId32
+    ): HResult; stdcall;
+
+    function ActivateForProtocol(
+      [in] appUserModelId: PWideChar;
+      [in] const itemArray: IShellItemArray;
+      [out] out processId: TProcessId32
+    ): HResult; stdcall;
+  end;
+
   [SDKName('DESKTOPAPPXACTIVATEOPTIONS')]
-  [FlagName(DAXAO_ELEVATE, 'Elavate')]
+  [FlagName(DAXAO_ELEVATE, 'Elevate')]
   [FlagName(DAXAO_NONPACKAGED_EXE, 'Non-packaged EXE')]
   [FlagName(DAXAO_NONPACKAGED_EXE_PROCESS_TREE, 'Non-packaged EXE Process Tree')]
   [FlagName(DAXAO_NO_ERROR_UI, 'No Error UI')]
@@ -451,7 +644,7 @@ function GetPackagePath(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackagePath: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackagePath';
 );
 
@@ -464,7 +657,7 @@ function GetPackagePathByFullName(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackagePathByFullName: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackagePathByFullName';
 );
 
@@ -477,7 +670,7 @@ function GetStagedPackagePathByFullName(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetStagedPackagePathByFullName: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetStagedPackagePathByFullName';
 );
 
@@ -491,7 +684,7 @@ function GetPackagePathByFullName2(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackagePathByFullName2: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackagePathByFullName2';
 );
 
@@ -505,7 +698,7 @@ function GetStagedPackagePathByFullName2(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetStagedPackagePathByFullName2: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetStagedPackagePathByFullName2';
 );
 
@@ -518,7 +711,7 @@ function GetApplicationUserModelIdFromToken(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetApplicationUserModelIdFromToken: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetApplicationUserModelIdFromToken';
 );
 
@@ -532,7 +725,7 @@ function PackageIdFromFullName(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_PackageIdFromFullName: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'PackageIdFromFullName';
 );
 
@@ -545,7 +738,7 @@ function PackageFullNameFromId(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_PackageFullNameFromId: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'PackageFullNameFromId';
 );
 
@@ -558,7 +751,7 @@ function PackageFamilyNameFromId(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_PackageFamilyNameFromId: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'PackageFamilyNameFromId';
 );
 
@@ -571,7 +764,7 @@ function PackageFamilyNameFromFullName(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_PackageFamilyNameFromFullName: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'PackageFamilyNameFromFullName';
 );
 
@@ -586,7 +779,7 @@ function PackageNameAndPublisherIdFromFamilyName(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_PackageNameAndPublisherIdFromFamilyName: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'PackageNameAndPublisherIdFromFamilyName';
 );
 
@@ -600,7 +793,7 @@ function FormatApplicationUserModelId(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_FormatApplicationUserModelId: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'FormatApplicationUserModelId';
 );
 
@@ -615,7 +808,7 @@ function ParseApplicationUserModelId(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_ParseApplicationUserModelId: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'ParseApplicationUserModelId';
 );
 
@@ -630,7 +823,7 @@ function GetPackagesByPackageFamily(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackagesByPackageFamily: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackagesByPackageFamily';
 );
 
@@ -647,7 +840,7 @@ function FindPackagesByPackageFamily(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_FindPackagesByPackageFamily: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'FindPackagesByPackageFamily';
 );
 
@@ -665,7 +858,7 @@ function RtlQueryPackageClaims(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_RtlQueryPackageClaims: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'RtlQueryPackageClaims';
 );
 
@@ -677,7 +870,7 @@ function GetStagedPackageOrigin(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetStagedPackageOrigin: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetStagedPackageOrigin';
 );
 
@@ -691,7 +884,7 @@ function OpenPackageInfoByFullName(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_OpenPackageInfoByFullName: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'OpenPackageInfoByFullName';
 );
 
@@ -706,7 +899,7 @@ function OpenPackageInfoByFullNameForUser(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_OpenPackageInfoByFullNameForUser: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'OpenPackageInfoByFullNameForUser';
 );
 
@@ -717,7 +910,7 @@ function ClosePackageInfo(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_ClosePackageInfo: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'ClosePackageInfo';
 );
 
@@ -732,7 +925,7 @@ function GetPackageInfo(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageInfo: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageInfo';
 );
 
@@ -748,7 +941,7 @@ function GetPackageInfo2(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageInfo2: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageInfo2';
 );
 
@@ -762,7 +955,7 @@ function GetPackageApplicationIds(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageApplicationIds: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageApplicationIds';
 );
 
@@ -774,7 +967,7 @@ function CheckIsMSIXPackage(
 ): HRESULT; stdcall; external kernelbase delayed;
 
 var delayed_CheckIsMSIXPackage: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'CheckIsMSIXPackage';
 );
 
@@ -786,7 +979,7 @@ function GetPackageInstallTime(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageInstallTime: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageInstallTime';
 );
 
@@ -799,7 +992,7 @@ function PublisherFromPackageFullName(
 ): HResult; stdcall; external kernelbase delayed;
 
 var delayed_PublisherFromPackageFullName: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'PublisherFromPackageFullName';
 );
 
@@ -811,7 +1004,7 @@ function PackageSidFromFamilyName(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_PackageSidFromFamilyName: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'PackageSidFromFamilyName';
 );
 
@@ -823,7 +1016,7 @@ function PackageSidFromProductId(
 ): HResult; stdcall; external kernelbase delayed;
 
 var delayed_PackageSidFromProductId: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'PackageSidFromProductId';
 );
 
@@ -836,7 +1029,7 @@ function VerifyPackageFullName(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_VerifyPackageFullName: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'VerifyPackageFullName';
 );
 
@@ -847,7 +1040,7 @@ function VerifyPackageFamilyName(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_VerifyPackageFamilyName: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'VerifyPackageFamilyName';
 );
 
@@ -858,7 +1051,7 @@ function VerifyPackageId(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_VerifyPackageId: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'VerifyPackageId';
 );
 
@@ -869,7 +1062,7 @@ function VerifyApplicationUserModelId(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_VerifyApplicationUserModelId: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'VerifyApplicationUserModelId';
 );
 
@@ -880,7 +1073,7 @@ function VerifyPackageRelativeApplicationId(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_VerifyPackageRelativeApplicationId: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'VerifyPackageRelativeApplicationId';
 );
 
@@ -893,7 +1086,7 @@ procedure AppXFreeMemory(
 ); stdcall; external kernelbase delayed;
 
 var delayed_AppXFreeMemory: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'AppXFreeMemory';
 );
 
@@ -905,7 +1098,7 @@ function AppXGetOSMaxVersionTested(
 ): HRESULT; stdcall; external kernelbase delayed;
 
 var delayed_AppXGetOSMaxVersionTested: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'AppXGetOSMaxVersionTested';
 );
 
@@ -917,7 +1110,7 @@ function AppXGetDevelopmentMode(
 ): HRESULT; stdcall; external kernelbase delayed;
 
 var delayed_AppXGetDevelopmentMode: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'AppXGetDevelopmentMode';
 );
 
@@ -929,7 +1122,7 @@ function AppXGetPackageSid(
 ): HRESULT; stdcall; external kernelbase delayed;
 
 var delayed_AppXGetPackageSid: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'AppXGetPackageSid';
 );
 
@@ -943,7 +1136,7 @@ function AppXGetPackageCapabilities(
 ): HRESULT; stdcall; external kernelbase delayed;
 
 var delayed_AppXGetPackageCapabilities: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'AppXGetPackageCapabilities';
 );
 
@@ -955,7 +1148,7 @@ function AppXLookupDisplayName(
 ): HRESULT; stdcall; external kernelbase delayed;
 
 var delayed_AppXLookupDisplayName: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'AppXLookupDisplayName';
 );
 
@@ -967,7 +1160,7 @@ function AppXLookupMoniker(
 ): HRESULT; stdcall; external kernelbase delayed;
 
 var delayed_AppXLookupMoniker: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'AppXLookupMoniker';
 );
 
@@ -982,7 +1175,7 @@ function GetCurrentPackageContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetCurrentPackageContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetCurrentPackageContext';
 );
 
@@ -996,7 +1189,7 @@ function GetPackageContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageContext';
 );
 
@@ -1010,7 +1203,7 @@ function GetPackageProperty(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageProperty: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageProperty';
 );
 
@@ -1024,7 +1217,7 @@ function GetPackagePropertyString(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackagePropertyString: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackagePropertyString';
 );
 
@@ -1036,7 +1229,7 @@ function GetPackageOSMaxVersionTested(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageOSMaxVersionTested: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageOSMaxVersionTested';
 );
 
@@ -1051,7 +1244,7 @@ function GetCurrentPackageApplicationContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetCurrentPackageApplicationContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetCurrentPackageApplicationContext';
 );
 
@@ -1065,7 +1258,7 @@ function GetPackageApplicationContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageApplicationContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageApplicationContext';
 );
 
@@ -1079,7 +1272,7 @@ function GetPackageApplicationProperty(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageApplicationProperty: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageApplicationProperty';
 );
 
@@ -1093,7 +1286,7 @@ function GetPackageApplicationPropertyString(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageApplicationPropertyString: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageApplicationPropertyString';
 );
 
@@ -1108,7 +1301,7 @@ function GetCurrentPackageResourcesContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetCurrentPackageResourcesContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetCurrentPackageResourcesContext';
 );
 
@@ -1122,7 +1315,7 @@ function GetPackageResourcesContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageResourcesContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageResourcesContext';
 );
 
@@ -1135,7 +1328,7 @@ function GetCurrentPackageApplicationResourcesContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetCurrentPackageApplicationResourcesContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetCurrentPackageApplicationResourcesContext';
 );
 
@@ -1149,7 +1342,7 @@ function GetPackageApplicationResourcesContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageApplicationResourcesContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageApplicationResourcesContext';
 );
 
@@ -1159,11 +1352,12 @@ function GetPackageResourcesProperty(
   [in] PackageResourcesContext: PPackageResourcesContextReference;
   [in] PropertyId: TPackageResourcesProperty;
   [in, out, NumberOfBytes] var BufferLength: Cardinal;
-  [out, WritesTo] Buffer: Pointer
+  [out, WritesTo] Buffer: Pointer;
+  [out, opt] Flags: PCardinal
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageResourcesProperty: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageResourcesProperty';
 );
 
@@ -1177,7 +1371,7 @@ function GetCurrentPackageSecurityContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetCurrentPackageSecurityContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetCurrentPackageSecurityContext';
 );
 
@@ -1190,7 +1384,7 @@ function GetPackageSecurityContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageSecurityContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageSecurityContext';
 );
 
@@ -1204,7 +1398,7 @@ function GetPackageSecurityProperty(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageSecurityProperty: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageSecurityProperty';
 );
 
@@ -1218,7 +1412,7 @@ function GetCurrentTargetPlatformContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetCurrentTargetPlatformContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetCurrentTargetPlatformContext';
 );
 
@@ -1230,7 +1424,7 @@ function GetTargetPlatformContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetTargetPlatformContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetTargetPlatformContext';
 );
 
@@ -1244,7 +1438,7 @@ function GetPackageTargetPlatformProperty(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageTargetPlatformProperty: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageTargetPlatformProperty';
 );
 
@@ -1259,7 +1453,7 @@ function GetCurrentPackageGlobalizationContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetCurrentPackageGlobalizationContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetCurrentPackageGlobalizationContext';
 );
 
@@ -1273,7 +1467,7 @@ function GetPackageGlobalizationContext(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageGlobalizationContext: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageGlobalizationContext';
 );
 
@@ -1287,8 +1481,47 @@ function GetPackageGlobalizationProperty(
 ): TWin32Error; stdcall; external kernelbase delayed;
 
 var delayed_GetPackageGlobalizationProperty: TDelayedLoadFunction = (
-  DllName: kernelbase;
+  Dll: @delayed_kernelbase;
   FunctionName: 'GetPackageGlobalizationProperty';
+);
+
+// Execution Context
+
+// rev
+[MinOSVersion(OsWin1020H1)]
+function GetPackageExecutionContextForAumid(
+  [in] ApplicationUserModelId: PWideChar;
+  [out] out ExecutionContext: TAppExecutionContext
+): HResult; stdcall; external ActivationManager delayed;
+
+var delayed_GetPackageExecutionContextForAumid: TDelayedLoadFunction = (
+  Dll: @delayed_ActivationManager;
+  FunctionName: 'GetPackageExecutionContextForAumid';
+);
+
+// rev
+[MinOSVersion(OsWin1020H1)]
+function GetPackageExecutionContextForAumidAndUser(
+  [in] ApplicationUserModelId: PWideChar;
+  [in] UserContextToken: TLuid; // umgr
+  [out] out ExecutionContext: TAppExecutionContext
+): HResult; stdcall; external ActivationManager delayed;
+
+var delayed_GetPackageExecutionContextForAumidAndUser: TDelayedLoadFunction = (
+  Dll: @delayed_ActivationManager;
+  FunctionName: 'GetPackageExecutionContextForAumidAndUser';
+);
+
+// rev
+[MinOSVersion(OsWin1020H1)]
+function GetPackageExecutionContextForPackageByFullName(
+  [in] PackageFullName: PWideChar;
+  [out] out ExecutionConext: TAppExecutionContext
+): HResult; stdcall; external ActivationManager delayed;
+
+var delayed_GetPackageExecutionContextForPackageByFullName: TDelayedLoadFunction = (
+  Dll: @delayed_ActivationManager;
+  FunctionName: 'GetPackageExecutionContextForPackageByFullName';
 );
 
 // PRI
@@ -1300,7 +1533,7 @@ function ResourceManagerQueueIsResourceReference(
 ): HResult; stdcall; external MrmCoreR delayed;
 
 var delayed_ResourceManagerQueueIsResourceReference: TDelayedLoadFunction = (
-  DllName: MrmCoreR;
+  Dll: @delayed_MrmCoreR;
   FunctionName: 'ResourceManagerQueueIsResourceReference';
 );
 
@@ -1316,7 +1549,7 @@ function ResourceManagerQueueGetString(
 ): HResult; stdcall; external MrmCoreR delayed;
 
 var delayed_ResourceManagerQueueGetString: TDelayedLoadFunction = (
-  DllName: MrmCoreR;
+  Dll: @delayed_MrmCoreR;
   FunctionName: 'ResourceManagerQueueGetString';
 );
 

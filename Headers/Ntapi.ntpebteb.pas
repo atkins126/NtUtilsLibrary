@@ -39,6 +39,9 @@ const
   TRACING_FLAGS_CRIT_SEC_TRACING_ENABLED = $0002;
   TRACING_FLAGS_LIB_LOADER_TRACING_ENABLED = $00004; // Win 8+
 
+  // Extracted from bit union TTelemetryCoverageHeader.Flags
+  TELEMETRY_COVERAGE_FLAG_TRACING_ENABLED = $0001;
+
   // Extracted from bit union TEB.SameTebFlags
   TEB_SAME_FLAGS_SAFE_THUNK_CALL = $0001;
   TEB_SAME_FLAGS_IN_DEBUG_PRINT = $0002;
@@ -62,6 +65,41 @@ const
   RTL_ERRORMODE_NOGPFAULTERRORBOX = $0020;
   RTL_ERRORMODE_NOOPENFILEERRORBOX = $0040;
 
+  // private - COM state flags
+  OLETLS_LOCALTID = $00000001;
+  OLETLS_UUIDINITIALIZED = $00000002;
+  OLETLS_INTHREADDETACH = $00000004;
+  OLETLS_CHANNELTHREADINITIALZED = $00000008;
+  OLETLS_WOWTHREAD = $00000010;
+  OLETLS_THREADUNINITIALIZING = $00000020;
+  OLETLS_DISABLE_OLE1DDE = $00000040;
+  OLETLS_APARTMENTTHREADED = $00000080;
+  OLETLS_MULTITHREADED = $00000100;
+  OLETLS_IMPERSONATING = $00000200;
+  OLETLS_DISABLE_EVENTLOGGER = $00000400;
+  OLETLS_INNEUTRALAPT = $00000800;
+  OLETLS_DISPATCHTHREAD = $00001000;
+  OLETLS_HOSTTHREAD = $00002000;
+  OLETLS_ALLOWCOINIT = $00004000;
+  OLETLS_PENDINGUNINIT = $00008000;
+  OLETLS_FIRSTMTAINIT = $00010000;
+  OLETLS_FIRSTNTAINIT = $00020000;
+  OLETLS_APTINITIALIZING = $00040000;
+  OLETLS_UIMSGSINMODALLOOP = $00080000;
+  OLETLS_MARSHALING_ERROR_OBJECT = $00100000;
+  OLETLS_WINRT_INITIALIZE = $00200000;
+  OLETLS_APPLICATION_STA = $00400000;
+  OLETLS_IN_SHUTDOWN_CALLBACKS = $00800000;
+  OLETLS_POINTER_INPUT_BLOCKED = $01000000;
+  OLETLS_IN_ACTIVATION_FILTER = $02000000;
+  OLETLS_ASTATOASTAEXEMPT_QUIRK = $04000000;
+  OLETLS_ASTATOASTAEXEMPT_PROXY = $08000000;
+  OLETLS_ASTATOASTAEXEMPT_INDOUBT = $10000000;
+  OLETLS_DETECTED_USER_INITIALIZED = $20000000;
+  OLETLS_BRIDGE_STA = $40000000;
+  OLETLS_NAINITIALIZING = $80000000;
+
+  // WDK::ntddk.h - user shared data flags
   SHARED_GLOBAL_FLAGS_ERROR_PORT = $00000001;
   SHARED_GLOBAL_FLAGS_ELEVATION_ENABLED = $00000002;
   SHARED_GLOBAL_FLAGS_VIRT_ENABLED = $00000004;
@@ -118,7 +156,7 @@ type
   // PHNT::ntpsapi.h
   [SDKName('PEB_LDR_DATA')]
   TPebLdrData = record
-    [Bytes, Unlisted] Length: Cardinal;
+    [RecordSize] Length: Cardinal;
     Initialized: Boolean;
     SsHandle: THandle;
     InLoadOrderModuleList: TListEntry;
@@ -129,6 +167,76 @@ type
     ShutdownThreadId: NativeUInt;
   end;
   PPebLdrData = ^TPebLdrData;
+
+  // WDK::wdm.h
+  [SDKName('KSYSTEM_TIME')]
+  KSystemTime = packed record
+  case Boolean of
+    True: (
+     QuadPart: TLargeInteger
+    );
+    False: (
+      LowPart: Cardinal;
+      High1Time: Integer;
+      High2Time: Integer;
+    );
+  end;
+
+  // WDK::ntdef.h
+  [SDKName('NT_PRODUCT_TYPE')]
+  [NamingStyle(nsCamelCase, 'NtProduct'), Range(1)]
+  TNtProductType = (
+    [Reserved] NtProductUnknown = 0,
+    NtProductWinNT = 1,
+    NtProductLanManNT = 2,
+    NtProductServer = 3
+  );
+
+  [MinOSVersion(OsWin10RS1)]
+  [SDKName('SILO_USER_SHARED_DATA')]
+  TSiloUserSharedData = record
+    ServiceSessionId: TSessionId;
+    ActiveConsoleId: TSessionId;
+    ConsoleSessionForegroundProcessId: TProcessId;
+  {$IFDEF Win32}
+    [Unlisted] ProcessIdPadding: Cardinal;
+  {$ENDIF}
+    NtProductType: TNtProductType;
+    SuiteMask: Cardinal;
+    [MinOSVersion(OsWin10RS2)] SharedUserSessionId: TSessionId;
+    [MinOSVersion(OsWin10RS2)] IsMultiSessionSku: Boolean;
+    [MinOSVersion(OsWin10RS2)] NtSystemRoot: TMaxPathWideCharArray;
+    [MinOSVersion(OsWin10RS2)] UserModeGlobalLogger: array [0..15] of Word;
+    [MinOSVersion(OsWin1021H2)] TimeZoneId: Cardinal;
+    [MinOSVersion(OsWin1021H2)] TimeZoneBiasStamp: Cardinal;
+    [MinOSVersion(OsWin1021H2)] TimeZoneBias: KSystemTime;
+    [MinOSVersion(OsWin1021H2)] TimeZoneBiasEffectiveStart: TLargeInteger;
+    [MinOSVersion(OsWin1021H2)] TimeZoneBiasEffectiveEnd: TLargeInteger;
+  end;
+  PSiloUserSharedData = ^TSiloUserSharedData;
+
+  [FlagName(TELEMETRY_COVERAGE_FLAG_TRACING_ENABLED, 'Tracing Enabled')]
+  TTelemetryCoverageFlags = type Word;
+
+  // PHNT::ntpebteb.h
+  [MinOSVersion(OsWin10RS3)]
+  [SDKName('TELEMETRY_COVERAGE_HEADER')]
+  TTelemetryCoverageHeader = record
+    MajorVersion: Byte;
+    MinorVersion: Byte;
+    Flags: TTelemetryCoverageFlags;
+    [Counter] HashTableEntries: Cardinal;
+    HashIndexMask: Cardinal;
+    TableUpdateVersion: Cardinal;
+    TableSizeInBytes: Cardinal;
+    LastResetTick: Cardinal;
+    ResetRound: Cardinal;
+    [Unlisted] Reserved2: Cardinal;
+    RecordedCount: Cardinal;
+    [Unlisted] Reserved3: array [0..3] of Cardinal;
+    HashTable: TAnysizeArray<Cardinal>;
+  end;
+  PTelemetryCoverageHeader = ^TTelemetryCoverageHeader;
 
   // PHNT::ntpebteb.h
   [SDKName('PEB')]
@@ -155,7 +263,7 @@ type
     TLSBitmap: Pointer; // ntrtl.PRTL_BITMAP
     [Hex] TLSBitmapBits: UInt64;
     ReadOnlySharedMemoryBase: Pointer;
-    [MinOSVersion(OsWin10RS2)] SharedData: Pointer;
+    [MinOSVersion(OsWin10RS2)] SharedData: PSiloUserSharedData;
     ReadOnlyStaticServerData: PPointer;
     AnsiCodePageData: Pointer; // PCPTABLEINFO
     OEMCodePageData: Pointer; // PCPTABLEINFO
@@ -215,11 +323,11 @@ type
     [MinOSVersion(OsWin10TH2)] TPPWorkerpListLock: PRtlCriticalSection;
     [MinOSVersion(OsWin10TH2)] TPPWorkerpList: TListEntry;
     [MinOSVersion(OsWin10TH2)] WaitOnAddressHashTable: array [0..127] of Pointer;
-    [MinOSVersion(OsWin10RS3)] TelemetryCoverageHeader: Pointer;
+    [MinOSVersion(OsWin10RS3)] TelemetryCoverageHeader: PTelemetryCoverageHeader;
     [MinOSVersion(OsWin10RS3), Hex] CloudFileFlags: Cardinal;
     [MinOSVersion(OsWin10RS4), Hex] CloudFileDiagFlags: Cardinal;
     [MinOSVersion(OsWin10RS4)] PlaceholderCompatibilityMode: Byte;
-    [MinOSVersion(OsWin10RS4)] PlaceholderCompatibilityModeReserved: array [0..6] of Byte;
+    [MinOSVersion(OsWin10RS4), Unlisted] PlaceholderCompatibilityModeReserved: array [0..6] of Byte;
     [MinOSVersion(OsWin10RS5)] LeapSecondData: Pointer; // *_LEAP_SECOND_DATA
     [MinOSVersion(OsWin10RS5), Hex] LeapSecondFlags: Cardinal;
     [MinOSVersion(OsWin10RS5), Hex] NTGlobalFlag2: Cardinal;
@@ -250,7 +358,7 @@ type
   // PHNT::ntpebteb.h
   [SDKName('GDI_TEB_BATCH')]
   TGdiTebBatch = record
-    Offset: Cardinal;
+    [Offset] Offset: Cardinal;
     HDC: NativeUInt;
     Buffer: array [0..309] of Cardinal;
   end;
@@ -260,6 +368,61 @@ type
   [FlagName(RTL_ERRORMODE_NOOPENFILEERRORBOX, 'No OpenFile Error Box')]
   TRtlErrorMode = type Cardinal;
   PRtlErrorMode = ^TRtlErrorMode;
+
+  [SDKName('tagOLETLSFLAGS')]
+  [FlagName(OLETLS_LOCALTID, 'Local TID')]
+  [FlagName(OLETLS_UUIDINITIALIZED, 'UUID Initialized')]
+  [FlagName(OLETLS_INTHREADDETACH, 'In Thread Detach')]
+  [FlagName(OLETLS_CHANNELTHREADINITIALZED, 'Channel Thread Initialized')]
+  [FlagName(OLETLS_WOWTHREAD, 'WoW Thread')]
+  [FlagName(OLETLS_THREADUNINITIALIZING, 'Thread Uninitializing')]
+  [FlagName(OLETLS_DISABLE_OLE1DDE, 'Disable OLE1 DDE')]
+  [FlagName(OLETLS_APARTMENTTHREADED, 'Apartment-threaded')]
+  [FlagName(OLETLS_MULTITHREADED, 'Multi-threaded')]
+  [FlagName(OLETLS_IMPERSONATING, 'Impersonating')]
+  [FlagName(OLETLS_DISABLE_EVENTLOGGER, 'Disable Event Logger')]
+  [FlagName(OLETLS_INNEUTRALAPT, 'In Neutral')]
+  [FlagName(OLETLS_DISPATCHTHREAD, 'Dispatch Thread')]
+  [FlagName(OLETLS_HOSTTHREAD, 'Host Thread')]
+  [FlagName(OLETLS_ALLOWCOINIT, 'Allow CoInit')]
+  [FlagName(OLETLS_PENDINGUNINIT, 'Pending Uninit')]
+  [FlagName(OLETLS_FIRSTMTAINIT, 'First MTA Init')]
+  [FlagName(OLETLS_FIRSTNTAINIT, 'First NTA Init')]
+  [FlagName(OLETLS_APTINITIALIZING, 'Apartment Initializing')]
+  [FlagName(OLETLS_UIMSGSINMODALLOOP, 'UI Msg In Modal Loop')]
+  [FlagName(OLETLS_MARSHALING_ERROR_OBJECT, 'Marshaling Error Object')]
+  [FlagName(OLETLS_WINRT_INITIALIZE, 'WinRT Initialize')]
+  [FlagName(OLETLS_APPLICATION_STA, 'Application STA')]
+  [FlagName(OLETLS_IN_SHUTDOWN_CALLBACKS, 'In Shutdown Callbacks')]
+  [FlagName(OLETLS_POINTER_INPUT_BLOCKED, 'Pointer Input Blocked')]
+  [FlagName(OLETLS_IN_ACTIVATION_FILTER, 'In Activation Filter')]
+  [FlagName(OLETLS_ASTATOASTAEXEMPT_QUIRK, 'ASTA-to-ASTA Exempt Quirk')]
+  [FlagName(OLETLS_ASTATOASTAEXEMPT_PROXY, 'ASTA-to-ASTA Exempt Proxy')]
+  [FlagName(OLETLS_ASTATOASTAEXEMPT_INDOUBT, 'ASTA-to-ASTA Exempt In Doubt')]
+  [FlagName(OLETLS_DETECTED_USER_INITIALIZED, 'Detected User Initialized')]
+  [FlagName(OLETLS_BRIDGE_STA, 'Bridge STA')]
+  [FlagName(OLETLS_NAINITIALIZING, 'NA Initializing')]
+  TOleTlsFlags = type Cardinal;
+
+  // private
+  [SDKName('tagSOleTlsData')]
+  TOleTlsData = record
+    ThreadBase: Pointer;
+    SmAllocator: Pointer;
+    ApartmentId: Cardinal;
+    Flags: TOleTlsFlags;
+    TlsMapIndex: Cardinal;
+    TlsSlot: Pointer;
+    ComInits: Cardinal;
+    OleInits: Cardinal;
+    Calls: Cardinal;
+    ServerCall: Pointer;
+    CallObjectCache: Pointer;
+    ContextStack: Pointer;
+    ObjServer: Pointer;
+    TIDCaller: TThreadId32;
+  end;
+  POleTlsData = ^TOleTlsData;
 
   // SDK::winnt.h
   PNtTib = ^TNtTib;
@@ -287,12 +450,12 @@ type
     CountOfOwnedCriticalSections: Cardinal;
     CSRClientThread: Pointer;
     Win32ThreadInfo: Pointer;
-    User32Reserved: array [0..25] of Cardinal;
-    UserReserved: array [0..4] of Cardinal;
-    WOW32Reserved: Pointer;
+    [Unlisted] User32Reserved: array [0..25] of Cardinal;
+    [Unlisted] UserReserved: array [0..4] of Cardinal;
+    [Unlisted] WOW32Reserved: Pointer;
     CurrentLocale: Cardinal;
     FpSoftwareStatusRegister: Cardinal;
-    [MinOSVersion(OsWin10TH1)] ReservedForDebuggerInstrumentation: array [0..15] of Pointer;
+    [MinOSVersion(OsWin10TH1), Unlisted] ReservedForDebuggerInstrumentation: array [0..15] of Pointer;
   {$IFDEF WIN64}
     [Unlisted] SystemReserved1: array [0..29] of Pointer;
   {$ELSE}
@@ -326,8 +489,8 @@ type
     GDIThreadLocalInfo: Pointer;
     Win32ClientInfo: array [0..61] of NativeUInt;
     glDispatchTable: array [0..232] of Pointer;
-    glReserved1: array [0..28] of NativeUInt;
-    glReserved2: Pointer;
+    [Unlisted] glReserved1: array [0..28] of NativeUInt;
+    [Unlisted] glReserved2: Pointer;
     glSectionInfo: Pointer;
     glSection: Pointer;
     glTable: Pointer;
@@ -340,8 +503,8 @@ type
     TLSSlots: array [0..63] of Pointer;
     TLSLinks: TListEntry;
     VDM: Pointer;
-    ReservedForNtRPC: Pointer;
-    DbgSsReserved: array [0..1] of Pointer;
+    [Unlisted] ReservedForNtRPC: Pointer;
+    [Unlisted] DbgSsReserved: array [0..1] of Pointer;
     HardErrorMode: TRtlErrorMode;
   {$IFDEF WIN64}
     Instrumentation: array [0..10] of Pointer;
@@ -356,11 +519,11 @@ type
     GDIBatchCount: Cardinal;
     [Hex] IdealProcessorValue: Cardinal; // aka CurrentIdealProcessor
     GuaranteedStackBytes: Cardinal;
-    ReservedForPerf: Pointer;
-    ReservedForOLE: Pointer;
+    [Unlisted] ReservedForPerf: Pointer;
+    ReservedForOLE: POleTlsData;
     WaitingOnLoaderLock: Cardinal;
     SavedPriorityState: Pointer;
-    [MinOSVersion(OsWin8)] ReservedForCodeCoverage: NativeUInt;
+    [MinOSVersion(OsWin8), Unlisted] ReservedForCodeCoverage: NativeUInt;
     ThreadPoolData: Pointer;
     TLSExpansionSlots: PPointer;
   {$IFDEF WIN64}
@@ -379,16 +542,16 @@ type
     UserPrefLanguages: Pointer;
     MergedPrefLanguages: Pointer;
     MUIImpersonation: Cardinal;
-    [Hex, Reserved] CrossTebFlags: Word;
+    [Hex] CrossTebFlags: Word;
     SameTebFlags: TTebSameTebFlags;
     TxnScopeEnterCallback: Pointer;
     TxnScopeExitCallback: Pointer;
     TxnScopeContext: Pointer;
     LockCount: Cardinal;
-    WowTebOffset: Integer;
+    [Offset] WowTebOffset: Integer;
     ResourceRetValue: Pointer;
-    [MinOSVersion(OsWin8)] ReservedForWDF: Pointer;
-    [MinOSVersion(OsWin10TH1)] ReservedForCRT: UInt64;
+    [MinOSVersion(OsWin8), Unlisted] ReservedForWDF: Pointer;
+    [MinOSVersion(OsWin10TH1), Unlisted] ReservedForCRT: UInt64;
     [MinOSVersion(OsWin10TH1)] EffectiveContainerID: TGuid;
     [MinOSVersion(OsWin11)] LastSleepCounter: UInt64;
     [MinOSVersion(OsWin11)] SpinCallCount: Cardinal;
@@ -410,30 +573,6 @@ type
   [FlagName(SHARED_GLOBAL_FLAGS_MULTIUSERS_IN_SESSION_SKU, 'Multi-Users in Session SKU')]
   [FlagName(SHARED_GLOBAL_FLAGS_STATE_SEPARATION_ENABLED, 'State Separation Enabled')]
   TSharedGlobalFlags = type Cardinal;
-
-  // WDK::wdm.h
-  [SDKName('KSYSTEM_TIME')]
-  KSystemTime = packed record
-  case Boolean of
-    True: (
-     QuadPart: TLargeInteger
-    );
-    False: (
-      LowPart: Cardinal;
-      High1Time: Integer;
-      High2Time: Integer;
-    );
-  end;
-
-  // WDK::ntdef.h
-  [SDKName('NT_PRODUCT_TYPE')]
-  [NamingStyle(nsCamelCase, 'NtProduct'), Range(1)]
-  TNtProductType = (
-    NtProductUnknown = 0,
-    NtProductWinNT = 1,
-    NtProductLanManNT = 2,
-    NtProductServer = 3
-  );
 
   // WDK::ntddk.h
   [NamingStyle(nsSnakeCase, 'SYSTEM_CALL')]
@@ -522,7 +661,7 @@ type
     NtProductType: TNtProductType;
     ProductTypeIsValid: Boolean;
     [Unlisted] Reserved0: Byte;
-    [MinOSVersion(OsWin8)] NativeProcessorArchitecture: TProcessorArchitecture;
+    [MinOSVersion(OsWin8)] NativeProcessorArchitecture: TProcessorArchitecture16;
     NtMajorVersion: Cardinal;
     NtMinorVersion: Cardinal;
     ProcessorFeatures: TProcessorFeatures;
@@ -543,7 +682,7 @@ type
     NumberOfPhysicalPages: Cardinal;
     [BooleanKind(bkYesNo)] SafeBootMode: Boolean;
     [MinOSVersion(OsWin10RS1), Hex] VirtualizationFlags: Byte;
-    [Reserved] Reserved12: Word;
+    [Unlisted] Reserved12: Word;
     SharedDataFlags: TSharedGlobalFlags;
     [Unlisted] DataFlagsPad: array [0..0] of Cardinal;
     TestRetInstruction: Int64;
@@ -669,6 +808,11 @@ function LargeIntegerToDateTime([in] QuadPart: TLargeInteger): TDateTime;
 function DateTimeToUnixTime([in] DateTime: TDateTime): TUnixTime;
 function UnixTimeToDateTime([in] UnixTime: TUnixTime): TDateTime;
 
+{ Other helpers }
+
+// Hash for telemetry coverage entries
+function RtlHashAnsiStringFnv1(const S: AnsiString): Cardinal;
+
 implementation
 
 {$BOOLEVAL OFF}
@@ -696,6 +840,25 @@ begin
 {$ELSE}
   Result := False;
 {$ENDIF}
+end;
+
+function RtlHashAnsiStringFnv1;
+var
+  Cursor: PAnsiChar;
+begin
+  Cursor := PAnsiChar(S);
+  Result := $811C9DC5;
+
+  {$R-}{$Q-}
+  while Cursor^ <> #0 do
+  begin
+    Result := Result * $1000193 + Byte(Cursor^);
+    Inc(Cursor);
+  end;
+  {$IFDEF Q+}{$Q+}{$ENDIF}{$IFDEF R+}{$R+}{$ENDIF}
+
+  if Result = 0 then
+    Result := 1;
 end;
 
 { Time Helpers }

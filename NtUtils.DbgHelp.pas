@@ -5,8 +5,6 @@ unit NtUtils.DbgHelp;
   DbgHelp library.
 }
 
-// TODO: figure out why it doesn't work under WoW64
-
 interface
 
 uses
@@ -20,9 +18,9 @@ type
 
   ISymbolModule = interface (IAutoReleasable)
     function GetContext: ISymbolContext;
-    function GetBaseAddress: Pointer;
+    function GetBaseAddress: UInt64;
     property Context: ISymbolContext read GetContext;
-    property BaseAddress: Pointer read GetBaseAddress;
+    property BaseAddress: UInt64 read GetBaseAddress;
   end;
 
   TSymbolEntry = record
@@ -41,7 +39,7 @@ type
   end;
 
 // Initialize symbols for a process
-function SymxIninialize(
+function SymxInitialize(
   out SymContext: ISymbolContext;
   const hxProcess: IHandle;
   Invade: Boolean
@@ -52,7 +50,7 @@ function SymxLoadModule(
   out Module: ISymbolModule;
   const Context: ISymbolContext;
   [opt] const ImageName: String;
-  [opt] hFile: THandle;
+  [opt] const hxFile: IHandle;
   [in] Base: Pointer;
   Size: NativeUInt;
   LoadExternalSymbols: Boolean = True
@@ -91,11 +89,19 @@ function SymxFindBestMatch(
   [in] Address: Pointer
 ): TBestMatchSymbol;
 
+// Undecorate a C++ function name
+function SymxUndecorate(
+  const DecoratedName: String;
+  out UndecoratedName: String;
+  Flags: TUndecorateFlags = UNDNAME_COMPLETE
+): TNtxStatus;
+
 implementation
 
 uses
-  Ntapi.WinNt, Ntapi.ntstatus, DelphiUtils.AutoObjects,
-  NtUtils.Processes, NtUtils.SysUtils, DelphiUtils.Arrays;
+  Ntapi.WinNt, Ntapi.WinError, Ntapi.ntstatus, DelphiUtils.AutoObjects,
+  NtUtils.Processes, NtUtils.SysUtils, NtUtils.Synchronization,
+  DelphiUtils.Arrays;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
@@ -111,10 +117,10 @@ type
 
   TAutoSymbolModule = class (TCustomAutoReleasable, ISymbolModule)
     FContext: ISymbolContext;
-    FBaseAddress: Pointer;
+    FBaseAddress: UInt64;
     function GetContext: ISymbolContext;
-    function GetBaseAddress: Pointer;
-    constructor Capture(const Context: ISymbolContext; Address: Pointer);
+    function GetBaseAddress: UInt64;
+    constructor Capture(const Context: ISymbolContext; const Address: UInt64);
     procedure Release; override;
   end;
 
@@ -152,11 +158,11 @@ end;
 procedure TAutoSymbolModule.Release;
 begin
   if Assigned(FContext) and Assigned(FContext.Process) and
-    Assigned(FBaseAddress) then
+    (FBaseAddress <> UIntPtr(nil)) then
     SymUnloadModule64(FContext.Process.Handle, FBaseAddress);
 
   FContext := nil;
-  FBaseAddress := nil;
+  FBaseAddress := UIntPtr(nil);
   inherited;
 end;
 
@@ -184,13 +190,13 @@ begin
     if Result <> '' then
       Result := Result + '+';
 
-    Result := Result + RtlxUInt64ToStr(Offset, 16);
+    Result := Result + RtlxUInt64ToStr(Offset, nsHexadecimal);
   end;
 end;
 
 { Functions }
 
-function SymxIninialize;
+function SymxInitialize;
 begin
   Result.Location := 'SymInitializeW';
   Result.Win32Result := SymInitializeW(hxProcess.Handle, nil, Invade);
@@ -201,7 +207,7 @@ end;
 
 function SymxLoadModule;
 var
-  BaseAddress: Pointer;
+  BaseAddress: UInt64;
   Flags: TSymLoadFlags;
 begin
   // Should we search for DBG or PDB files that the module references?
@@ -211,9 +217,10 @@ begin
     Flags := SLMFLAG_NO_SYMBOLS;
 
   Result.Location := 'SymLoadModuleExW';
-  BaseAddress := SymLoadModuleExW(Context.Process.Handle, hFile,
-    PWideChar(ImageName), nil, Base, Size, nil, Flags);
-  Result.Win32Result := Assigned(BaseAddress);
+  BaseAddress := SymLoadModuleExW(Context.Process.Handle,
+    HandleOrDefault(hxFile), PWideChar(ImageName), nil, UIntPtr(Base), Size,
+    nil, Flags);
+  Result.Win32Result := BaseAddress <> UIntPtr(nil);
 
   if Result.IsSuccess then
     Module := TAutoSymbolModule.Capture(Context, BaseAddress);
@@ -227,7 +234,7 @@ function EnumCallback(
 var
   Collection: TArray<TSymbolEntry> absolute UserContext;
 begin
-  SetLength(Collection, Length(Collection) + 1);
+  SetLength(Collection, Succ(Length(Collection)));
 
   with Collection[High(Collection)] do
   begin
@@ -267,7 +274,7 @@ begin
   if not Result.IsSuccess then
     Exit;
 
-  Result := SymxIninialize(Context, hxProcess, False);
+  Result := SymxInitialize(Context, hxProcess, False);
 
   if not Result.IsSuccess then
     Exit;
@@ -276,7 +283,7 @@ begin
   // address. However, since we are interested only in RVAs, we can use
   // any other value of our choice.
 
-  Result := SymxLoadModule(Module, Context, ImageName, 0, DEFAULT_BASE, 0,
+  Result := SymxLoadModule(Module, Context, ImageName, nil, DEFAULT_BASE, 0,
     LoadExternalSymbols);
 
   if not Result.IsSuccess then
@@ -287,13 +294,18 @@ end;
 
 var
   // Symbol cache
+  SymxCacheLock: TRtlSRWLock;
   SymxNamesCache: TArray<String>;
   SymxSymbolCache: TArray<TArray<TSymbolEntry>>;
 
 function SymxCacheEnumSymbolsFile;
 var
   Index: Integer;
+  Lock: IAutoReleasable;
 begin
+  // Synchronize access
+  Lock := RtlxAcquireSRWLockExclusive(@SymxCacheLock);
+
   // Check if we have the module cached
   Index := TArray.BinarySearchEx<String>(SymxNamesCache,
     function (const Entry: String): Integer
@@ -360,7 +372,7 @@ var
   i: Integer;
   Symbols: TArray<TSymbolEntry>;
 begin
-  // Find the module containg the address
+  // Find the module containing the address
 
   for i := 0 to High(Modules) do
     if Modules[i].IsInRange(Address) then
@@ -381,6 +393,32 @@ begin
   Result := Default(TBestMatchSymbol);
   Result.Symbol.Flags := SYMFLAG_VIRTUAL;
   Result.Offset := UIntPtr(Address);
+end;
+
+function SymxUndecorate;
+var
+  Buffer: IMemory<PWideChar>;
+  BufferLength, Returned: Cardinal;
+begin
+  IMemory(Buffer) := Auto.AllocateDynamic(StringSizeZero(DecoratedName));
+
+  repeat
+    BufferLength := Pred(Buffer.Size) div SizeOf(WideChar);
+
+    Result.Location := 'UnDecorateSymbolNameW';
+    Returned := UnDecorateSymbolNameW(PWideChar(DecoratedName), Buffer.Data,
+      BufferLength, Flags);
+    Result.Win32Result := Returned > 0;
+
+    // Workaround the function succeeding while returning partial data
+    if Returned >= BufferLength - 2 then
+      Result.Win32Error := ERROR_INSUFFICIENT_BUFFER;
+
+  until not NtxExpandBufferEx(Result, IMemory(Buffer),
+    (Returned shl 1 + 8) * SizeOf(WideChar), nil);
+
+  if Result.IsSuccess then
+    SetString(UndecoratedName, Buffer.Data, Returned);
 end;
 
 end.

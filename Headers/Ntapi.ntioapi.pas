@@ -95,6 +95,9 @@ const
   FILE_OPEN_FOR_FREE_SPACE_QUERY = $00800000;
   FILE_SESSION_AWARE = $00040000; // Win 8+
 
+  // WDK::ntifs.h
+  FILE_NEED_EA = $80;
+
   // WDK::wdm.h - special ByteOffset for read/write operations
   FILE_USE_FILE_POINTER_POSITION = UInt64($FFFFFFFFFFFFFFFE);
   FILE_WRITE_TO_END_OF_FILE = UInt64($FFFFFFFFFFFFFFFF);
@@ -128,7 +131,7 @@ const
   FILE_DISPOSITION_ON_CLOSE = $00000008;                  // Win 10 RS1+
   FILE_DISPOSITION_IGNORE_READONLY_ATTRIBUTE = $00000010; // Win 10 RS5+
 
-  // WDK::wdm.h - file alignement requirements
+  // WDK::wdm.h - file alignment requirements
   FILE_BYTE_ALIGNMENT = $00000000;
   FILE_WORD_ALIGNMENT = $00000001;
   FILE_LONG_ALIGNMENT = $00000003;
@@ -220,6 +223,7 @@ const
 
 type
   [Hex] TFileId = type UInt64;
+  [Hex] TUsn = type UInt64;
 
   TFileId128 = record
     [Hex] Low: UInt64;
@@ -371,12 +375,36 @@ type
   end;
   PFileSegmentElement = ^TFileSegmentElement;
 
+  [FlagName(FILE_NEED_EA, 'Need EA')]
+  TFileEaFlags = type Byte;
+
+  // WDK::wdm.h
+  [SDKName('FILE_FULL_EA_INFORMATION')]
+  TFileFullEaInformation = record
+    [Offset] NextEntryOffset: Cardinal;
+    Flags: TFileEaFlags;
+    [Counter(ctBytes)] EaNameLength: Byte;
+    [Bytes] EaValueLength: Word;
+    EaName: TAnysizeArray<AnsiChar>;
+    // EaValue follows
+  end;
+  PFileFullEaInformation = ^TFileFullEaInformation;
+
+  // WDK::ntifs.h
+  [SDKName('FILE_GET_EA_INFORMATION')]
+  TFileGetEaInformation = record
+    [Offset] NextEntryOffset: Cardinal;
+    [Counter(ctBytes)] EaNameLength: Byte;
+    EaName: TAnysizeArray<AnsiChar>;
+  end;
+  PFileGetEaInformation = ^TFileGetEaInformation;
+
   // Files
 
   // WDK::wdm.h (q - query; s - set; d - directory)
-  [NamingStyle(nsCamelCase, 'File'), Range(1)]
+  [NamingStyle(nsCamelCase, 'File'), ValidBits([1..51, 53..76])]
   TFileInformationClass = (
-    FileReserved = 0,
+    [Reserved] FileReserved = 0,
     FileDirectoryInformation = 1,     // d: TFileDirectoryInformation
     FileFullDirectoryInformation = 2, // d: TFileFullDirInformation
     FileBothDirectoryInformation = 3, // d: TFileBothDirInformation
@@ -402,7 +430,7 @@ type
     FilePipeInformation = 23,         // q, s: TFilePipeInformation
     FilePipeLocalInformation = 24,    // q: TFilePipeLocalInformation
     FilePipeRemoteInformation = 25,   // q, s: TFilePipeRemoteInformation
-    FileMailslotQueryInformation = 26,// q: TFileMailsoltQueryInformation
+    FileMailslotQueryInformation = 26,// q: TFileMailslotQueryInformation
     FileMailslotSetInformation = 27,  // s: TULargeInteger (ReadTimeout)
     FileCompressionInformation = 28,  // q: TFileCompressionInformation
     FileObjectIdInformation = 29,     // d: TFileObjectIdInformation
@@ -428,7 +456,7 @@ type
     FileNetworkPhysicalNameInformation = 49, // q: TFileNameInformation
     FileIdGlobalTxDirectoryInformation = 50, // d: TFileIdGlobalTxDirInformation
     FileIsRemoteDeviceInformation = 51,      // q: Boolean (IsRemote)
-    FileUnusedInformation = 52,
+    [Reserved] FileUnusedInformation = 52,
     FileNumaNodeInformation = 53,            // q:
     FileStandardLinkInformation = 54,        // q: TFileStandardLinkInformation
     FileRemoteProtocolInformation = 55,      // q:
@@ -443,14 +471,14 @@ type
     FileDispositionInformationEx = 64,           // s: TFileDispositionFlags, Win 10 RS1+
     FileRenameInformationEx = 65,                // s: TFileRenameInformationEx
     FileRenameInformationExBypassAccessCheck = 66, // Kernel only
-    FileDesiredStorageClassInformation = 67,     // q, s: , Win 10 RS2+
+    FileDesiredStorageClassInformation = 67,     // q, s: TFileDesiredStorageClassInformation, Win 10 RS2+
     FileStatInformation = 68,                    // q: TFileStatInformation
     FileMemoryPartitionInformation = 69,         // s: , Win 10 RS3+
     FileStatLxInformation = 70,                  // q: TFileStatLxInformation, Win 10 RS4+
     FileCaseSensitiveInformation = 71,           // q, s: TFileCsFlags
     FileLinkInformationEx = 72,                  // s: TFileLinkInformationEx, Win 10 RS5+
     FileLinkInformationExBypassAccessCheck = 73, // Kernel only
-    FileStorageReserveIdInformation = 74,        // q, s:
+    FileStorageReserveIdInformation = 74,        // q, s: TStorageReserveId
     FileCaseSensitiveInformationForceAccessCheck = 75, // q, s: TFileCsFlags
     FileKnownFolderInformation = 76              // q, s: , Win 11+
   );
@@ -490,7 +518,7 @@ type
 
   // Shared portion for directory information info classes
   TFileDirectoryCommonInformation = record
-    [Unlisted] NextEntryOffset: Cardinal;
+    [Offset] NextEntryOffset: Cardinal;
     FileIndex: Cardinal;
     [Aggregate] Times: TFileTimestamps;
     [Bytes] EndOfFile: UInt64;
@@ -584,7 +612,7 @@ type
   // WDK::ntifs.h - info class 12, use with NtQueryDirectoryFile
   [SDKName('FILE_NAMES_INFORMATION')]
   TFileNamesInformation = record
-    [Unlisted] NextEntryOffset: Cardinal;
+    [Offset] NextEntryOffset: Cardinal;
     FileIndex: Cardinal;
     [Counter(ctBytes)] FileNameLength: Cardinal;
     FileName: TAnysizeArray<WideChar>;
@@ -631,7 +659,7 @@ type
   // WDK::ntifs.h - info class 22
   [SDKName('FILE_STREAM_INFORMATION')]
   TFileStreamInformation = record
-    [Unlisted] NextEntryOffset: Cardinal;
+    [Offset] NextEntryOffset: Cardinal;
     [Counter(ctBytes)] StreamNameLength: Cardinal;
     [Bytes] StreamSize: UInt64;
     [Bytes] StreamAllocationSize: UInt64;
@@ -670,7 +698,7 @@ type
   // WDK::ntifs.h
   [NamingStyle(nsSnakeCase, 'FILE_PIPE', 'STATE'), Range(1)]
   TFilePipeState = (
-    FILE_PIPE_UNKNOWN_STATE = 0,
+    [Reserved] FILE_PIPE_UNKNOWN_STATE = 0,
     FILE_PIPE_DISCONNECTED_STATE = 1,
     FILE_PIPE_LISTENING_STATE = 2,
     FILE_PIPE_CONNECTED_STATE = 3,
@@ -718,14 +746,14 @@ type
 
   // WDK::ntifs.h - info class 26
   [SDKName('FILE_MAILSLOT_QUERY_INFORMATION')]
-  TFileMailsoltQueryInformation = record
+  TFileMailslotQueryInformation = record
     MaximumMessageSize: Cardinal;
     MailslotQuota: Cardinal;
     NextMessageSize: Cardinal;
     MessagesAvailable: Cardinal;
     ReadTimeout: TULargeInteger;
   end;
-  PFileMailsoltQueryInformation = ^TFileMailsoltQueryInformation;
+  PFileMailslotQueryInformation = ^TFileMailslotQueryInformation;
 
   // WDK::ntifs.h
   {$MINENUMSIZE 2}
@@ -747,7 +775,7 @@ type
     CompressionUnitShift: Byte;
     ChunkShift: Byte;
     ClusterShift: Byte;
-    Reserved: array [0..2] of Byte;
+    [Unlisted] Reserved: array [0..2] of Byte;
   end;
   PFileCompressionInformation = ^TFileCompressionInformation;
 
@@ -770,7 +798,7 @@ type
   PFileCompletionInformation = ^TFileCompletionInformation;
 
   TFileGetQuotaInformation = record
-    NextEntryOffset: Cardinal;
+    [Offset] NextEntryOffset: Cardinal;
     [Bytes] SidLength: Cardinal;
     Sid: TPlaceholder<TSid>;
   end;
@@ -779,7 +807,7 @@ type
   // WDK::ntifs.h - info class 32
   [SDKName('FILE_QUOTA_INFORMATION')]
   TFileQuotaInformation = record
-    NextEntryOffset: Cardinal;
+    [Offset] NextEntryOffset: Cardinal;
     [Bytes] SidLength: Cardinal;
     ChangeTime: TLargeInteger;
     QuotaUsed: UInt64;
@@ -881,7 +909,7 @@ type
   // WDK::ntifs.h
   [SDKName('FILE_LINK_ENTRY_INFORMATION')]
   TFileLinkEntryInformation = record
-    [Unlisted] NextEntryOffset: Cardinal;
+    [Offset] NextEntryOffset: Cardinal;
     ParentFileID: TFileId;
     [Counter(ctBytes)] FileNameLength: Cardinal;
     FileName: TAnysizeArray<WideChar>;
@@ -907,7 +935,7 @@ type
 
   [FlagName(FILE_ID_GLOBAL_TX_DIR_INFO_FLAG_WRITELOCKED, 'Write-locked')]
   [FlagName(FILE_ID_GLOBAL_TX_DIR_INFO_FLAG_VISIBLE_TO_TX, 'Visible to TX')]
-  [FlagName(FILE_ID_GLOBAL_TX_DIR_INFO_FLAG_VISIBLE_OUTSIDE_TX, 'Visibe outside TX')]
+  [FlagName(FILE_ID_GLOBAL_TX_DIR_INFO_FLAG_VISIBLE_OUTSIDE_TX, 'Visible Outside TX')]
   TFileTxInfoFlags = type Cardinal;
 
   // WDK::ntifs.h - info class 50, use with NtQueryDirectoryFile
@@ -998,6 +1026,22 @@ type
   end;
   PFileRenameInformationEx = ^TFileRenameInformationEx;
 
+  // WDK::ntifs.h
+  [SDKName('FILE_STORAGE_TIER_CLASS')]
+  [NamingStyle(nsCamelCase, 'FileStorageTierClass')]
+  TFileStorageTierClass = (
+    FileStorageTierClassUnspecified = 0,
+    FileStorageTierClassCapacity = 1,
+    FileStorageTierClassPerformance = 2
+  );
+
+  // WDK::ntifs.h - info class 67
+  [SDKName('FILE_DESIRED_STORAGE_CLASS_INFORMATION')]
+  TFileDesiredStorageClassInformation = record
+    &Class: TFileStorageTierClass;
+    [Hex] Flags: Cardinal;
+  end;
+
   // WDK::ntifs.h - info class 68
   [MinOSVersion(OsWin10RS2)]
   [SDKName('FILE_STAT_INFORMATION')]
@@ -1070,13 +1114,24 @@ type
   end;
   PFileLinkInformationEx = ^TFileLinkInformationEx;
 
+  // WDK::ntifs.h - info class 74
+  [MinOSVersion(OsWin10RS5)]
+  [SDKName('STORAGE_RESERVE_ID')]
+  [NamingStyle(nsCamelCase, 'StorageReserveId')]
+  TStorageReserveId = (
+    StorageReserveIdNone = 0,
+    StorageReserveIdHard = 1,
+    StorageReserveIdSoft = 2,
+    StorageReserveIdUpdateScratch = 3
+  );
+
   // Notifications
 
   // WDK::wdm.h
   [SDKName('DIRECTORY_NOTIFY_INFORMATION_CLASS')]
   [NamingStyle(nsCamelCase, 'DirectoryNotify'), Range(1)]
   TDirectoryNotifyInformationClass = (
-    DirectoryNotifyReserved = 0,
+    [Reserved] DirectoryNotifyReserved = 0,
     DirectoryNotifyInformation = 1,         // TFileNotifyInformation
     DirectoryNotifyExtendedInformation = 2  // TFileNotifyExtendedInformation
   );
@@ -1084,7 +1139,7 @@ type
   // WDK::ntifs.h
   [NamingStyle(nsSnakeCase, 'FILE_ACTION'), Range(1)]
   TFileAction = (
-    FILE_ACTION_INVALID = 0,
+    [Reserved] FILE_ACTION_INVALID = 0,
     FILE_ACTION_ADDED = 1,
     FILE_ACTION_REMOVED = 2,
     FILE_ACTION_MODIFIED = 3,
@@ -1101,7 +1156,7 @@ type
   // WDK::ntifs.h - info class 1
   [SDKName('FILE_NOTIFY_INFORMATION')]
   TFileNotifyInformation = record
-    [Unlisted] NextEntryOffset: Cardinal;
+    [Offset] NextEntryOffset: Cardinal;
     Action: TFileAction;
     [Counter(ctBytes)] FileNameLength: Cardinal;
     FileName: TAnysizeArray<WideChar>;
@@ -1112,7 +1167,7 @@ type
   [MinOsVersion(OsWin10RS3)]
   [SDKName('FILE_NOTIFY_EXTENDED_INFORMATION')]
   TFileNotifyExtendedInformation = record
-    [Unlisted] NextEntryOffset: Cardinal;
+    [Offset] NextEntryOffset: Cardinal;
     Action: TFileAction;
     CreationTime: TLargeInteger;
     LastModificationTime: TLargeInteger;
@@ -1229,7 +1284,7 @@ function NtQueryInformationByName(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtQueryInformationByName: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtQueryInformationByName';
 );
 
@@ -1259,22 +1314,22 @@ function NtQueryDirectoryFile(
 
 // WDK::ntifs.h
 function NtQueryEaFile(
-  [in] FileHandle: THandle;
-  [out] out IoStatusBlock: TIoStatusBlock;
-  [out, WritesTo] Buffer: Pointer;
+  [in, Access(FILE_READ_EA)] FileHandle: THandle;
+  [out] IoStatusBlock: PIoStatusBlock;
+  [out, WritesTo] Buffer: PFileFullEaInformation;
   [in, NumberOfBytes] Length: Cardinal;
   [in] ReturnSingleEntry: Boolean;
-  [in, ReadsFrom] EaList: Pointer;
-  [in, NumberOfBytes] EaListLength: Cardinal;
+  [in, opt, ReadsFrom] EaList: PFileGetEaInformation;
+  [in, opt, NumberOfBytes] EaListLength: Cardinal;
   [in, opt] EaIndex: PCardinal;
   [in] RestartScan: Boolean
 ): NTSTATUS; stdcall; external ntdll;
 
 // WDK::ntifs.h
 function NtSetEaFile(
-  [in] FileHandle: THandle;
-  [out] out IoStatusBlock: TIoStatusBlock;
-  [in, ReadsFrom] Buffer: Pointer;
+  [in, Access(FILE_WRITE_EA)] FileHandle: THandle;
+  [out] IoStatusBlock: PIoStatusBlock;
+  [in, ReadsFrom] Buffer: PFileFullEaInformation;
   [in, NumberOfBytes] Length: Cardinal
 ): NTSTATUS; stdcall; external ntdll;
 

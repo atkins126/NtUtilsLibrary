@@ -17,6 +17,12 @@ const
   // WDK::wdm.h
   PAGE_SIZE = $1000;
 
+  {$IFDEF Win64}
+  MM_USER_PROBE_ADDRESS = $7FFFFFFF0000;
+  {$ELSE}
+  MM_USER_PROBE_ADDRESS = $7FFF0000;
+  {$ENDIF}
+
   // SDK::winnt.h - page access options
   PAGE_NOACCESS = $00000001;
   PAGE_READONLY = $00000002;
@@ -66,9 +72,11 @@ const
   MEM_64K_PAGES = MEM_LARGE_PAGES or MEM_PHYSICAL;
   MEM_4MB_PAGES = $80000000;
 
-  // SDK::winnt.h - allocation attributes
+  // SDK::winnt.h & PHNT::ntmmapi.h - allocation attributes
+  SEC_HUGE_PAGES = $00020000;
   SEC_PARTITION_OWNER_HANDLE = $00040000;
   SEC_64K_PAGES = $00080000;
+  SEC_DRIVER_IMAGE = $00100000; // rev
   SEC_BASED = $00200000;
   SEC_NO_CHANGE = $00400000;
   SEC_FILE = $00800000;
@@ -115,6 +123,16 @@ const
   SECTION_IMAGE_MAPPED_FLAT = $08;
   SECTION_IMAGE_BELOW_4GB = $10;
   SECTION_IMAGE_COMPLUS_PREFER_32BIT = $20;
+
+  // Extracted bit field from SECTION_INTERNAL_IMAGE_INFORMATION's ExtendedFlags
+  SECTION_IMAGE_EX_EXPORT_SUPPRESSION_ENABLED = $00000001;
+  SECTION_IMAGE_EX_CET_SHADOW_STACKS_READY = $00000002; // Win 10 20H1+
+  SECTION_IMAGE_EX_XFG_ENABLED = $00000004; // Win 10 20H2+
+  SECTION_IMAGE_EX_CET_SHADOW_STACKS_STRICT_MODE = $00000008;
+  SECTION_IMAGE_EX_CET_SETCONTEXT_IP_VALIDATION_RELAXED_MODE = $00000010;
+  SECTION_IMAGE_EX_CET_DYNAMIC_APIS_ALLOW_INPROC = $00000020;
+  SECTION_IMAGE_EX_CET_DOWNGRADE_RESERVED1 = $00000040;
+  SECTION_IMAGE_EX_CET_DOWNGRADE_RESERVED2 = $00000080;
 
   // Sections
 
@@ -310,14 +328,17 @@ type
   [SDKName('SECTION_INFORMATION_CLASS')]
   [NamingStyle(nsCamelCase, 'Section')]
   TSectionInformationClass = (
-    SectionBasicInformation = 0,       // q: TSectionBasicInformation
-    SectionImageInformation = 1,       // q: TSectionImageInformation
-    SectionRelocationInformation = 2,  // q: Pointer
-    SectionOriginalBaseInformation = 3 // q: Pointer, Win 10 RS2+
+    SectionBasicInformation = 0,         // q: TSectionBasicInformation
+    SectionImageInformation = 1,         // q: TSectionImageInformation
+    SectionRelocationInformation = 2,    // q: UIntPtr
+    SectionOriginalBaseInformation = 3,  // q: UIntPtr, Win 10 RS1+
+    SectionInternalImageInformation = 4  // q: TSectionInternalImageInformation, Win 10 RS2+
   );
 
+  [FlagName(SEC_HUGE_PAGES, 'Huge Pages')]
   [FlagName(SEC_PARTITION_OWNER_HANDLE, 'Partition Owner Handle')]
   [FlagName(SEC_64K_PAGES, '64K Pages')]
+  [FlagName(SEC_DRIVER_IMAGE, 'Driver Image')]
   [FlagName(SEC_BASED, 'Based')]
   [FlagName(SEC_NO_CHANGE, 'No Change')]
   [FlagName(SEC_FILE, 'File')]
@@ -361,7 +382,7 @@ type
     OperatingSystemVersion: Cardinal;
     ImageCharacteristics: TImageCharacteristics;
     DllCharacteristics: TImageDllCharacteristics;
-    Machine: TImageMachine;
+    Machine: TImageMachine16;
     ImageContainsCode: Boolean;
     ImageFlags: TSectionImageFlags;
     [Hex] LoaderFlags: Cardinal;
@@ -370,10 +391,28 @@ type
   end;
   PSectionImageInformation = ^TSectionImageInformation;
 
+  [FlagName(SECTION_IMAGE_EX_EXPORT_SUPPRESSION_ENABLED, 'Export Suppression Enabled')]
+  [FlagName(SECTION_IMAGE_EX_CET_SHADOW_STACKS_READY, 'CET Shadow Stack Ready')]
+  [FlagName(SECTION_IMAGE_EX_XFG_ENABLED, 'XFG Enabled')]
+  [FlagName(SECTION_IMAGE_EX_CET_SHADOW_STACKS_STRICT_MODE, 'CET Shadow Stack Strict Mode')]
+  [FlagName(SECTION_IMAGE_EX_CET_SETCONTEXT_IP_VALIDATION_RELAXED_MODE, 'SetContext IP Validation Relaxed Mode')]
+  [FlagName(SECTION_IMAGE_EX_CET_DYNAMIC_APIS_ALLOW_INPROC, 'Dynamic APIs Allow In-process')]
+  [FlagName(SECTION_IMAGE_EX_CET_DOWNGRADE_RESERVED1, 'CET Downgrade Reserved #1')]
+  [FlagName(SECTION_IMAGE_EX_CET_DOWNGRADE_RESERVED2, 'CET Downgrade Reserved #2')]
+  TSectionImageExtendedFlags = type Cardinal;
+
+  // PHNT::ntmmapi.h
+  [SDKName('SECTION_INTERNAL_IMAGE_INFORMATION')]
+  TSectionInternalImageInformation = record
+    [Aggregate] SectionInformation: TSectionImageInformation;
+    ExtendedFlags: TSectionImageExtendedFlags;
+  end;
+  PSectionInternalImageInformation = ^TSectionInternalImageInformation;
+
   // WDK::wdm.h
   [NamingStyle(nsCamelCase, 'View'), Range(1)]
   TSectionInherit = (
-    ViewInvalid = 0,
+    [Reserved] ViewInvalid = 0,
     ViewShare = 1, // Map into child processes
     ViewUnmap = 2  // Don't map into child processes
   );
@@ -381,7 +420,7 @@ type
   // ReactOs::mmtypes.h
   [NamingStyle(nsSnakeCase, 'MAP'), Range(1)]
   TMapLockType = (
-    MAP_INVALID = 0,
+    [Reserved] MAP_INVALID = 0,
     MAP_PROCESS = 1, // Lock in working set
     MAP_SYSTEM = 2   // Lock in physical memory
   );
@@ -575,7 +614,7 @@ function NtCreatePartition(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtCreatePartition: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtCreatePartition';
 );
 
@@ -588,7 +627,7 @@ function NtOpenPartition(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtOpenPartition: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtOpenPartition';
 );
 

@@ -33,7 +33,7 @@ function RtlxEnforceAntiHooking(
 // Unhook functions imported using Delphi's "external" keyword
 // Example usage: RtlxEnforceExternalImportAntiHooking([@NtCreateUserProcess]);
 function RtlxEnforceExternalImportAntiHooking(
-  const ExtenalImports: TArray<Pointer>;
+  const ExternalImports: TArray<Pointer>;
   Enable: Boolean = True
 ): TNtxStatus;
 
@@ -65,28 +65,28 @@ implementation
 uses
   Ntapi.ntdef, Ntapi.ntldr, Ntapi.ntmmapi, Ntapi.ntpebteb, Ntapi.ntstatus,
   DelphiUtils.ExternalImport, NtUtils.Sections, NtUtils.ImageHlp,
-  NtUtils.SysUtils, NtUtils.Memory, NtUtils.Processes, DelphiUtils.Arrays,
-  DelphiApi.Reflection;
+  NtUtils.SysUtils, NtUtils.Memory, NtUtils.Processes, NtUtils.Synchronization,
+  DelphiUtils.Arrays, DelphiApi.Reflection;
 
 {$BOOLEVAL OFF}
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
 {$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 var
-  AlternateNtdllInitialized: Boolean;
+  AlternateNtdllInitialized: TRtlRunOnce;
   AlternateNtdll: IMemory;
   AlternateTargets: TArray<TExportEntry>;
 
 // Note: we suppress range checking in these functions because hooked modules
 // might have atypical layout (such as an import table outside of the image)
 
+[ThreadSafe]
 function RtlxInitializeAlternateNtdll: TNtxStatus;
+var
+  InitState: IAcquiredRunOnce;
 begin
-  if AlternateNtdllInitialized then
-  begin
-    Result.Status := STATUS_SUCCESS;
-    Exit;
-  end;
+  if not RtlxRunOnceBegin(@AlternateNtdllInitialized, InitState) then
+    Exit(NtxSuccess);
 
   // Map a second instance of ntdll from KnownDlls
   Result := RtlxMapKnownDll(AlternateNtdll, ntdll, RtlIsWoW64);
@@ -105,7 +105,7 @@ begin
   end;
 
   AlternateNtdll.AutoRelease := False;
-  AlternateNtdllInitialized := True;
+  InitState.Complete;
 end;
 
 function UnhookableImportCapturer(
@@ -251,10 +251,10 @@ begin
     Exit;
 
   // Determine IAT entry locations of the specified imports
-  SetLength(IATEntries, Length(ExtenalImports));
+  SetLength(IATEntries, Length(ExternalImports));
 
   for i := 0 to High(IATEntries) do
-    IATEntries[i] := ExternalImportTarget(ExtenalImports[i]);
+    IATEntries[i] := ExternalImportTarget(ExternalImports[i]);
 
   // Leave only the function we were asked to unhook
   TArray.FilterInline<TUnhookableImport>(UnhookableImport,
@@ -264,7 +264,7 @@ begin
     end
   );
 
-  if Length(UnhookableImport) <> Length(ExtenalImports) then
+  if Length(UnhookableImport) <> Length(ExternalImports) then
   begin
     // Should not happen as long as the specified functions are imported via the
     // "extern" keyword.

@@ -33,7 +33,7 @@ function UnvxLoadProfile(
 [RequiredPrivilege(SE_BACKUP_PRIVILEGE, rpAlways)]
 [RequiredPrivilege(SE_RESTORE_PRIVILEGE, rpAlways)]
 function UnvxUnloadProfile(
-  [Access(0)] hProfileKey: THandle;
+  [Access(0)] const hxProfileKey: IHandle;
   [Access(TOKEN_LOAD_PROFILE)] hxToken: IHandle
 ): TNtxStatus;
 
@@ -67,7 +67,7 @@ function UnvxCreateAppContainer(
   [opt] const Capabilities: TArray<TGroup> = nil
 ): TNtxStatus;
 
-// Constrct a SID of an AppContainer profile.
+// Construct a SID of an AppContainer profile.
 // NOTE: when called within an AppContainer context, the function returns a
 // child AppContainer SIDs
 [MinOSVersion(OsWin8)]
@@ -167,42 +167,65 @@ begin
   Result.LastCall.ExpectedPrivilege := SE_RESTORE_PRIVILEGE;
   Result.LastCall.Expects<TTokenAccessMask>(TOKEN_LOAD_PROFILE);
 
-  Result.Win32Result := UnloadUserProfile(hxToken.Handle, hProfileKey);
+  Result.Win32Result := UnloadUserProfile(hxToken.Handle,
+    HandleOrDefault(hxProfileKey));
 end;
 
 function UnvxEnumerateProfiles;
 var
   hxKey: IHandle;
-  ProfileStrings: TArray<String>;
+  ProfileKeys: TArray<TNtxRegKey>;
 begin
   // Lookup the profile list in the registry
   Result := NtxOpenKey(hxKey, PROFILE_PATH, KEY_ENUMERATE_SUB_KEYS);
 
+  if not Result.IsSuccess then
+    Exit;
+
   // Each sub-key is a profile SID
-  if Result.IsSuccess then
-    Result := NtxEnumerateSubKeys(hxKey.Handle, ProfileStrings);
+  Result := NtxEnumerateKeys(hxKey, ProfileKeys);
+
+  if not Result.IsSuccess then
+    Exit;
 
   // Convert strings to SIDs ignoring irrelevant entries
-  if Result.IsSuccess then
-    Profiles := TArray.Convert<String, ISid>(ProfileStrings,
-      RtlxStringToSidConverter);
+  Profiles := TArray.Convert<TNtxRegKey, ISid>(ProfileKeys,
+    function (
+      const Key: TNtxRegKey;
+      out Sid: ISid
+    ): Boolean
+    begin
+      Result := RtlxStringToSidConverter(Key.Name, Sid);
+    end
+  );
 end;
 
 function UnvxEnumerateLoadedProfiles;
 var
   hxKey: IHandle;
-  ProfileStrings: TArray<String>;
+  ProfileKeys: TArray<TNtxRegKey>;
 begin
   // Each loaded profile is a sub-key in HKU
   Result := NtxOpenKey(hxKey, REG_PATH_USER, KEY_ENUMERATE_SUB_KEYS);
 
-  if Result.IsSuccess then
-    Result := NtxEnumerateSubKeys(hxKey.Handle, ProfileStrings);
+  if not Result.IsSuccess then
+    Exit;
+
+  Result := NtxEnumerateKeys(hxKey, ProfileKeys);
+
+  if not Result.IsSuccess then
+    Exit;
 
   // Convert strings to SIDs ignoring irrelevant entries
-  if Result.IsSuccess then
-    Profiles := TArray.Convert<String, ISid>(ProfileStrings,
-      RtlxStringToSidConverter);
+  Profiles := TArray.Convert<TNtxRegKey, ISid>(ProfileKeys,
+    function (
+      const Key: TNtxRegKey;
+      out Sid: ISid
+    ): Boolean
+    begin
+      Result := RtlxStringToSidConverter(Key.Name, Sid);
+    end
+  );
 end;
 
 function UnvxQueryProfile;
@@ -225,14 +248,13 @@ begin
     Exit;
 
   // The only necessary value
-  Result := NtxQueryValueKeyString(hxKey.Handle, 'ProfileImagePath',
+  Result := NtxQueryValueKeyString(hxKey, 'ProfileImagePath',
     Info.ProfilePath);
 
   if Result.IsSuccess then
   begin
-    NtxQueryValueKeyUInt(hxKey.Handle, 'Flags', Info.Flags);
-    NtxQueryValueKeyUInt(hxKey.Handle, 'FullProfile',
-      Cardinal(Info.FullProfile));
+    NtxQueryValueKeyUInt32(hxKey, 'Flags', Info.Flags);
+    NtxQueryValueKeyUInt32(hxKey, 'FullProfile', Cardinal(Info.FullProfile));
   end;
 end;
 
@@ -245,8 +267,7 @@ var
   Buffer: PSid;
   BufferDeallocator: IAutoReleasable;
 begin
-  Result := LdrxCheckDelayedImport(delayed_userenv,
-    delayed_CreateAppContainerProfile);
+  Result := LdrxCheckDelayedImport(delayed_CreateAppContainerProfile);
 
   if not Result.IsSuccess then
     Exit;
@@ -308,8 +329,7 @@ end;
 
 function UnvxDeleteAppContainer;
 begin
-  Result := LdrxCheckDelayedImport(delayed_userenv,
-    delayed_DeleteAppContainerProfile);
+  Result := LdrxCheckDelayedImport(delayed_DeleteAppContainerProfile);
 
   if not Result.IsSuccess then
     Exit;
@@ -335,8 +355,7 @@ var
   Buffer: PWideChar;
   BufferDeallocator: IAutoReleasable;
 begin
-  Result := LdrxCheckDelayedImport(delayed_userenv,
-    delayed_GetAppContainerFolderPath);
+  Result := LdrxCheckDelayedImport(delayed_GetAppContainerFolderPath);
 
   if not Result.IsSuccess then
     Exit;

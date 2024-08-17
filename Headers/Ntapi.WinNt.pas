@@ -24,7 +24,8 @@ var
 
 const
   INVALID_HANDLE_VALUE = THandle(-1);
-  MAX_HANDLE = $FFFFFF; // handle table maximum
+  MAX_HANDLE = $3FFFFFF; // handle table maximum, including lower bits
+  MAX_WORD = $FFFF;
   MAX_UINT = $FFFFFFFF;
 
   // SDK::minwindef.h
@@ -50,7 +51,7 @@ const
   PRIMARYLANGID_MASK = $3ff;
   SUBLANGID_SHIFT = 10;
 
-  // Thread context geting/setting flags
+  // Thread context getting/setting flags
   CONTEXT_i386 = $00010000;
   CONTEXT_AMD64 = $00100000;
   CONTEXT_NATIVE = {$IFDEF Win64}CONTEXT_AMD64{$ELSE}CONTEXT_i386{$ENDIF};
@@ -239,9 +240,14 @@ const
   SECURITY_CRED_TYPE_RID_COUNT = 2;                 // S-1-5-65-X
   SECURITY_CRED_TYPE_THIS_ORG_CERT_RID = $00000001; // S-1-5-65-1 (This Organization Certificate)
 
+  SECURITY_MIN_BASE_RID = $00000050; // S-1-5-80
+
   SECURITY_SERVICE_ID_BASE_RID = $00000050; // S-1-5-80 (NT SERVICE)
   SECURITY_SERVICE_ID_GROUP_RID = 0;        // S-1-5-80-0 (ALL SERVICES)
   SECURITY_SERVICE_ID_RID_COUNT = 6;        // S-1-5-80-X-X-X-X-X
+
+  SECURITY_APPPOOL_ID_BASE_RID = $00000052; // S-1-5-82
+  SECURITY_APPPOOL_ID_RID_COUNT = 6;        // S-1-5-82-X-X-X-X-X
 
   SECURITY_VIRTUALSERVER_ID_BASE_RID = $00000053; // S-1-5-83 (NT VIRTUAL MACHINE)
   SECURITY_VIRTUALSERVER_ID_GROUP_RID = 0;        // S-1-5-83-0 (Virtual Machines)
@@ -251,25 +257,55 @@ const
   SECURITY_USERMODEDRIVERHOST_ID_GROUP_RID = 0;        // S-1-5-84-0-0-0-0-0 (USER MODE DRIVERS)
   SECURITY_USERMODEDRIVERHOST_ID_RID_COUNT = 6;        // S-1-5-84-X-X-X-X-X
 
+  SECURITY_CLOUD_INFRASTRUCTURE_SERVICES_ID_BASE_RID = $00000055; // S-1-5-85
+  SECURITY_CLOUD_INFRASTRUCTURE_SERVICES_ID_RID_COUNT = 6;        // S-1-5-85-X-X-X-X-X
+
+  SECURITY_WMIHOST_ID_BASE_RID = $00000056; // S-1-5-86
+  SECURITY_WMIHOST_ID_RID_COUNT = 6;        // S-1-5-86-X-X-X-X-X
+
   SECURITY_TASK_ID_BASE_RID = $00000057; // S-1-5-87 (NT TASK)
   SECURITY_TASK_ID_RID_COUNT = 6;        // S-1-5-87-X-X-X-X-X
+
+  SECURITY_NFS_ID_BASE_RID = $00000058; // S-1-5-88
+  SECURITY_COM_ID_BASE_RID = $00000059; // S-1-5-89
 
   SECURITY_WINDOW_MANAGER_BASE_RID = $0000005A; // S-1-5-90 (Window Manager)
   SECURITY_WINDOW_MANAGER_GROUP = 0;            // S-1-5-90-0 (Window Manager Group)
   SECURITY_WINDOW_MANAGER_RID_COUNT = 2;        // S-1-5-90-0-X (DWM-X)
 
+  SECURITY_RDV_GFX_BASE_RID = $0000005B;    // S-1-5-91
+
+  SECURITY_DASHOST_ID_BASE_RID = $0000005C; // S-1-5-92
+  SECURITY_DASHOST_ID_RID_COUNT = 6;        // S-1-5-92-X-X-X-X-X
+
+  SECURITY_USERMANAGER_ID_BASE_RID = $0000005D; // S-1-5-93
+  SECURITY_USERMANAGER_ID_RID_COUNT = 6;        // S-1-5-93-X-X-X-X-X
+
+  SECURITY_WINRM_ID_BASE_RID = $0000005E; // S-1-5-94
+  SECURITY_WINRM_ID_RID_COUNT = 6;        // S-1-5-94-X-X-X-X-X
+
+  SECURITY_CCG_ID_BASE_RID = $0000005F; // S-1-5-95 (CCG Virtual Account Domain)
+
   SECURITY_UMFD_BASE_RID = $00000060; // S-1-5-96 (Font Driver Host)
+  SECURITY_UMFD_GROUP = 0;            // S-1-5-96-0
   SECURITY_UMFD_ID_RID_COUNT = 2;     // S-1-5-96-0-X (UMFD-X)
 
   SECURITY_VIRTUALACCOUNT_ID_RID_COUNT = 6; // S-1-5-X-X-X-X-X-X
+  SECURITY_MAX_BASE_RID = $0000006F;        // S-1-5-111
 
-  SECURITY_MIN_BASE_RID = $050; // S-1-5-80
-  SECURITY_MAX_BASE_RID = $06F; // S-1-5-111
+  SECURITY_WINDOWSMOBILE_ID_BASE_RID = $00000070; // S-1-5-112
 
   SECURITY_LOCAL_ACCOUNT_RID = $00000071;           // S-1-5-113 (Local account)
   SECURITY_LOCAL_ACCOUNT_AND_ADMIN_RID = $00000072; // S-1-5-114 (Local account and member of Administrators group)
 
   SECURITY_OTHER_ORGANIZATION_RID = $000003E8; // S-1-5-1000 (Other Organization)
+
+  // private
+  SECURITY_SITESERVER_AUTHORITY = 6;   // S-1-6
+  SECURITY_INTERNETSITE_AUTHORITY = 7; // S-1-7
+  SECURITY_EXCHANGE_AUTHORITY = 8;     // S-1-8
+
+  SECURITY_RESOURCE_MANAGER_AUTHORITY = 9; // S-1-9
 
   SECURITY_APP_PACKAGE_AUTHORITY = 15;          // S-1-15 (APPLICATION PACKAGE AUTHORITY)
 
@@ -312,6 +348,7 @@ const
   SECURITY_MANDATORY_HIGH_RID = $3000;      // S-1-16-12288 (High Mandatory Level)
   SECURITY_MANDATORY_SYSTEM_RID = $4000;    // S-1-16-16384 (System Mandatory Level)
   SECURITY_MANDATORY_PROTECTED_PROCESS_RID = $5000; // S-1-16-20480 (Protected Process Mandatory Level)
+  SECURITY_SCOPED_POLICY_ID_AUTHORITY = 17; // S-1-17
 
   SECURITY_AUTHENTICATION_AUTHORITY = 18;                           // S-1-18
   SECURITY_AUTHENTICATION_AUTHORITY_RID_COUNT = 1;                  // S-1-18-X
@@ -345,7 +382,7 @@ const
 
   // ACL
   ACL_REVISION = 2;
-  ACL_REVISION3 = 3; // for comound ACEs
+  ACL_REVISION3 = 3; // for compound ACEs
   ACL_REVISION_DS = 4; // for object ACEs
   MAX_ACL_SIZE = High(Word) and not (SizeOf(Cardinal) - 1);
 
@@ -396,11 +433,11 @@ const
   DACL_SECURITY_INFORMATION = $00000004;  // q: RC; s: WD
   SACL_SECURITY_INFORMATION = $00000008;  // q, s: AS
   LABEL_SECURITY_INFORMATION = $00000010; // q: RC; s: WO
-  ATTRIBUTE_SECURITY_INFORMATION = $00000020; // q: RC; s: WD; Win 8+
-  SCOPE_SECURITY_INFORMATION = $00000040; // q: RC; s: AS; Win 8+
-  PROCESS_TRUST_LABEL_SECURITY_INFORMATION = $00000080; // q: RC; s: WD; Win 8.1+
-  ACCESS_FILTER_SECURITY_INFORMATION = $00000100; // Win 10 RS2+
-  BACKUP_SECURITY_INFORMATION = $00010000; // q: RC | AS; s: WD | WO | AS; Win 8+
+  ATTRIBUTE_SECURITY_INFORMATION = $00000020; // q: RC; s: WD // Win 8+
+  SCOPE_SECURITY_INFORMATION = $00000040; // q: RC; s: AS // Win 8+
+  PROCESS_TRUST_LABEL_SECURITY_INFORMATION = $00000080; // q: RC; s: WD // Win 8.1+
+  ACCESS_FILTER_SECURITY_INFORMATION = $00000100; // q: RC; s: WD // Win 10 RS2+
+  BACKUP_SECURITY_INFORMATION = $00010000; // q: RC | AS; s: WD | WO | AS // Win 8+
 
   PROTECTED_DACL_SECURITY_INFORMATION = $80000000;   // s: WD
   PROTECTED_SACL_SECURITY_INFORMATION = $40000000;   // s: AS
@@ -465,14 +502,14 @@ type
   // checks by using {$R-} and then enable them back. Unfortunately, Delphi
   // doesn't seem to provide a macro for restoring them to the global-defined
   // state (which can also be disabled). Because of that, we use
-  // {$IFOPT R+}{$DEFINE R+}{$ENDIF} in the beggining of the implementation
+  // {$IFOPT R+}{$DEFINE R+}{$ENDIF} in the beginning of the implementation
   // section of each unit to save the default state into an R+ conditional
   // symbol (don't confuse it with the $R+ switch). Then whenever we want to
   // restore range checks, we use {$IFDEF R+}{$R+}{$ENDIF} which enables them
   // back only if they are enabled globally.
   //
   // TLDR; use {$R-}[i]{$IFDEF R+}{$R+}{$ENDIF} to index any-size arrays and
-  // don't forget to put {$IFOPT R+}{$DEFINE R+}{$ENDIF} in the beggining of
+  // don't forget to put {$IFOPT R+}{$DEFINE R+}{$ENDIF} in the beginning of
   // the unit.
   //
   ANYSIZE_ARRAY = 0..0;
@@ -519,9 +556,13 @@ type
 
   THandle32 = type Cardinal;
   TProcessId = type NativeUInt;
+  PProcessId = ^TProcessId;
   TThreadId = type NativeUInt;
+  PThreadId = ^TThreadId;
   TProcessId32 = type Cardinal;
+  PProcessId32 = ^TProcessId32;
   TThreadId32 = type Cardinal;
+  PThreadId32 = ^TThreadId32;
   TServiceTag = type Cardinal;
 
   TLogonId = type TLuid;
@@ -631,9 +672,9 @@ type
     ControlWord: Cardinal;
     StatusWord: Cardinal;
     TagWord: Cardinal;
-    ErrorOffset: Cardinal;
+    [Offset] ErrorOffset: Cardinal;
     ErrorSelector: Cardinal;
-    DataOffset: Cardinal;
+    [Offset] DataOffset: Cardinal;
     DataSelector: Cardinal;
     RegisterArea: array [0 .. SIZE_OF_80387_REGISTERS - 1] of Byte;
     Cr0NpxState: Cardinal;
@@ -709,6 +750,13 @@ type
       NativeUInt;
   end;
 
+  [NamingStyle(nsSnakeCase, 'EXCEPTION', 'FAULT')]
+  TExceptionAccessViolationOperation = (
+    EXCEPTION_READ_FAULT = 0,
+    EXCEPTION_WRITE_FAULT = 1,
+    EXCEPTION_EXECUTE_FAULT = 8
+  );
+
   [SDKName('EXCEPTION_POINTERS')]
   TExceptionPointers = record
     ExceptionRecord: PExceptionRecord;
@@ -763,7 +811,7 @@ type
   [SDKName('SID_NAME_USE')]
   [NamingStyle(nsCamelCase, 'SidType'), Range(1)]
   TSidNameUse = (
-    SidTypeUndefined = 0,
+    [Reserved] SidTypeUndefined = 0,
     SidTypeUser = 1,
     SidTypeGroup = 2,
     SidTypeDomain = 3,
@@ -844,7 +892,7 @@ type
   [FlagName(INHERITED_ACE, 'Inherited')]
   [FlagName(CRITICAL_ACE_FLAG, 'Critical')]
   [FlagName(SUCCESSFUL_ACCESS_ACE_FLAG, 'Successful Access / Trust-protected Filter')]
-  [FlagName(FAILED_ACCESS_ACE_FLAG, 'Falied Access')]
+  [FlagName(FAILED_ACCESS_ACE_FLAG, 'Failed Access')]
   TAceFlags = type Byte;
 
   [SDKName('ACE_HEADER')]
@@ -882,6 +930,7 @@ type
   end;
   PKnownAce = ^TKnownAce;
 
+  [ValidBits([0..2])]
   [FlagName(SYSTEM_MANDATORY_LABEL_NO_WRITE_UP, 'No-Write-Up')]
   [FlagName(SYSTEM_MANDATORY_LABEL_NO_READ_UP, 'No-Read-Up')]
   [FlagName(SYSTEM_MANDATORY_LABEL_NO_EXECUTE_UP, 'No-Execute-Up')]
@@ -890,7 +939,7 @@ type
   // private
   {$MINENUMSIZE 2}
   [NamingStyle(nsSnakeCase, 'COMPOUND_ACE'), Range(1)]
-  TCompundAceType = (
+  TCompoundAceType = (
     [Reserved] COMPOUND_ACE_INVALID = 0,
     COMPOUND_ACE_IMPERSONATION = 1
   );
@@ -902,8 +951,8 @@ type
   TKnownCompoundAce = record
     Header: TAceHeader;
     Mask: TAccessMask;
-    CompoundAceType: TCompundAceType;
-    [Reserved] Reserved: Word;
+    CompoundAceType: TCompoundAceType;
+    [Unlisted] Reserved: Word;
   private
     ServerSidStart: TPlaceholder;
     // Client SID follows
@@ -959,7 +1008,7 @@ type
   [SDKName('ACL_INFORMATION_CLASS')]
   [NamingStyle(nsCamelCase, 'Acl'), Range(1)]
   TAclInformationClass = (
-    AclReserved = 0,
+    [Reserved] AclReserved = 0,
     AclRevisionInformation = 1, // q: Cardinal (revision)
     AclSizeInformation = 2      // q: TAclSizeInformation
   );
@@ -1000,10 +1049,10 @@ type
     Sbz1: Byte;
   case Control: TSecurityDescriptorControl of
     SE_SELF_RELATIVE: (
-      OwnerOffset: Cardinal;
-      GroupOffset: Cardinal;
-      SaclOffset: Cardinal;
-      DaclOffset: Cardinal
+      [Offset] OwnerOffset: Cardinal;
+      [Offset] GroupOffset: Cardinal;
+      [Offset] SaclOffset: Cardinal;
+      [Offset] DaclOffset: Cardinal
     );
     0: (
       Owner: PSid;
@@ -1034,7 +1083,7 @@ type
 
   [SDKName('SECURITY_QUALITY_OF_SERVICE')]
   TSecurityQualityOfService = record
-    [Bytes, Unlisted] Length: Cardinal;
+    [RecordSize] Length: Cardinal;
     ImpersonationLevel: TSecurityImpersonationLevel;
     ContextTrackingMode: Boolean;
     EffectiveOnly: Boolean;
@@ -1118,7 +1167,7 @@ type
   // SDK::winnt.h
   {$MINENUMSIZE 2}
   [NamingStyle(nsSnakeCase, 'PROCESSOR_ARCHITECTURE')]
-  TProcessorArchitecture = (
+  TProcessorArchitecture16 = (
     PROCESSOR_ARCHITECTURE_INTEL = 0,
     PROCESSOR_ARCHITECTURE_MIPS = 1,
     PROCESSOR_ARCHITECTURE_ALPHA = 2,
@@ -1136,6 +1185,23 @@ type
     PROCESSOR_ARCHITECTURE_IA32_ON_ARM64 = 14
   );
   {$MINENUMSIZE 4}
+
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_INTEL), 'Intel')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_MIPS), 'MIPS')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_ALPHA), 'Alpha')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_PPC), 'PPC')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_SHX), 'SHX')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_ARM), 'ARM')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_IA64), 'IA64')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_ALPHA64), 'Alpha64')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_MSIL), 'MSIL')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_AMD64), 'AMD64')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_IA32_ON_WIN64), 'IA32 on Win64')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_NEUTRAL), 'Neutral')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_ARM64), 'ARM64')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_ARM32_ON_WIN64), 'AMR32 on Win64')]
+  [SubEnum(MAX_UINT, Cardinal(PROCESSOR_ARCHITECTURE_IA32_ON_ARM64), 'IA32 on ARM64')]
+  TProcessorArchitecture32 = type Cardinal;
 
 const
   {$IFDEF Win64}
@@ -1383,7 +1449,8 @@ const
   REQUIRE_READ_CONTROL = OWNER_SECURITY_INFORMATION or
     GROUP_SECURITY_INFORMATION or DACL_SECURITY_INFORMATION or
     LABEL_SECURITY_INFORMATION or ATTRIBUTE_SECURITY_INFORMATION or
-    SCOPE_SECURITY_INFORMATION or BACKUP_SECURITY_INFORMATION;
+    SCOPE_SECURITY_INFORMATION or PROCESS_TRUST_LABEL_SECURITY_INFORMATION or
+    ACCESS_FILTER_SECURITY_INFORMATION or BACKUP_SECURITY_INFORMATION;
 
   REQUIRE_SYSTEM_SECURITY = SACL_SECURITY_INFORMATION or
     BACKUP_SECURITY_INFORMATION;
@@ -1400,8 +1467,10 @@ end;
 function SecurityWriteAccess;
 const
   REQUIRE_WRITE_DAC = DACL_SECURITY_INFORMATION or
-    ATTRIBUTE_SECURITY_INFORMATION or BACKUP_SECURITY_INFORMATION or
-    PROTECTED_DACL_SECURITY_INFORMATION or UNPROTECTED_DACL_SECURITY_INFORMATION;
+    ATTRIBUTE_SECURITY_INFORMATION or PROCESS_TRUST_LABEL_SECURITY_INFORMATION
+    or ACCESS_FILTER_SECURITY_INFORMATION or BACKUP_SECURITY_INFORMATION or
+    PROTECTED_DACL_SECURITY_INFORMATION or
+    UNPROTECTED_DACL_SECURITY_INFORMATION;
 
   REQUIRE_WRITE_OWNER = OWNER_SECURITY_INFORMATION or GROUP_SECURITY_INFORMATION
     or LABEL_SECURITY_INFORMATION or BACKUP_SECURITY_INFORMATION;

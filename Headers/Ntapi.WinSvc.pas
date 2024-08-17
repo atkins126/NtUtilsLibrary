@@ -114,10 +114,10 @@ const
   SERVICE_RECOGNIZER_DRIVER = $00000008;
   SERVICE_WIN32_OWN_PROCESS = $00000010;
   SERVICE_WIN32_SHARE_PROCESS = $00000020;
-  SERVICE_USER_SERVICE = $00000040;
-  SERVICE_USERSERVICE_INSTANCE = $00000080;
+  SERVICE_USER_SERVICE = $00000040;         // Win 10 TH1+
+  SERVICE_USERSERVICE_INSTANCE = $00000080; // Win 10 TH1+
   SERVICE_INTERACTIVE_PROCESS = $00000100;
-  SERVICE_PKG_SERVICE = $00000200;
+  SERVICE_PKG_SERVICE = $00000200;          // Win 10 RS1+
 
   SERVICE_DRIVER = SERVICE_KERNEL_DRIVER or SERVICE_FILE_SYSTEM_DRIVER or
     SERVICE_RECOGNIZER_DRIVER;
@@ -150,9 +150,9 @@ const
   SERVICE_START_REASON_DELAYEDAUTO = $00000010;
 
 type
-  TScmHandle = NativeUInt;
-  TServiceStatusHandle = NativeUInt;
-  TScLock = NativeUInt;
+  TScmHandle = type THandle;
+  TServiceStatusHandle = type THandle;
+  TScLock = type THandle;
   PScEnumerationHandle = PCardinal;
 
   [FriendlyName('SCM'), ValidBits(SC_MANAGER_ALL_ACCESS)]
@@ -187,7 +187,7 @@ type
   [FlagName(SERVICE_WIN32_OWN_PROCESS, 'Win32 Own Process')]
   [FlagName(SERVICE_WIN32_SHARE_PROCESS, 'Win32 Share Process')]
   [FlagName(SERVICE_USER_SERVICE, 'User Service')]
-  [FlagName(SERVICE_USERSERVICE_INSTANCE, 'User Serice Instance')]
+  [FlagName(SERVICE_USERSERVICE_INSTANCE, 'User Service Instance')]
   [FlagName(SERVICE_INTERACTIVE_PROCESS, 'Interactive Process')]
   [FlagName(SERVICE_PKG_SERVICE, 'Package Service')]
   TServiceType = type Cardinal;
@@ -222,7 +222,7 @@ type
   // SDK::winsvc.h
   [NamingStyle(nsSnakeCase, 'SERVICE_CONTROL'), Range(1)]
   TServiceControl = (
-    SERVICE_CONTROL_RESERVED = 0,
+    [Reserved] SERVICE_CONTROL_RESERVED = 0,
     SERVICE_CONTROL_STOP = 1,
     SERVICE_CONTROL_PAUSE = 2,
     SERVICE_CONTROL_CONTINUE = 3,
@@ -257,7 +257,7 @@ type
   // SDK::winsvc.h
   [NamingStyle(nsSnakeCase, 'SERVICE_CONFIG'), Range(1)]
   TServiceConfigLevel = (
-    SERVICE_CONFIG_RESERVED = 0,
+    [Reserved] SERVICE_CONFIG_RESERVED = 0,
     SERVICE_CONFIG_DESCRIPTION = 1,              // q, s: PWideChar
     SERVICE_CONFIG_FAILURE_ACTIONS = 2,          // q, s: TServiceFailureActions
     SERVICE_CONFIG_DELAYED_AUTO_START_INFO = 3,  // q, s: LongBool
@@ -274,17 +274,17 @@ type
 
   // SDK::winsvc.h
   [NamingStyle(nsSnakeCase, 'SERVICE_CONTROL_STATUS'), Range(1)]
-  TServiceContolLevel = (
-    SERVICE_CONTROL_STATUS_RESERVED = 0,
+  TServiceControlLevel = (
+    [Reserved] SERVICE_CONTROL_STATUS_RESERVED = 0,
     SERVICE_CONTROL_STATUS_REASON_INFO = 1 // s: TServiceControlStatusReasonParams
   );
 
   // SDK::winsvc.h
-  [NamingStyle(nsSnakeCase, 'SERVICE_SID_TYPE')]
+  [NamingStyle(nsSnakeCase, 'SERVICE_SID_TYPE'), ValidBits([0..1, 3])]
   TServiceSidType = (
     SERVICE_SID_TYPE_NONE = 0,
     SERVICE_SID_TYPE_UNRESTRICTED = 1,
-    SERVICE_SID_TYPE_UNKNOWN = 2,
+    [Reserved] SERVICE_SID_TYPE_UNKNOWN = 2,
     SERVICE_SID_TYPE_RESTRICTED = 3
   );
 
@@ -561,7 +561,7 @@ type
   [SDKName('TAG_INFO_LEVEL')]
   [NamingStyle(nsCamelCase, 'eTagInfoLevel'), Range(1)]
   TTagInfoLevel = (
-    eTagInfoLevelReserved = 0,
+    [Reserved] eTagInfoLevelReserved = 0,
     eTagInfoLevelNameFromTag = 1,            // q: TTagInfoNameFromTag
     eTagInfoLevelNamesReferencingModule = 2, // q: TTagInfoNamesReferencingModule
     eTagInfoLevelNameTagMapping = 3          // q: TTagInfoNameTagMapping
@@ -571,7 +571,7 @@ type
   [SDKName('TAG_TYPE')]
   [NamingStyle(nsCamelCase, 'eTagType'), Range(1)]
   TTagType = (
-    eTagTypeReserved = 0,
+    [Reserved] eTagTypeReserved = 0,
     eTagTypeService = 1
   );
 
@@ -883,7 +883,7 @@ function ControlServiceExW(
   [in, Access(SERVICE_PAUSE_CONTINUE or SERVICE_STOP or SERVICE_INTERROGATE or
     SERVICE_USER_DEFINED_CONTROL)] hService: TScmHandle;
   [in] Control: TServiceControl;
-  [in] InfoLevel: TServiceContolLevel;
+  [in] InfoLevel: TServiceControlLevel;
   [in, out] ControlParams: Pointer
 ): LongBool; stdcall; external advapi32;
 
@@ -897,7 +897,7 @@ function QueryServiceDynamicInformation(
 ): LongBool; stdcall; external advapi32 delayed;
 
 var delayed_QueryServiceDynamicInformation: TDelayedLoadFunction = (
-  DllName: advapi32;
+  Dll: @delayed_advapi32;
   FunctionName: 'QueryServiceDynamicInformation';
 );
 

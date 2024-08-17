@@ -6,20 +6,29 @@ unit DelphiApi.DelayLoad;
 
 interface
 
+{$MINENUMSIZE 4}
+
 type
   TDelayedLoadDll = record
+    Initialized: UIntPtr; // inline TRtlRunOnce
     DllName: PWideChar;
     DllAddress: Pointer;
   end;
+  PDelayedLoadDll = ^TDelayedLoadDll;
 
   TDelayedLoadFunction = record
-    DllName: PWideChar;
+    Initialized: UIntPtr; // inline TRtlRunOnce
+    Dll: PDelayedLoadDll;
     FunctionName: PAnsiChar;
     FunctionAddress: Pointer;
-    Checked: LongBool;
     CheckStatus: Cardinal; // NTSTATUS
   end;
+  PDelayedLoadFunction = ^TDelayedLoadFunction;
 
 implementation
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 end.

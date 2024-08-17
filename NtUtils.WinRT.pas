@@ -34,14 +34,20 @@ procedure RoxUninitialize;
 // Initialize the Windows Runtime
 [MinOSVersion(OsWin8)]
 function RoxInitialize(
-  InitType: TRoInitType = RO_INIT_SINGLETHREADED
+  InitType: TRoInitType = RO_INIT_MULTITHREADED
 ): TNtxStatus;
 
 // Initialize the Windows Runtime and uninitialize it later
 [MinOSVersion(OsWin8)]
 function RoxInitializeAuto(
   out Uninitializer: IAutoReleasable;
-  InitType: TRoInitType = RO_INIT_SINGLETHREADED
+  InitType: TRoInitType = RO_INIT_MULTITHREADED
+): TNtxStatus;
+
+// Initialize the Windows Runtime and uninitialize it this module finalization
+[MinOSVersion(OsWin8)]
+function RoxInitializeOnce(
+  InitType: TRoInitType = RO_INIT_MULTITHREADED
 ): TNtxStatus;
 
 // Activate a WinRT class
@@ -55,22 +61,25 @@ function RoxActivateInstance(
 implementation
 
 uses
-  Ntapi.WinError, NtUtils.Ldr;
+  Ntapi.ObjBase, Ntapi.WinError, Ntapi.ntpebteb, NtUtils.Ldr,
+  NtUtils.Synchronization;
+
+{$BOOLEVAL OFF}
+{$IFOPT R+}{$DEFINE R+}{$ENDIF}
+{$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
 type
-  TRoxAutoString = class(TCustomAutoPointer, IAutoPointer)
+  TRoxAutoString = class(TCustomAutoPointer, IAutoPointer, IAutoReleasable)
     procedure Release; override;
   end;
 
 procedure TRoxAutoString.Release;
 begin
-  if Assigned(FData) and LdrxCheckDelayedImport(delayed_combase,
+  if Assigned(FData) and LdrxCheckDelayedImport(
     delayed_WindowsDeleteString).IsSuccess then
-  begin
     WindowsDeleteString(FData);
-    FData := nil;
-  end;
 
+  FData := nil;
   inherited;
 end;
 
@@ -83,7 +92,7 @@ function RoxCreateString;
 var
   Buffer: THString;
 begin
-  Result := LdrxCheckDelayedImport(delayed_combase, delayed_WindowsCreateString);
+  Result := LdrxCheckDelayedImport(delayed_WindowsCreateString);
 
   if not Result.IsSuccess then
     Exit;
@@ -100,8 +109,7 @@ function RoxDumpString;
 var
   SourceLength: Cardinal;
 begin
-  if not LdrxCheckDelayedImport(delayed_combase,
-    delayed_WindowsGetStringRawBuffer).IsSuccess then
+  if not LdrxCheckDelayedImport(delayed_WindowsGetStringRawBuffer).IsSuccess then
     Exit('');
 
   SetString(Result, WindowsGetStringRawBuffer(Str, @SourceLength),
@@ -110,14 +118,13 @@ end;
 
 procedure RoxUninitialize;
 begin
-  if LdrxCheckDelayedImport(delayed_combase,
-    delayed_RoUninitialize).IsSuccess then
+  if LdrxCheckDelayedImport(delayed_RoUninitialize).IsSuccess then
     RoUninitialize;
 end;
 
 function RoxInitialize;
 begin
-  Result := LdrxCheckDelayedImport(delayed_combase, delayed_RoInitialize);
+  Result := LdrxCheckDelayedImport(delayed_RoInitialize);
 
   if not Result.IsSuccess then
     Exit;
@@ -135,24 +142,50 @@ begin
 end;
 
 function RoxInitializeAuto;
+var
+  CallingThread: TThreadId;
 begin
   Result := RoxInitialize(InitType);
 
-  if Result.IsSuccess then
-    Uninitializer := Auto.Delay(
-      procedure
-      begin
+  if not Result.IsSuccess then
+    Exit;
+
+  // Record the calling thread since WinRT init is thread-specific
+  CallingThread := NtCurrentTeb.ClientID.UniqueThread;
+
+  Uninitializer := Auto.Delay(
+    procedure
+    begin
+      // Make sure uninitialization runs on the same thread
+      if CallingThread = NtCurrentTeb.ClientID.UniqueThread then
         RoxUninitialize;
-      end
-    );
+    end
+  );
+end;
+
+var
+  // We want to release the reference on module unload
+  RoxpInitialized: TRtlRunOnce;
+  RoxpUninitializer: IAutoReleasable;
+
+function RoxInitializeOnce;
+var
+  Init: IAcquiredRunOnce;
+begin
+  if not RtlxRunOnceBegin(@RoxpInitialized, Init) then
+    Exit(NtxSuccess);
+
+  Result := RoxInitializeAuto(RoxpUninitializer);
+
+  if Result.IsSuccess then
+    Init.Complete;
 end;
 
 function RoxActivateInstance;
 var
   ClassIdString: IHString;
 begin
-  Result := LdrxCheckDelayedImport(delayed_combase,
-    delayed_RoActivateInstance);
+  Result := LdrxCheckDelayedImport(delayed_RoActivateInstance);
 
   if not Result.IsSuccess then
     Exit;

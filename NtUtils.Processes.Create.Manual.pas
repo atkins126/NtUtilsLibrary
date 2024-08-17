@@ -17,11 +17,11 @@ uses
 function NtxCreateProcessObject(
   out hxProcess: IHandle;
   Flags: TProcessCreateFlags;
-  [opt, Access(SECTION_MAP_EXECUTE)] hSection: THandle;
-  [Access(PROCESS_CREATE_PROCESS)] hParent: THandle = NtCurrentProcess;
-  [opt, Access(TOKEN_ASSIGN_PRIMARY)] hToken: THandle = 0;
+  [opt, Access(SECTION_MAP_EXECUTE)] const hxSection: IHandle;
+  [opt, Access(PROCESS_CREATE_PROCESS)] const hxParent: IHandle = nil;
+  [opt, Access(TOKEN_ASSIGN_PRIMARY)] const hxToken: IHandle = nil;
   [opt] const ObjectAttributes: IObjectAttributes = nil;
-  [opt, Access(DEBUG_PROCESS_ASSIGN)] hDebugObject: THandle = 0
+  [opt, Access(DEBUG_PROCESS_ASSIGN)] const hxDebugObject: IHandle = nil
 ): TNtxStatus;
 
 // Prepare and write process parameters into a process
@@ -50,12 +50,13 @@ function RtlxCreateInitialThread(
 [SupportedOption(spoSecurity)]
 [SupportedOption(spoWindowMode)]
 [SupportedOption(spoWindowTitle)]
+[SupportedOption(spoStdHandles)]
 [SupportedOption(spoDesktop)]
 [SupportedOption(spoToken)]
 [SupportedOption(spoParentProcess)]
 [SupportedOption(spoSection)]
 [SupportedOption(spoDebugPort)]
-[SupportedOption(spoAdditinalFileAccess)]
+[SupportedOption(spoAdditionalFileAccess)]
 [SupportedOption(spoDetectManifest)]
 [RequiredPrivilege(SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE, rpSometimes)]
 [RequiredPrivilege(SE_TCB_PRIVILEGE, rpSometimes)]
@@ -67,9 +68,9 @@ function NtxCreateProcessEx(
 implementation
 
 uses
-  Ntapi.WinNt, Ntapi.ntstatus, Ntapi.ntioapi, Ntapi.ntrtl, Ntapi.ntdbg,
-  Ntapi.ImageHlp, NtUtils.Processes, NtUtils.Objects, NtUtils.ImageHlp,
-  NtUtils.Sections, NtUtils.Files.Open, NtUtils.Threads, NtUtils.Memory,
+  Ntapi.WinNt, Ntapi.ntstatus, Ntapi.ntioapi, Ntapi.ntrtl, Ntapi.ImageHlp,
+  Ntapi.ntdbg, Ntapi.ntdef, NtUtils.Processes, NtUtils.Objects, NtUtils.Memory,
+  NtUtils.ImageHlp, NtUtils.Sections, NtUtils.Files.Open, NtUtils.Threads,
   NtUtils.Processes.Info, NtUtils.Processes.Create.Native, NtUtils.Manifests,
   DelphiUtils.RangeChecks;
 
@@ -79,21 +80,27 @@ uses
 
 function NtxCreateProcessObject;
 var
+  ObjAttr: PObjectAttributes;
   hProcess: THandle;
 begin
+  Result := AttributesRefOrNil(ObjAttr, ObjectAttributes);
+
+  if not Result.IsSuccess then
+    Exit;
+
   Result.Location := 'NtCreateProcessEx';
   Result.LastCall.Expects<TSectionAccessMask>(SECTION_MAP_EXECUTE);
 
-  if hParent <> NtCurrentProcess then
+  if Assigned(hxParent) and (hxParent.Handle <> NtCurrentProcess) then
     Result.LastCall.Expects<TProcessAccessMask>(PROCESS_CREATE_PROCESS);
 
-  if hToken <> 0 then
+  if Assigned(hxToken) then
   begin
     Result.LastCall.ExpectedPrivilege := SE_ASSIGN_PRIMARY_TOKEN_PRIVILEGE;
     Result.LastCall.Expects<TTokenAccessMask>(TOKEN_ASSIGN_PRIMARY);
   end;
 
-  if hDebugObject <> 0 then
+  if Assigned(hxDebugObject) then
     Result.LastCall.Expects<TDebugObjectAccessMask>(DEBUG_PROCESS_ASSIGN);
 
   if BitTest(Flags and PROCESS_CREATE_FLAGS_FORCE_BREAKAWAY) then
@@ -102,12 +109,12 @@ begin
   Result.Status := NtCreateProcessEx(
     hProcess,
     AccessMaskOverride(PROCESS_ALL_ACCESS, ObjectAttributes),
-    AttributesRefOrNil(ObjectAttributes),
-    hParent,
+    ObjAttr,
+    HandleOrDefault(hxParent, NtCurrentProcess),
     Flags,
-    hSection,
-    hDebugObject,
-    hToken,
+    HandleOrDefault(hxSection),
+    HandleOrDefault(hxDebugObject),
+    HandleOrDefault(hxToken),
     0
   );
 
@@ -117,7 +124,7 @@ end;
 
 function RtlxSetProcessParameters;
 var
-  Params: IRtlUserProcessParamers;
+  Params: IRtlUserProcessParameters;
   RemoteParameters: IMemory;
   BasicInfo: TProcessBasicInformation;
 begin
@@ -151,21 +158,21 @@ begin
   {$IFDEF R+}{$R+}{$ENDIF}{$IFDEF Q+}{$Q+}{$ENDIF}
 
   // Write the parameters to the target
-  Result := NtxWriteMemory(Info.hxProcess.Handle, RemoteParameters.Data,
+  Result := NtxWriteMemory(Info.hxProcess, RemoteParameters.Data,
     Params.Region);
 
   if not Result.IsSuccess then
     Exit;
 
   // Determine the PEB address
-  Result := NtxProcess.Query(Info.hxProcess.Handle, ProcessBasicInformation,
+  Result := NtxProcess.Query(Info.hxProcess, ProcessBasicInformation,
     BasicInfo);
 
   if not Result.IsSuccess then
     Exit;
 
   // Adjust PEB's pointer to process parameters
-  Result := NtxMemory.Write(Info.hxProcess.Handle,
+  Result := NtxMemory.Write(Info.hxProcess,
     @BasicInfo.PebBaseAddress.ProcessParameters, RemoteParameters.Data);
 
   if not Result.IsSuccess then
@@ -189,7 +196,7 @@ var
   Bitness: TImageBitness;
 begin
   try
-    Result := RtlxGetNtHeaderImage(Header, Image);
+    Result := RtlxGetImageNtHeader(Header, Image);
 
     if not Result.IsSuccess then
       Exit;
@@ -245,8 +252,8 @@ begin
   // Use PAGE_EXECUTE to pass an access check only on SECTION_MAP_EXECUTE,
   // despite mapping as a readable image. This is the bare minimum since
   // NtCreateProcessEx requires it anyway.
-  Result := NtxMapViewOfSection(LocalMapping, Info.hxSection.Handle,
-    NtxCurrentProcess, PAGE_EXECUTE);
+  Result := NtxMapViewOfSection(Info.hxSection, NtxCurrentProcess, LocalMapping,
+    MappingParameters.UseProtection(PAGE_EXECUTE));
 
   if not Result.IsSuccess then
     Exit;
@@ -258,7 +265,7 @@ begin
     Exit;
 
   // Determine PEB address
-  Result := NtxProcess.Query(Info.hxProcess.Handle, ProcessBasicInformation,
+  Result := NtxProcess.Query(Info.hxProcess, ProcessBasicInformation,
     BasicInfo);
 
   if not Result.IsSuccess then
@@ -268,7 +275,7 @@ begin
   Info.PebAddressNative := BasicInfo.PebBaseAddress;
 
   // Determine the remote image base
-  Result := NtxMemory.Read(Info.hxProcess.Handle,
+  Result := NtxMemory.Read(Info.hxProcess,
     @BasicInfo.PebBaseAddress.ImageBaseAddress, RemoteImageBase);
 
   if not Result.IsSuccess then
@@ -279,8 +286,7 @@ begin
 
   // Find embedded manifest if required
   if poDetectManifest in Options.Flags then
-    if RtlxFindManifestInSection(Info.hxSection.Handle,
-      ManifestRva).IsSuccess then
+    if RtlxFindManifestInSection(Info.hxSection, ManifestRva).IsSuccess then
     begin
       Inc(PByte(ManifestRva.Address), UIntPtr(RemoteImageBase));
       Include(Info.ValidFields, piManifest);
@@ -290,7 +296,7 @@ begin
   // Create the initial thread
   Result := NtxCreateThreadEx(
     Info.hxThread,
-    Info.hxProcess.Handle,
+    Info.hxProcess,
     Pointer(UIntPtr(RemoteImageBase) + EntryPointRva),
     BasicInfo.PebBaseAddress,
     ThreadFlags,
@@ -336,8 +342,8 @@ begin
 
     // Create an image section from the file. Note that the call uses
     // PAGE_READONLY only for access checks on the file, not the page protection
-    Result := NtxCreateFileSection(Info.hxSection, Info.hxFile.Handle,
-      PAGE_READONLY, SEC_IMAGE);
+    Result := NtxCreateFileSection(Info.hxSection, Info.hxFile, PAGE_READONLY,
+      SEC_IMAGE);
 
     if not Result.IsSuccess then
       Exit;
@@ -359,11 +365,11 @@ begin
   Result := NtxCreateProcessObject(
     Info.hxProcess,
     ProcessFlags,
-    Info.hxSection.Handle,
-    HandleOrDefault(Options.hxParentProcess, NtCurrentProcess),
-    HandleOrDefault(Options.hxToken),
+    Info.hxSection,
+    Options.hxParentProcess,
+    Options.hxToken,
     Options.ProcessAttributes,
-    HandleOrDefault(Options.hxDebugPort)
+    Options.hxDebugPort
   );
 
   if not Result.IsSuccess then

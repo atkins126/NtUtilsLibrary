@@ -169,6 +169,10 @@ const
   MITIGATION_POLICY2_CET_DYNAMIC_APIS_OUT_OF_PROC_ONLY_ALWAYS_ON  = UInt64($1) shl 48;
   MITIGATION_POLICY2_CET_DYNAMIC_APIS_OUT_OF_PROC_ONLY_ALWAYS_OFF = UInt64($2) shl 48;
 
+  // SDK::WinBase.h, Win 11 22H2+
+  MITIGATION_POLICY2_RESTRICT_CORE_SHARING_ALWAYS_ON  = UInt64($1) shl 52;
+  MITIGATION_POLICY2_RESTRICT_CORE_SHARING_ALWAYS_OFF = UInt64($1) shl 52;
+
   // Other process/thread attributes
 
   // SDK::WinBase.h, Win 10 RS1+
@@ -231,12 +235,12 @@ type
   [FlagName(STARTF_TITLEISAPPID, 'Title Is AppID')]
   [FlagName(STARTF_PREVENTPINNING, 'Prevent Pinning')]
   [FlagName(STARTF_UNTRUSTEDSOURCE, 'Untrusted Source')]
-  TStarupFlags = type Cardinal;
+  TStartupFlags = type Cardinal;
 
   // SDK::processthreadsapi.h
   [SDKName('STARTUPINFOW')]
   TStartupInfoW = record
-    [Bytes, Unlisted] cb: Cardinal;
+    [RecordSize] cb: Cardinal;
     [Unlisted] Reserved: PWideChar;
     Desktop: PWideChar;
     Title: PWideChar;
@@ -247,7 +251,7 @@ type
     XCountChars: Cardinal;
     YCountChars: Cardinal;
     FillAttribute: TConsoleFill;
-    Flags: TStarupFlags;
+    Flags: TStartupFlags;
     ShowWindow: TShowMode16;
     [Unlisted] cbReserved2: Word;
     [Unlisted] lpReserved2: PByte;
@@ -297,7 +301,7 @@ const
   // SDK::WinBase.h - mask for extracting TProcThreadAttributeNum
   PROC_THREAD_ATTRIBUTE_NUMBER = $0000FFFF;
 
-  // SDK::WinBase.h & PHNT::ntpsapi.h - processess & thread attribute values
+  // SDK::WinBase.h & PHNT::ntpsapi.h - process & thread attribute values
   PROC_THREAD_ATTRIBUTE_PARENT_PROCESS = $20000;
   PROC_THREAD_ATTRIBUTE_EXTENDED_FLAGS = $60001;
   PROC_THREAD_ATTRIBUTE_HANDLE_LIST = $20002;

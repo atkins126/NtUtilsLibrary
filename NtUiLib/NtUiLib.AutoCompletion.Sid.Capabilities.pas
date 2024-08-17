@@ -80,8 +80,7 @@ begin
   CapabilitiesInitialized := True;
 
   // Check if the OS supports capability SIDs
-  Status := LdrxCheckDelayedImport(delayed_ntdll,
-    delayed_RtlDeriveCapabilitySidsFromName);
+  Status := LdrxCheckDelayedImport(delayed_RtlDeriveCapabilitySidsFromName);
 
   if not Status.IsSuccess then
     Exit;
@@ -145,12 +144,12 @@ begin
   RtlxInitializeKnownCapabilities;
   Entry.Name := Name;
 
-  // Remember the app capabiliy mapping
+  // Remember the app capability mapping
   Entry.Sid := CapSid;
   TArray.InsertSorted<TCapabilityEntry>(AppCapabilities, Entry, dhOverwrite,
     RtlxCompareCapabilities);
 
-  // Remember the group capabiliy mapping
+  // Remember the group capability mapping
   Entry.Sid := CapGroupSid;
   TArray.InsertSorted<TCapabilityEntry>(GroupCapabilities, Entry, dhOverwrite,
     RtlxCompareCapabilities);

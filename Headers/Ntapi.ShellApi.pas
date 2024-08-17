@@ -99,7 +99,7 @@ type
     ): HResult; stdcall;
 
     function AddStartupFlags(
-      [in] StartupInfoFlags: TStarupFlags
+      [in] StartupInfoFlags: TStartupFlags
     ): HResult; stdcall;
 
     function SetTitle(
@@ -147,6 +147,14 @@ function ShellExecCmdLine(
   [in] SeclFlags: TSeclFlags
 ): HRESULT; stdcall; external shell32 index 265;
 
+// SDK::shellapi.h
+function SHEvaluateSystemCommandTemplate(
+  [in] CmdTemplate: PWideChar;
+  [out, ReleaseWith('CoTaskMemFree')] out Application: PWideChar;
+  [out, opt, ReleaseWith('CoTaskMemFree')] out CommandLine: PWideChar;
+  [out, opt, ReleaseWith('CoTaskMemFree')] out Parameters: PWideChar
+): HResult; stdcall external shell32;
+
 { WDC }
 
 // rev
@@ -157,7 +165,7 @@ function WdcRunTaskAsInteractiveUser(
 ): HResult; stdcall; external wdc delayed;
 
 var delayed_WdcRunTaskAsInteractiveUser: TDelayedLoadFunction = (
-  DllName: wdc;
+  Dll: @delayed_wdc;
   FunctionName: 'WdcRunTaskAsInteractiveUser';
 );
 

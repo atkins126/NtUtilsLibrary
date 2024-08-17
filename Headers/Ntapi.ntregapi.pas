@@ -116,7 +116,7 @@ const
   TRANSACTION_ENLIST = $0004; // Ntapi.nttmapi
   EVENT_MODIFY_STATE = $0002; // Ntapi.ntexapi
 
-  { Regiistry Virtualization }
+  { Registry Virtualization }
 
   // rev - virtual registry loading flags
   VR_FLAG_INHERIT_TRUST_CLASS = $00000001;
@@ -161,7 +161,7 @@ type
   // SDK::winnt.h
   [NamingStyle(nsSnakeCase, 'REG'), Range(1)]
   TRegDisposition = (
-    REG_DISPOSITION_RESERVED = 0,
+    [Reserved] REG_DISPOSITION_RESERVED = 0,
     REG_CREATED_NEW_KEY = 1,
     REG_OPENED_EXISTING_KEY = 2
   );
@@ -197,7 +197,6 @@ type
   TKeyControlFlags = type Cardinal;
 
   // SDK::winnt.h - value types
-  [NamingStyle(nsSnakeCase, 'REG')]
   TRegValueType = (
     REG_NONE = 0,
     REG_SZ = 1,
@@ -212,6 +211,7 @@ type
     REG_RESOURCE_REQUIREMENTS_LIST = 10,
     REG_QWORD = 11
   );
+  PRegValueType = ^TRegValueType;
 
   { Querying Key Information }
 
@@ -246,7 +246,7 @@ type
   TKeyNodeInformation = record
     LastWriteTime: TLargeInteger;
     TitleIndex: Cardinal;
-    ClassOffset: Cardinal;
+    [Offset] ClassOffset: Cardinal;
     [Bytes] ClassLength: Cardinal;
     [Counter(ctBytes)] NameLength: Cardinal;
     Name: TAnysizeArray<WideChar>;
@@ -260,7 +260,7 @@ type
   TKeyFullInformation = record
     LastWriteTime: TLargeInteger;
     TitleIndex: Cardinal;
-    ClassOffset: Cardinal;
+    [Offset] ClassOffset: Cardinal;
     [Counter(ctBytes)] ClassLength: Cardinal;
     SubKeys: Cardinal;
     [Bytes] MaxNameLen: Cardinal;
@@ -355,9 +355,9 @@ type
   TKeyValueInformationClass = (
     KeyValueBasicInformation = 0,          // TKeyValueBasicInformation
     KeyValueFullInformation = 1,           // TKeyValueFullInformation
-    KeyValuePartialInformation = 2,        // TKeyValuePartialInfromation
+    KeyValuePartialInformation = 2,        // TKeyValuePartialInformation
     KeyValueFullInformationAlign64 = 3,    // TKeyValueFullInformation
-    KeyValuePartialInformationAlign64 = 4, // TKeyValuePartialInfromation
+    KeyValuePartialInformationAlign64 = 4, // TKeyValuePartialInformation
     KeyValueLayerInformation = 5           // TKeyValueLayerInformation
   );
 
@@ -376,7 +376,7 @@ type
   TKeyValueFullInformation = record
     TitleIndex: Cardinal;
     ValueType: TRegValueType;
-    DataOffset: Cardinal;
+    [Offset] DataOffset: Cardinal;
     [Bytes] DataLength: Cardinal;
     [Counter(ctBytes)] NameLength: Cardinal;
     Name: TAnysizeArray<WideChar>;
@@ -387,13 +387,13 @@ type
 
   // WDK::wdm.h - value info class 2 & 4
   [SDKName('KEY_VALUE_PARTIAL_INFORMATION')]
-  TKeyValuePartialInfromation = record
+  TKeyValuePartialInformation = record
     TitleIndex: Cardinal;
     ValueType: TRegValueType;
     [Counter(ctBytes)] DataLength: Cardinal;
-    Data: TAnysizeArray<Byte>;
+    Data: TPlaceholder;
   end;
-  PKeyValuePartialInfromation = ^TKeyValuePartialInfromation;
+  PKeyValuePartialInformation = ^TKeyValuePartialInformation;
 
   // WDK::wdm.h - value info class 5
   [SDKName('KEY_VALUE_LAYER_INFORMATION')]
@@ -402,13 +402,13 @@ type
 
   // WDK::wdm.h
   [SDKName('KEY_VALUE_ENTRY')]
-  TKeyValueEnrty = record
+  TKeyValueEntry = record
     ValueName: PNtUnicodeString;
     [Bytes] DataLength: Cardinal;
-    DataOffset: Cardinal;
+    [Offset] DataOffset: Cardinal;
     DataType: TRegValueType;
   end;
-  PKeyValueEnrty = ^TKeyValueEnrty;
+  PKeyValueEntry = ^TKeyValueEntry;
 
   { Other }
 
@@ -581,7 +581,7 @@ type
   // rev - IOCTL function 9
   [MinOSVersion(OsWin10RS1)]
   TVRUnloadDifferencingHiveForHost = record
-    [Reserved] Reserved: Cardinal;
+    [Unlisted] Reserved: Cardinal;
     [NumberOfElements] TargetKeyPathLength: Word;
     TargetKeyPath: TAnysizeArray<WideChar>;
   end;
@@ -692,7 +692,7 @@ function NtSetValueKey(
 // SDK::winternl.h
 function NtQueryMultipleValueKey(
   [in, Access(KEY_QUERY_VALUE)] KeyHandle: THandle;
-  [in, ReadsFrom] const ValueEntries: TArray<TKeyValueEnrty>;
+  [in, ReadsFrom] const ValueEntries: TArray<TKeyValueEntry>;
   [in, NumberOfElements] EntryCount: Cardinal;
   [out, WritesTo] ValueBuffer: Pointer;
   [in, out, NumberOfBytes] var BufferLength: Cardinal;
@@ -767,7 +767,7 @@ function NtLoadKey3(
 ): NTSTATUS; stdcall; external ntdll delayed;
 
 var delayed_NtLoadKey3: TDelayedLoadFunction = (
-  DllName: ntdll;
+  Dll: @delayed_ntdll;
   FunctionName: 'NtLoadKey3';
 );
 
