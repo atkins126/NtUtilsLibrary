@@ -505,7 +505,7 @@ begin
   // consider it unsuccessful. For the opposite behavior, use HResultAllowFalse.
 
   if Value = S_FALSE then
-    Status := STATUS_UNSUCCESSFUL
+    Status := System.HResult(S_FALSE_AS_ERROR).ToNtStatus
   else
     Status := Value.ToNtStatus;
 end;
@@ -740,7 +740,7 @@ begin
   else
   case Status.Status of
     STATUS_INFO_LENGTH_MISMATCH, STATUS_BUFFER_TOO_SMALL,
-    STATUS_BUFFER_OVERFLOW: ;// Pass through
+    STATUS_BUFFER_OVERFLOW, STATUS_FLT_BUFFER_TOO_SMALL: ; // Pass through
   else
     Exit;
   end;
@@ -1214,33 +1214,30 @@ end;
 
 function TNtxAnonymousEnumerator<T>.MoveNext;
 var
-  LocalStatus: TNtxStatus;
+  Status: TNtxStatus;
 begin
-  // Run one-time preparation
   if Assigned(FPrepare) and not FIsPrepared then
   begin
-    LocalStatus := FPrepare;
-    Result := LocalStatus.IsSuccess;
-
-    if not Result then
-    begin
-      if not Assigned(FStatus) then
-        LocalStatus.RaiseOnError;
-
-      Exit;
-    end;
-
-    FIsPrepared := True;
+    // Run one-time preparation
+    Status := FPrepare;
+    FIsPrepared := Status.IsSuccess;
+    Result := FIsPrepared;
+  end
+  else
+  begin
+    // Already initialized or not required
+    Status := NtxSuccess;
+    Result := True;
   end;
 
   // Try to retrieve the next entry from the provider
-  Result := FProvider(FCurrent).HasEntry(LocalStatus);
+  Result := Result and FProvider(FCurrent).HasEntry(Status);
 
   // Forward the status to the caller
   if Assigned(FStatus) then
-    FStatus^ := LocalStatus
+    FStatus^ := Status
   else
-    LocalStatus.RaiseOnError;
+    Status.RaiseOnError;
 end;
 
 procedure TNtxAnonymousEnumerator<T>.Reset;
